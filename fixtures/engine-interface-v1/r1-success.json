@@ -1,0 +1,133 @@
+{
+  "fixture_version": 1,
+  "case_id": "r1-success-clean-room",
+  "contract": {
+    "schema_version": 1,
+    "transport_version": 1,
+    "engine_interface_version": "1.0.0"
+  },
+  "intent": {
+    "session_id": "fixture-session-r1",
+    "task_id": "fixture-task-r1",
+    "task": "inspect the synthetic fixture",
+    "source": {
+      "path": "fixture/source.txt",
+      "media_type": "text/plain"
+    },
+    "mode": "aggressive",
+    "freshness": "reuse"
+  },
+  "request": {
+    "schema_version": 1,
+    "transport_version": 1,
+    "engine_interface_version": "1.0.0",
+    "path": "fixture/source.txt",
+    "mode": "aggressive"
+  },
+  "response": {
+    "schema_version": 1,
+    "transport_version": 1,
+    "engine_interface_version": "1.0.0",
+    "view": {
+      "text": "Synthetic context view\n",
+      "output_ref": "output:0142c4586158bfe44df962247cf6f643f4e89decdfb8e36aa2bc9876b9ccd95b",
+      "output_digest": "sha256:0142c4586158bfe44df962247cf6f643f4e89decdfb8e36aa2bc9876b9ccd95b"
+    },
+    "invocation": {
+      "schema_version": 1,
+      "invocation_id": "engine-invocation-r1-fixture",
+      "engine": {
+        "engine_id": "lean-ctx-local",
+        "engine_version": "3.9.20"
+      },
+      "operation": {
+        "capability_id": "capability://leanctx/context-optimization",
+        "capability_version": "1.0.0"
+      },
+      "input_ref": "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "input_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_refs": [
+        "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "source:fixture-path-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "policy_admission": {
+        "policy_ref": "policy:fixture-default",
+        "decision": "admitted"
+      }
+    },
+    "observation": {
+      "schema_version": 1,
+      "invocation_id": "engine-invocation-r1-fixture",
+      "status": "succeeded",
+      "output_ref": "output:0142c4586158bfe44df962247cf6f643f4e89decdfb8e36aa2bc9876b9ccd95b",
+      "output_digest": "sha256:0142c4586158bfe44df962247cf6f643f4e89decdfb8e36aa2bc9876b9ccd95b",
+      "source_lineage": [
+        "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "source:fixture-path-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "measurements": [
+        {
+          "name": "input_tokens",
+          "unit": "token",
+          "classification": "measured",
+          "value": 3
+        },
+        {
+          "name": "output_tokens",
+          "unit": "token",
+          "classification": "measured",
+          "value": 3
+        }
+      ],
+      "failure": null,
+      "receipt_link": {
+        "schema_version": 1,
+        "receipt_id": "engine-receipt-r1-fixture",
+        "receipt_ref": "receipt:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "receipt_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "invocation_id": "engine-invocation-r1-fixture"
+      }
+    },
+    "recovery": {
+      "recovery_ref": "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_ref": "source:fixture-path-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_digest": "sha256:6ef151f7f2bab27b80625e6f183e31599f3f639314fcce71a9c1480702d94241"
+    }
+  },
+  "recovery_response": {
+    "schema_version": 1,
+    "transport_version": 1,
+    "engine_interface_version": "1.0.0",
+    "view": {
+      "text": "Synthetic source bytes\n",
+      "output_ref": "output:6ef151f7f2bab27b80625e6f183e31599f3f639314fcce71a9c1480702d94241",
+      "output_digest": "sha256:6ef151f7f2bab27b80625e6f183e31599f3f639314fcce71a9c1480702d94241"
+    },
+    "invocation": null,
+    "observation": null,
+    "recovery": {
+      "recovery_ref": "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_ref": "source:fixture-path-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_digest": "sha256:6ef151f7f2bab27b80625e6f183e31599f3f639314fcce71a9c1480702d94241"
+    }
+  },
+  "expected": {
+    "plan_id": "plan:sha256:25f29db61cbb19986896152ecf2c8b1b60a1187c83a8e4ceefb0b7203542296e",
+    "outcome": "unknown",
+    "integrity_status": "sealed",
+    "status": "succeeded",
+    "source_digest": "sha256:6ef151f7f2bab27b80625e6f183e31599f3f639314fcce71a9c1480702d94241",
+    "output_digest": "sha256:0142c4586158bfe44df962247cf6f643f4e89decdfb8e36aa2bc9876b9ccd95b",
+    "recovery_ref": "input:fixture-request-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "negative_cases": [
+    "wrong_interface_version",
+    "strict_integer_transport",
+    "unknown_response_field",
+    "duplicate_response_field",
+    "output_digest_mismatch",
+    "unadmitted_recovery_source",
+    "path_escape",
+    "receipt_link_invocation_mismatch"
+  ]
+}

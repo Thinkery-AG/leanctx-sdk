@@ -1,0 +1,32 @@
+{
+  "distribution": "leanctx-sdk",
+  "import_namespace": "leanctx_sdk",
+  "lifecycle": ["Select", "Shape", "Reuse", "Recover"],
+  "error_families": [
+    "artifact_integrity",
+    "compatibility",
+    "configuration",
+    "engine_unavailable",
+    "framework_integration",
+    "invalid_lifecycle",
+    "policy_admission",
+    "recovery_unavailable",
+    "source_unavailable",
+    "unsupported_engine"
+  ],
+  "post_v1_excluded": [
+    "CheckpointV2",
+    "ContextWorkspace",
+    "Delta",
+    "Handoff",
+    "ProjectContext"
+  ],
+  "primitives": [
+    "ContextSession",
+    "ContextSource",
+    "ContextView",
+    "ContextPlan",
+    "ContextReceipt"
+  ],
+  "version": "1.0.0"
+}

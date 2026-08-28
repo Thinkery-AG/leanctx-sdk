@@ -1,0 +1,24 @@
+LeanCTX Production SDK v1 — third-party notice status
+
+Status: DRAFT FOR LEGAL REVIEW / NOT A FINAL NOTICE FILE
+
+The core SDK wheel has no mandatory third-party runtime dependency and the
+clean-room provenance review found no copied LeanCTX Engine implementation.
+LeanCTX Engine is a separate Apache-2.0 work and is not relicensed by the SDK.
+
+The optional OpenAI Agents integration depends on separately distributed
+third-party packages. Those packages are not embedded in the core SDK wheel and
+remain governed by their own license and notice files. The exact reviewed
+41-wheel closure, hashes, source overrides, declared licenses, and audit results
+are recorded by:
+
+  fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
+  fixtures/openai-agents-0.8.4/dependency-audit-policy.json
+  scripts/dependency_wheel_audit.py
+  the content-addressed private release evidence
+
+Engineering review found permissive/file-level-compatible declarations and no
+AGPL, GPL, or SSPL declaration in that closure. This is not a legal conclusion.
+Counsel must decide whether the final distributed source, wheel, optional
+dependency instructions, build tools, examples, or derived materials require
+additional attribution or reproduced license text before publication.

@@ -1,0 +1,15 @@
+{
+  "accepted_build_path_entries": [
+    "cffi-2.1.1-cp311-cp311-macosx_11_0_arm64.whl:_cffi_backend.cpython-311-darwin.so",
+    "click-8.5.0-py3-none-any.whl:click/utils.py",
+    "cryptography-50.0.1-cp311-abi3-macosx_11_0_arm64.whl:cryptography-50.0.1.dist-info/sboms/cryptography-rust.cyclonedx.json",
+    "cryptography-50.0.1-cp311-abi3-macosx_11_0_arm64.whl:cryptography/hazmat/bindings/_rust.abi3.so",
+    "jiter-0.16.0-cp311-cp311-macosx_11_0_arm64.whl:jiter-0.16.0.dist-info/sboms/jiter-python.cyclonedx.json",
+    "jiter-0.16.0-cp311-cp311-macosx_11_0_arm64.whl:jiter/jiter.cpython-311-darwin.so",
+    "pydantic_core-2.41.4-cp311-cp311-macosx_11_0_arm64.whl:pydantic_core/_pydantic_core.cpython-311-darwin.so",
+    "rpds_py-2026.6.3-cp311-cp311-macosx_11_0_arm64.whl:rpds/rpds.cpython-311-darwin.so",
+    "rpds_py-2026.6.3-cp311-cp311-macosx_11_0_arm64.whl:rpds_py-2026.6.3.dist-info/sboms/rpds-py.cyclonedx.json"
+  ],
+  "build_path_rationale": "ACCEPTED_WITH_RATIONALE: exact hash-bound third-party source, SBOM, or compiled-extension build metadata; no private-key/token match, extraction path, import hook, symlink, or host filesystem access.",
+  "schema_version": 1
+}

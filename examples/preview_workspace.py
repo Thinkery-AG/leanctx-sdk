@@ -1,0 +1,49 @@
+"""Provider-free Preview workspace/checkpoint/fork/delta/handoff smoke example."""
+
+from __future__ import annotations
+
+import tempfile
+
+from leanctx_sdk.preview import ContextWorkspace, ProjectContextEntry
+
+
+def main() -> None:
+    with tempfile.TemporaryDirectory() as state_root:
+        workspace = ContextWorkspace.create(
+            state_root,
+            "source",
+            workspace_id="00000000-0000-4000-8000-000000000001",
+        )
+        entry_id = "00000000-0000-4000-8000-000000000010"
+        workspace.commit_context(
+            [ProjectContextEntry(entry_id, "facts", "provider-free example")]
+        )
+        base = workspace.checkpoint(
+            checkpoint_id="00000000-0000-4000-8000-000000000002",
+            event_id="00000000-0000-4000-8000-000000000003",
+        )
+        child = workspace.fork(
+            "child",
+            from_checkpoint=base,
+            workspace_id="00000000-0000-4000-8000-000000000004",
+            fork_id="00000000-0000-4000-8000-000000000005",
+            event_id="00000000-0000-4000-8000-000000000006",
+        )
+        target = child.checkpoint(
+            checkpoint_id="00000000-0000-4000-8000-000000000007",
+            event_id="00000000-0000-4000-8000-000000000008",
+        )
+        delta = child.context_delta(base, target)
+        handoff = workspace.create_handoff(
+            base,
+            target_workspace_id=child.workspace_id,
+            task="continue locally",
+            entry_ids=(entry_id,),
+            handoff_id="00000000-0000-4000-8000-000000000009",
+        )
+        assert delta.base.checkpoint_id == base.checkpoint_id
+        assert handoff.target_workspace_id == child.workspace_id
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,507 @@
+name: SDK release candidate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-v1-rc-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ENGINE_COMMIT: 5a90893092a7d31a8dae41ea6710b5a0c5048d15
+  ENGINE_MACOS_ARM64_SHA256: e98b3367feea41298469a27c4e87fea7956117bc5b2c48072e6e7d55e0b08857
+  RUST_TOOLCHAIN: 1.97.1
+  SOURCE_DATE_EPOCH: "1704067200"
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src:.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v 2>&1 | tee source-contract.log
+      - run: python -m compileall -q src tests scripts examples
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-contract-py${{ matrix.python }}-${{ github.sha }}
+          path: source-contract.log
+          if-no-files-found: error
+          retention-days: 14
+
+  static-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      lock_sha256: ${{ steps.lock.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - id: lock
+        run: echo "sha256=$(sha256sum requirements/release-quality.txt | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          --requirement requirements/release-quality.txt
+      - run: ruff --version | tee static-quality.log
+      - run: mypy --version | tee -a static-quality.log
+      - run: ruff check src tests scripts examples 2>&1 | tee -a static-quality.log
+      - run: >-
+          MYPYPATH=src mypy --ignore-missing-imports
+          src/leanctx_sdk/__init__.py
+          src/leanctx_sdk/engine.py
+          src/leanctx_sdk/errors.py
+          src/leanctx_sdk/protocol.py
+          src/leanctx_sdk/receipt.py
+          src/leanctx_sdk/session.py
+          src/leanctx_sdk/integrations
+          2>&1 | tee -a static-quality.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: static-quality-${{ github.sha }}
+          path: static-quality.log
+          if-no-files-found: error
+          retention-days: 14
+
+  source-secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: python scripts/source_secret_scan.py --repository . > source-secret-scan.json
+      - run: python scripts/public_release_guard.py --repository . > public-release-guard.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-secret-scan-${{ github.sha }}
+          path: |
+            source-secret-scan.json
+            public-release-guard.json
+          if-no-files-found: error
+          retention-days: 14
+
+  engine-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: yvgude/lean-ctx
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: engine
+          persist-credentials: false
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
+        working-directory: engine/rust
+      - id: digest
+        run: echo "sha256=$(sha256sum engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_COMMIT"
+      - run: test -z "$(git -C engine status --porcelain=v1 --untracked-files=all)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: engine-linux-x86_64-${{ env.ENGINE_COMMIT }}
+          path: engine/rust/target/release/lean-ctx
+          if-no-files-found: error
+          retention-days: 14
+
+  engine-macos-artifact:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: yvgude/lean-ctx
+          ref: ${{ env.ENGINE_COMMIT }}
+          path: engine
+          persist-credentials: false
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
+        working-directory: engine/rust
+      - id: digest
+        run: echo "sha256=$(shasum -a 256 engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: test "${{ steps.digest.outputs.sha256 }}" = "$ENGINE_MACOS_ARM64_SHA256"
+      - run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_COMMIT"
+      - run: test -z "$(git -C engine status --porcelain=v1 --untracked-files=all)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: engine-macos-arm64-${{ env.ENGINE_COMMIT }}
+          path: engine/rust/target/release/lean-ctx
+          if-no-files-found: error
+          retention-days: 14
+
+  sdk-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      build_lock_sha256: ${{ steps.build-lock.outputs.sha256 }}
+      sdk_commit: ${{ steps.source.outputs.commit }}
+      wheel_sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - id: source
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - run: test -z "$(git status --porcelain=v1)"
+      - id: build-lock
+        run: echo "sha256=$(sha256sum requirements/release-build.txt | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: python -m venv "$RUNNER_TEMP/build-venv"
+      - run: >-
+          "$RUNNER_TEMP/build-venv/bin/python" -m pip install
+          --require-hashes --no-deps --only-binary=:all:
+          --requirement requirements/release-build.txt
+      - run: >-
+          "$RUNNER_TEMP/build-venv/bin/python" -m pip freeze --all
+          > dist-build-tools.txt
+      - run: >-
+          "$RUNNER_TEMP/build-venv/bin/python" -m pip wheel
+          --no-deps --no-build-isolation --wheel-dir dist .
+      - run: python scripts/inspect_release_artifact.py dist/*.whl > dist/package-inspection.json
+      - id: digest
+        run: echo "sha256=$(sha256sum dist/*.whl | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: sha256sum dist/*.whl > dist/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sdk-wheel-${{ steps.source.outputs.commit }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sdk-build-tools-${{ steps.source.outputs.commit }}
+          path: dist-build-tools.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  installed-engine-contract:
+    needs: [engine-artifact, sdk-artifact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENGINE_BIN: ${{ runner.temp }}/engine-artifact/lean-ctx
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: engine-linux-x86_64-${{ env.ENGINE_COMMIT }}
+          path: ${{ runner.temp }}/engine-artifact
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sdk-wheel-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: dist
+      - run: chmod 0755 "$ENGINE_BIN"
+      - run: test "$(sha256sum "$ENGINE_BIN" | cut -d ' ' -f1)" = "${{ needs.engine-artifact.outputs.sha256 }}"
+      - run: test "$(sha256sum dist/*.whl | cut -d ' ' -f1)" = "${{ needs.sdk-artifact.outputs.wheel_sha256 }}"
+      - run: >-
+          python scripts/verify_wheel_install.py
+          --wheel "$(realpath dist/*.whl)"
+          --engine "$ENGINE_BIN"
+          --expected-engine-sha256 "${{ needs.engine-artifact.outputs.sha256 }}"
+          --expected-wheel-sha256 "${{ needs.sdk-artifact.outputs.wheel_sha256 }}"
+          --expected-sdk-commit "${{ needs.sdk-artifact.outputs.sdk_commit }}"
+          2>&1 | tee installed-engine-contract.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installed-engine-contract-py${{ matrix.python }}-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: installed-engine-contract.log
+          if-no-files-found: error
+          retention-days: 14
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      manifest_sha256: ${{ steps.manifest.outputs.sha256 }}
+      policy_sha256: ${{ steps.policy.outputs.sha256 }}
+      tool_lock_sha256: ${{ steps.tool-lock.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - id: manifest
+        run: echo "sha256=$(sha256sum fixtures/openai-agents-0.8.4/wheelhouse-manifest.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: policy
+        run: echo "sha256=$(sha256sum fixtures/openai-agents-0.8.4/dependency-audit-policy.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: tool-lock
+        run: echo "sha256=$(sha256sum requirements/release-audit.txt | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: >-
+          python -m scripts.manifest_requirements
+          --manifest fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
+          > "$RUNNER_TEMP/sdk-v1-requirements.txt"
+      - run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          --requirement requirements/release-audit.txt
+      - run: pip-audit --version > "$RUNNER_TEMP/dependency-audit-tools.txt"
+      - run: >-
+          pip-audit --require-hashes --disable-pip --progress-spinner off
+          --format json --output "$RUNNER_TEMP/pip-audit.json"
+          --requirement "$RUNNER_TEMP/sdk-v1-requirements.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependency-audit-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/dependency-audit-tools.txt
+            ${{ runner.temp }}/pip-audit.json
+            ${{ runner.temp }}/sdk-v1-requirements.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  framework-offline:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [engine-macos-artifact, sdk-artifact]
+    runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
+    timeout-minutes: 15
+    env:
+      WHEELHOUSE: ${{ vars.SDK_V1_WHEELHOUSE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sdk-wheel-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: engine-macos-arm64-${{ env.ENGINE_COMMIT }}
+          path: ${{ runner.temp }}/engine-artifact
+      - run: test "$(shasum -a 256 dist/*.whl | cut -d ' ' -f1)" = "${{ needs.sdk-artifact.outputs.wheel_sha256 }}"
+      - run: >-
+          test "$(shasum -a 256 "$RUNNER_TEMP/engine-artifact/lean-ctx" | cut -d ' ' -f1)"
+          = "${{ needs.engine-macos-artifact.outputs.sha256 }}"
+      - run: chmod 0755 "$RUNNER_TEMP/engine-artifact/lean-ctx"
+      - run: test -n "$WHEELHOUSE" && test -d "$WHEELHOUSE"
+      - run: >-
+          python scripts/validate_wheelhouse.py
+          --manifest fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
+          --wheelhouse "$WHEELHOUSE"
+      - run: >-
+          python -m scripts.dependency_wheel_audit
+          --manifest fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
+          --policy fixtures/openai-agents-0.8.4/dependency-audit-policy.json
+          --wheelhouse "$WHEELHOUSE"
+          > "$RUNNER_TEMP/dependency-wheel-audit.json"
+      - run: python -m venv "$RUNNER_TEMP/framework-venv"
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python" -m pip --isolated install
+          --no-index --find-links "$WHEELHOUSE"
+          "$(realpath dist/*.whl)[openai-agents]"
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python" -m pip check
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python" -c
+          "from importlib.metadata import version; from agents import Runner;
+          assert version('openai-agents') == '0.8.4'; assert Runner is not None"
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python"
+          scripts/verify_openai_agents_runtime.py
+          --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
+          > "$RUNNER_TEMP/framework-behavior.json"
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python" -m pip freeze --all
+          > "$RUNNER_TEMP/framework-installed.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: framework-offline-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: |
+            ${{ runner.temp }}/dependency-wheel-audit.json
+            ${{ runner.temp }}/framework-behavior.json
+            ${{ runner.temp }}/framework-installed.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  provenance:
+    if: >-
+      ${{ always() && github.event_name == 'workflow_dispatch' &&
+      needs.source-contract.result == 'success' &&
+      needs.static-quality.result == 'success' &&
+      needs.source-secret-scan.result == 'success' &&
+      needs.engine-artifact.result == 'success' &&
+      needs.engine-macos-artifact.result == 'success' &&
+      needs.sdk-artifact.result == 'success' &&
+      needs.installed-engine-contract.result == 'success' &&
+      needs.dependency-audit.result == 'success' &&
+      needs.publication-disabled.result == 'success' &&
+      needs.framework-offline.result == 'success' }}
+    needs:
+      - source-contract
+      - static-quality
+      - source-secret-scan
+      - engine-artifact
+      - engine-macos-artifact
+      - sdk-artifact
+      - installed-engine-contract
+      - dependency-audit
+      - framework-offline
+      - publication-disabled
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SDK_COMMIT: ${{ needs.sdk-artifact.outputs.sdk_commit }}
+      SDK_VERSION: 1.0.0
+      SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
+      ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
+      ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
+      DEPENDENCY_MANIFEST_SHA256: ${{ needs.dependency-audit.outputs.manifest_sha256 }}
+      DEPENDENCY_POLICY_SHA256: ${{ needs.dependency-audit.outputs.policy_sha256 }}
+      AUDIT_TOOL_LOCK_SHA256: ${{ needs.dependency-audit.outputs.tool_lock_sha256 }}
+      BUILD_TOOL_LOCK_SHA256: ${{ needs.sdk-artifact.outputs.build_lock_sha256 }}
+      QUALITY_TOOL_LOCK_SHA256: ${{ needs.static-quality.outputs.lock_sha256 }}
+      WORKFLOW_REF: ${{ github.workflow_ref }}
+      WORKFLOW_RUN_ID: ${{ github.run_id }}
+      SIGNING_PROVENANCE: NOT_CONFIGURED_PENDING_HUMAN_AUTHORITY
+      FRAMEWORK_GATE: ${{ needs.framework-offline.result }}
+      FRAMEWORK_VERSION: openai-agents==0.8.4
+      PYTHON_MATRIX: 3.9,3.10,3.11,3.12
+      EVIDENCE_DIR: release-evidence/sdk-v1/${{ needs.sdk-artifact.outputs.sdk_commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: "*"
+          path: ${{ env.EVIDENCE_DIR }}/artifacts
+      - run: >-
+          python scripts/create_release_evidence.py
+          --output-dir "$EVIDENCE_DIR"
+          --sdk-commit "$SDK_COMMIT"
+          --sdk-version "$SDK_VERSION"
+          --wheel-sha256 "$SDK_WHEEL_SHA256"
+          --engine-commit "$ENGINE_COMMIT"
+          --engine-linux-sha256 "$ENGINE_LINUX_X86_64_SHA256"
+          --engine-macos-sha256 "$ENGINE_MACOS_ARM64_SHA256"
+          --dependency-manifest-sha256 "$DEPENDENCY_MANIFEST_SHA256"
+          --dependency-policy-sha256 "$DEPENDENCY_POLICY_SHA256"
+          --build-lock-sha256 "$BUILD_TOOL_LOCK_SHA256"
+          --quality-lock-sha256 "$QUALITY_TOOL_LOCK_SHA256"
+          --audit-lock-sha256 "$AUDIT_TOOL_LOCK_SHA256"
+          --python-matrix "$PYTHON_MATRIX"
+          --verified-python-matrix "$PYTHON_MATRIX"
+          --framework-version "$FRAMEWORK_VERSION"
+          --release-workflow "$WORKFLOW_REF"
+          --release-run "$WORKFLOW_RUN_ID"
+          --signing-provenance "$SIGNING_PROVENANCE"
+      - run: >-
+          find "$EVIDENCE_DIR" -type f
+          ! -name provenance.json ! -name PAYLOAD-SHA256SUMS
+          ! -name SHA256SUMS ! -name EVIDENCE-BUNDLE-SHA256
+          -print0 | sort -z | xargs -0 sha256sum
+          > "$EVIDENCE_DIR/PAYLOAD-SHA256SUMS"
+      - run: >-
+          echo "EVIDENCE_PAYLOAD_SHA256=$(sha256sum "$EVIDENCE_DIR/PAYLOAD-SHA256SUMS" | cut -d ' ' -f1)"
+          >> "$GITHUB_ENV"
+      - run: >-
+          python -c "import json, os;
+          print(json.dumps({
+          'dependency_manifest_sha256': os.environ['DEPENDENCY_MANIFEST_SHA256'],
+          'dependency_policy_sha256': os.environ['DEPENDENCY_POLICY_SHA256'],
+          'audit_tool_lock_sha256': os.environ['AUDIT_TOOL_LOCK_SHA256'],
+          'build_tool_lock_sha256': os.environ['BUILD_TOOL_LOCK_SHA256'],
+          'engine_commit': os.environ['ENGINE_COMMIT'],
+          'engine_sha256': {
+          'linux_x86_64': os.environ['ENGINE_LINUX_X86_64_SHA256'],
+          'macos_arm64': os.environ['ENGINE_MACOS_ARM64_SHA256']},
+          'evidence_payload_sha256': os.environ['EVIDENCE_PAYLOAD_SHA256'],
+          'framework_version': os.environ['FRAMEWORK_VERSION'],
+          'framework_gate': os.environ['FRAMEWORK_GATE'],
+          'gates': ['source-contract', 'static-quality', 'source-secret-scan', 'engine-artifact',
+          'sdk-artifact', 'installed-engine-contract', 'dependency-audit',
+          'framework-offline', 'publication-disabled'],
+          'sdk_commit': os.environ['SDK_COMMIT'],
+          'sdk_version': os.environ['SDK_VERSION'],
+          'sdk_wheel_sha256': os.environ['SDK_WHEEL_SHA256'],
+          'sdk_wheel_python': '3.11',
+          'python_matrix': os.environ['PYTHON_MATRIX'].split(','),
+          'quality_tool_lock_sha256': os.environ['QUALITY_TOOL_LOCK_SHA256'],
+          'rust_toolchain': os.environ['RUST_TOOLCHAIN'],
+          'signing_provenance': os.environ['SIGNING_PROVENANCE'],
+          'workflow_ref': os.environ['WORKFLOW_REF'],
+          'workflow_run_id': os.environ['WORKFLOW_RUN_ID']
+          }, sort_keys=True))" > "$EVIDENCE_DIR/provenance.json"
+      - run: >-
+          find "$EVIDENCE_DIR" -type f ! -name SHA256SUMS -print0 | sort -z |
+          xargs -0 sha256sum > "$EVIDENCE_DIR/SHA256SUMS"
+      - run: sha256sum "$EVIDENCE_DIR/SHA256SUMS" > "$EVIDENCE_DIR/EVIDENCE-BUNDLE-SHA256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provenance-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: ${{ env.EVIDENCE_DIR }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  publication-disabled:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      SDK_V1_PUBLICATION_AUTHORIZED: ${{ vars.SDK_V1_PUBLICATION_AUTHORIZED }}
+    steps:
+      - run: test -z "$SDK_V1_PUBLICATION_AUTHORIZED"
+
+  technical-release-gate:
+    if: github.event_name == 'workflow_dispatch'
+    needs: provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "SDK v1 technical release gates passed; publication remains disabled."
+
+  pull-request-validation:
+    if: github.event_name == 'pull_request'
+    needs:
+      - source-contract
+      - static-quality
+      - source-secret-scan
+      - engine-artifact
+      - sdk-artifact
+      - installed-engine-contract
+      - dependency-audit
+      - publication-disabled
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "PR validation passed; manual offline release gates were not executed."
