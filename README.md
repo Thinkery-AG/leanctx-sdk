@@ -94,6 +94,7 @@ product. The dependency is one-way: SDK → Engine. See
 - [Preview APIs](docs/PREVIEW.md)
 - [Receipts and evidence](docs/RECEIPTS-AND-EVIDENCE.md)
 - [Recovery](docs/RECOVERY.md)
+- [Release notes](RELEASE-NOTES-1.0.0.md)
 - [Compatibility](COMPATIBILITY.md)
 - [Errors and troubleshooting](docs/ERRORS.md)
 - [Migration](MIGRATION.md)

@@ -1,4 +1,7 @@
-# LeanCTX SDK 1.0.0 release notes
+# LeanCTX SDK 1.0.0 release summary
+
+The normative release notes, status boundaries, and exclusions are in
+[`RELEASE-NOTES-1.0.0.md`](../RELEASE-NOTES-1.0.0.md).
 
 LeanCTX gives an agent a local, evidence-backed context lifecycle while leaving
 the model loop and framework under host control.

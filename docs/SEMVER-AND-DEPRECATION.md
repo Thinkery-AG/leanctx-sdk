@@ -1,4 +1,6 @@
-# SemVer and deprecation
+# SemVer and deprecation quick reference
+
+The normative versioning policy is [`SEMVER.md`](../SEMVER.md).
 
 LeanCTX SDK applies SemVer to Stable public APIs:
 

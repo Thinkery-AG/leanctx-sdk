@@ -20,13 +20,8 @@ import time
 import uuid
 import weakref
 from dataclasses import dataclass, field
-from types import MappingProxyType
+from types import MappingProxyType, ModuleType
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - the supported CI is POSIX
-    fcntl = None
 
 from .errors import (
     WorkspaceAlreadyExistsError,
@@ -45,6 +40,12 @@ from .errors import (
 from .protocol import ContextReceiptLink, ContextSource, canonical_bytes, strict_json_loads
 from .receipt import ContextReceipt
 from .session import ContextSession
+
+fcntl: Optional[ModuleType]
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the supported CI is POSIX
+    fcntl = None
 
 
 _IDENTITY_SCHEMA = "leanctx.workspace-identity/v1"
@@ -538,13 +539,7 @@ class SourceAnchor:
             if set(binding) - allowed or "path" not in binding or "project_root" not in binding or "media_type" not in binding:
                 raise WorkspaceValidationError("engine_binding fields do not match ContextSource")
             try:
-                source = ContextSource(
-                    binding["path"],
-                    project_root=binding["project_root"],
-                    media_type=binding["media_type"],
-                    source_ref=binding.get("source_ref"),
-                    source_digest=binding.get("source_digest"),
-                )
+                source = _source_from_binding(binding)
             except Exception as exc:
                 raise WorkspaceValidationError("engine_binding is not a valid ContextSource") from exc
             normalized = _plain(source.to_dict())
@@ -567,6 +562,9 @@ class SourceAnchor:
         return _ANCHOR_SCHEMA
 
     def to_dict(self) -> Mapping[str, object]:
+        assert self.freshness is not None
+        assert self.trust is not None
+        assert self.scope is not None
         return _mapping(
             {
                 "schema_version": _ANCHOR_SCHEMA,
@@ -1382,6 +1380,18 @@ class _WorkspaceState:
         )
 
 
+def _state_policy(state: _WorkspaceState) -> WorkspacePolicy:
+    if state.policy is None:
+        raise WorkspaceCorruptError()
+    return state.policy
+
+
+def _state_identity(state: _WorkspaceState) -> WorkspaceIdentity:
+    if state.identity is None:
+        raise WorkspaceCorruptError()
+    return state.identity
+
+
 def _state_context_bytes(entries: Sequence[ProjectContextEntry]) -> int:
     return len(_canonical([entry.to_dict() for entry in entries]))
 
@@ -1522,28 +1532,48 @@ def _verify_checkpoint_trust(
     sources: Mapping[str, SourceAnchor],
 ) -> None:
     for anchor in sources.values():
-        if anchor.trust.level != "verified":
+        trust = anchor.trust
+        if trust is None:
+            raise WorkspaceIncompatibleError("checkpoint source lacks trust")
+        if trust.level != "verified":
             continue
         if anchor.engine_binding is None:
             raise WorkspaceIncompatibleError("verified checkpoint source lacks Engine binding")
-        trusted_seed = any(
-            event["kind"] == "workspace_seeded"
-            and isinstance(event["payload"].get("package"), Mapping)
-            and event["payload"]["package"].get("signature_state") == "signed_valid"
-            and isinstance(event["payload"].get("admission"), Mapping)
-            and event["payload"]["admission"].get("trusted_signer") is True
-            and isinstance(event["payload"].get("checkpoint"), Mapping)
-            and _plain(anchor.to_dict())
-            in event["payload"]["checkpoint"].get("source_anchors", [])
-            for event in state.events
-        )
+        trusted_seed = False
+        for event in state.events:
+            if event.get("kind") != "workspace_seeded":
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            package = payload.get("package")
+            admission = payload.get("admission")
+            checkpoint = payload.get("checkpoint")
+            if not (
+                isinstance(package, Mapping)
+                and isinstance(admission, Mapping)
+                and isinstance(checkpoint, Mapping)
+            ):
+                continue
+            source_anchors = checkpoint.get("source_anchors")
+            if (
+                package.get("signature_state") == "signed_valid"
+                and admission.get("trusted_signer") is True
+                and isinstance(source_anchors, list)
+                and _plain(anchor.to_dict()) in source_anchors
+            ):
+                trusted_seed = True
+                break
         if trusted_seed:
             continue
         matched_refs = set()
         for event in state.events:
             if event["kind"] != "context_committed":
                 continue
-            provenance = event["payload"].get("provenance")
+            payload = event.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            provenance = payload.get("provenance")
             if not isinstance(provenance, Mapping):
                 continue
             proof = provenance.get("receipt_proof")
@@ -1554,7 +1584,7 @@ def _verify_checkpoint_trust(
             refs = provenance.get("receipt_refs")
             if isinstance(refs, list):
                 matched_refs.update(refs)
-        if not set(anchor.trust.evidence_refs).issubset(matched_refs):
+        if not set(trust.evidence_refs).issubset(matched_refs):
             raise WorkspaceIncompatibleError(
                 "verified checkpoint source lacks durable sealed evidence"
             )
@@ -1562,12 +1592,25 @@ def _verify_checkpoint_trust(
 
 def _source_from_binding(binding: Mapping[str, object]) -> ContextSource:
     try:
+        path = binding.get("path")
+        project_root = binding.get("project_root")
+        media_type = binding.get("media_type")
+        source_ref = binding.get("source_ref")
+        source_digest = binding.get("source_digest")
+        if not isinstance(path, str) or not isinstance(media_type, str):
+            raise WorkspaceValidationError("engine_binding path/media_type must be strings")
+        if project_root is not None and not isinstance(project_root, str):
+            raise WorkspaceValidationError("engine_binding project_root must be a string")
+        if source_ref is not None and not isinstance(source_ref, str):
+            raise WorkspaceValidationError("engine_binding source_ref must be a string")
+        if source_digest is not None and not isinstance(source_digest, str):
+            raise WorkspaceValidationError("engine_binding source_digest must be a string")
         return ContextSource(
-            binding["path"],
-            project_root=binding["project_root"],
-            media_type=binding["media_type"],
-            source_ref=binding.get("source_ref"),
-            source_digest=binding.get("source_digest"),
+            path,
+            project_root=project_root,
+            media_type=media_type,
+            source_ref=source_ref,
+            source_digest=source_digest,
         )
     except Exception as exc:
         raise WorkspaceValidationError("engine_binding cannot be reconstructed") from exc
@@ -1641,6 +1684,8 @@ def _pin_source(source: ContextSource) -> Iterator[_SourcePin]:
     source_fd = -1
     try:
         root = source.project_root
+        if root is None:
+            raise WorkspaceValidationError("source project_root is unavailable")
         root_stat_path = os.lstat(root)
         if stat.S_ISLNK(root_stat_path.st_mode) or not stat.S_ISDIR(root_stat_path.st_mode):
             raise WorkspaceValidationError("source project_root is not a directory")
@@ -1666,11 +1711,14 @@ def _pin_source(source: ContextSource) -> Iterator[_SourcePin]:
 
 def _revalidate_source_pin(source: ContextSource, pin: _SourcePin) -> None:
     try:
+        root = source.project_root
+        if root is None:
+            raise WorkspaceValidationError("source project_root is unavailable")
         if not _same_inode(pin.root_stat, os.fstat(pin.root_fd)) or not _same_inode(
             pin.source_stat, os.fstat(pin.source_fd)
         ):
             raise WorkspaceConflictError()
-        root_fd, root_stat = _open_directory_ancestry(os.path.realpath(source.project_root))
+        root_fd, root_stat = _open_directory_ancestry(os.path.realpath(root))
         try:
             source_fd = _open_relative_nofollow(root_fd, source.relative_path)
             try:
@@ -1751,6 +1799,8 @@ def _validate_anchor_binding(anchor: SourceAnchor, source: ContextSource) -> Non
     if _plain(binding_source.to_dict()) != _plain(source.to_dict()):
         raise WorkspaceConflictError()
     root = source.project_root
+    if root is None:
+        raise WorkspaceValidationError("source project_root is unavailable")
     try:
         root_stat = os.lstat(root)
     except OSError as exc:
@@ -1805,12 +1855,12 @@ def _anchor_with_evidence(
     if not isinstance(evidence_receipts, (list, tuple)):
         raise WorkspaceValidationError("evidence_receipts must be ContextReceipt values")
     if not evidence_receipts:
-        if anchor.trust.level == "verified":
+        if anchor.trust is not None and anchor.trust.level == "verified":
             raise WorkspaceValidationError("verified trust requires SDK evidence")
         return anchor
     if anchor.engine_binding is None or anchor.kind != "filesystem":
         raise WorkspaceValidationError("evidence requires a filesystem engine binding")
-    refs = []
+    refs: List[str] = []
     for evidence in evidence_receipts:
         if not isinstance(evidence, ContextReceipt):
             raise WorkspaceValidationError("evidence_receipts must be ContextReceipt values")
@@ -1828,7 +1878,7 @@ def _anchor_with_evidence(
             raise WorkspaceValidationError("evidence receipt ref is not P4-bound")
         _validate_anchor_binding(anchor, source)
         refs.append(link.receipt_ref)
-    refs = _refs(refs, "evidence_receipts", _MAX_ENTRY_REFS)
+    refs = list(_refs(refs, "evidence_receipts", _MAX_ENTRY_REFS))
     return SourceAnchor(
         anchor.source_id,
         anchor.kind,
@@ -1845,7 +1895,7 @@ def _anchor_with_evidence(
 def _ensure_external_allowed(state: _WorkspaceState, anchor: SourceAnchor) -> None:
     if state.policy is None:
         raise WorkspaceCorruptError()
-    if anchor.kind != "filesystem" and not state.policy.allow_external_sources:
+    if anchor.kind != "filesystem" and not _state_policy(state).allow_external_sources:
         raise WorkspacePolicyError()
 
 
@@ -1975,7 +2025,10 @@ def _validate_context_provenance(
     durable = [record for record in state.sessions if record["session_id"] == session_id]
     if len(durable) != 1 or durable[0]["task_id"] != task_id:
         raise _ProjectionFailure("incompatible", state)
-    if not set(source_ids).issubset(durable[0]["source_ids"]):
+    durable_source_ids = durable[0].get("source_ids")
+    if not isinstance(durable_source_ids, (list, tuple)):
+        raise _ProjectionFailure("incompatible", state)
+    if not set(source_ids).issubset(durable_source_ids):
         raise _ProjectionFailure("incompatible", state)
     try:
         proof_source = receipt_proof["source"]
@@ -2062,7 +2115,11 @@ def _apply_event_unchecked(
     try:
         kind = event["kind"]
         payload = event["payload"]
+        event_id = event["event_id"]
+        event_digest = event["event_digest"]
         if not isinstance(kind, str) or kind not in _EVENT_KINDS:
+            raise _ProjectionFailure("incompatible", state)
+        if not isinstance(event_id, str) or not isinstance(event_digest, str):
             raise _ProjectionFailure("incompatible", state)
         if not isinstance(payload, Mapping):
             raise _ProjectionFailure("incompatible", state)
@@ -2117,7 +2174,7 @@ def _apply_event_unchecked(
         if kind == "source_attached":
             if anchor.source_id in state.sources:
                 raise _ProjectionFailure("corrupt", state)
-            if len(state.sources) + 1 > state.policy.max_sources:
+            if len(state.sources) + 1 > _state_policy(state).max_sources:
                 raise _ProjectionFailure("incompatible", state)
         else:
             if anchor.source_id not in state.sources:
@@ -2141,7 +2198,7 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("incompatible", state)
         if _plain(policy.to_dict()) != _plain(payload["policy"]):
             raise _ProjectionFailure("incompatible", state)
-        if previous != _digest(state.policy.to_dict()):
+        if previous != _digest(_state_policy(state).to_dict()):
             raise _ProjectionFailure("corrupt", state)
         if not policy.is_tightening(state.policy):
             raise _ProjectionFailure("incompatible", state)
@@ -2173,7 +2230,7 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("corrupt", state)
         if any(source_id not in state.sources for source_id in source_ids):
             raise _ProjectionFailure("corrupt", state)
-        if len(state.sessions) + 1 > state.policy.max_sessions:
+        if len(state.sessions) + 1 > _state_policy(state).max_sessions:
             raise _ProjectionFailure("incompatible", state)
         state.sessions.append(_session_record(session_id, task_id, source_ids))
     elif kind == "context_committed":
@@ -2196,9 +2253,9 @@ def _apply_event_unchecked(
                 raise _ProjectionFailure("corrupt", state)
             if entry.session_id is not None and entry.session_id not in sessions:
                 raise _ProjectionFailure("corrupt", state)
-            if entry.category not in state.policy.allowed_categories:
+            if entry.category not in _state_policy(state).allowed_categories:
                 raise _ProjectionFailure("incompatible", state)
-            if len(entry.value.encode("utf-8")) > state.policy.max_entry_bytes:
+            if len(entry.value.encode("utf-8")) > _state_policy(state).max_entry_bytes:
                 raise _ProjectionFailure("incompatible", state)
         candidate = state.clone()
         candidate.entries.extend(entries)
@@ -2242,7 +2299,7 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("incompatible", state) from exc
         if (
             fork.child_workspace_id != state.identity.workspace_id
-            or fork.lineage.fork_event_ref != "event-id:" + event["event_id"]
+            or fork.lineage.fork_event_ref != "event-id:" + event_id
             or fork.policy_inheritance.parent_policy != parent_policy
             or fork.policy_inheritance.effective_child_policy != state.policy
             or fork.package_lock_digest != lock_digest
@@ -2329,17 +2386,17 @@ def _apply_event_unchecked(
             or admission.policy_result != "monotonic"
             or admission.package_result != "exact"
             or admission.conflicts.entries
-            or not state.policy.is_tightening(handoff.required_policy_floor)
+            or not _state_policy(state).is_tightening(handoff.required_policy_floor)
         ):
             raise _ProjectionFailure("corrupt", state)
-        previous = state.applied_handoffs.get(handoff.handoff_id)
-        record = {
+        previous_handoff = state.applied_handoffs.get(handoff.handoff_id)
+        record: Mapping[str, str] = {
             "handoff_id": handoff.handoff_id,
             "handoff_digest": handoff.handoff_digest,
-            "event_id": event["event_id"],
+            "event_id": event_id,
         }
-        if previous is not None:
-            if previous != record:
+        if previous_handoff is not None:
+            if previous_handoff != record:
                 raise _ProjectionFailure("corrupt", state)
             raise _ProjectionFailure("incompatible", state)
         imported_sources = {}
@@ -2380,7 +2437,7 @@ def _apply_event_unchecked(
                 if _plain(existing_entry.to_dict()) != _plain(entry.to_dict()):
                     raise _ProjectionFailure("corrupt", state)
                 continue
-            if entry.category not in state.policy.allowed_categories:
+            if entry.category not in _state_policy(state).allowed_categories:
                 raise _ProjectionFailure("incompatible", state)
             if any(
                 source_id not in state.sources and source_id not in imported_sources
@@ -2434,7 +2491,7 @@ def _apply_event_unchecked(
         try:
             checkpoint = ContextCheckpointV2.from_dict(payload["checkpoint"])
             policy, sources, entries, _, _ = _logical_state_components(
-                checkpoint.logical_state, state.identity.workspace_id
+                checkpoint.logical_state, _state_identity(state).workspace_id
             )
         except WorkspaceConflictError as exc:
             raise _ProjectionFailure("corrupt", state) from exc
@@ -2444,9 +2501,9 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("corrupt", state)
         if len(state.checkpoints) + 1 > _MAX_CHECKPOINTS:
             raise _ProjectionFailure("incompatible", state)
-        if checkpoint.workspace_id != state.identity.workspace_id:
+        if checkpoint.workspace_id != _state_identity(state).workspace_id:
             raise _ProjectionFailure("corrupt", state)
-        if checkpoint.lineage["state_id"] != state.identity.state_id:
+        if checkpoint.lineage["state_id"] != _state_identity(state).state_id:
             raise _ProjectionFailure("corrupt", state)
         if checkpoint.workspace_state_ref != "event:" + state.last_event_digest:
             raise _ProjectionFailure("corrupt", state)
@@ -2486,8 +2543,8 @@ def _apply_event_unchecked(
             )
         except WorkspaceError as exc:
             raise _ProjectionFailure("incompatible", state) from exc
-        checkpoint = state.checkpoints.get(checkpoint_id)
-        if checkpoint is None or checkpoint.envelope_digest != envelope_digest:
+        restored_checkpoint = state.checkpoints.get(checkpoint_id)
+        if restored_checkpoint is None or restored_checkpoint.envelope_digest != envelope_digest:
             raise _ProjectionFailure("corrupt", state)
         try:
             (
@@ -2497,8 +2554,8 @@ def _apply_event_unchecked(
                 target_package_pins,
                 target_package_lock_digest,
             ) = _logical_state_components(
-                checkpoint.logical_state,
-                state.identity.workspace_id,
+                restored_checkpoint.logical_state,
+                _state_identity(state).workspace_id,
             )
         except WorkspaceConflictError as exc:
             raise _ProjectionFailure("corrupt", state) from exc
@@ -2563,20 +2620,23 @@ def _apply_event_unchecked(
                 target_package_lock_digest,
             ) = _logical_state_components(
                 checkpoint.logical_state,
-                state.identity.workspace_id,
+                _state_identity(state).workspace_id,
             )
         except WorkspaceConflictError as exc:
             raise _ProjectionFailure("corrupt", state) from exc
         except WorkspaceError as exc:
             raise _ProjectionFailure("incompatible", state) from exc
         if (
-            checkpoint.workspace_id != state.identity.workspace_id
-            or _plain(target_policy.to_dict()) != _plain(state.policy.to_dict())
+            checkpoint.workspace_id != _state_identity(state).workspace_id
+            or _plain(target_policy.to_dict()) != _plain(_state_policy(state).to_dict())
             or checkpoint.state_digest
             != _domain_digest("leanctx.workspace.state.v1", checkpoint.logical_state)
         ):
             raise _ProjectionFailure("corrupt", state)
-        if any(anchor.trust.level == "verified" for anchor in target_sources.values()) and not (
+        if any(
+            anchor.trust is not None and anchor.trust.level == "verified"
+            for anchor in target_sources.values()
+        ) and not (
             package["signature_state"] == "signed_valid" and admission["trusted_signer"]
         ):
             raise _ProjectionFailure("incompatible", state)
@@ -2621,8 +2681,8 @@ def _apply_event_unchecked(
             _digest_value(package["content_hash"], "content_hash")
         except WorkspaceError as exc:
             raise _ProjectionFailure("incompatible", state) from exc
-        checkpoint = state.checkpoints.get(checkpoint_id)
-        if checkpoint is None or checkpoint.envelope_digest != envelope_digest:
+        sealed_checkpoint = state.checkpoints.get(checkpoint_id)
+        if sealed_checkpoint is None or sealed_checkpoint.envelope_digest != envelope_digest:
             raise _ProjectionFailure("corrupt", state)
     elif kind == "workspace_completed":
         state.lifecycle = "completed"
@@ -2633,7 +2693,7 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("incompatible", state)
         state.lifecycle = "aborted"
     state.events.append(event)
-    state.last_event_digest = event["event_digest"]
+    state.last_event_digest = event_digest
     if state.identity is None or state.policy is None:
         raise _ProjectionFailure("corrupt", state)
     try:
@@ -2641,9 +2701,9 @@ def _apply_event_unchecked(
     except WorkspacePolicyError:
         raise _ProjectionFailure("incompatible", state)
     receipt = _receipt_for_event(state, event)
-    if event["event_id"] in state.receipts:
+    if event_id in state.receipts:
         raise _ProjectionFailure("corrupt", state)
-    state.receipts[event["event_id"]] = receipt
+    state.receipts[event_id] = receipt
 
 
 def _apply_event(
@@ -2669,31 +2729,51 @@ def _apply_event(
 
 
 def _receipt_for_event(state: _WorkspaceState, event: Mapping[str, object]) -> WorkspaceReceipt:
-    payload = event["payload"]
-    kind = event["kind"]
+    payload = event.get("payload")
+    kind = event.get("kind")
+    identity = state.identity
+    if identity is None:
+        raise WorkspaceCorruptError()
+    if not isinstance(payload, Mapping) or not isinstance(kind, str):
+        raise WorkspaceIncompatibleError("event fields are invalid")
     source_ids: Tuple[str, ...] = ()
     session_id = None
     engine_refs: Tuple[str, ...] = ()
     recovery_refs: Tuple[str, ...] = ()
     if kind in {"source_attached", "source_updated"}:
-        source_ids = (payload["anchor"]["source_id"],)
+        anchor = payload.get("anchor")
+        source_id = anchor.get("source_id") if isinstance(anchor, Mapping) else None
+        if not isinstance(source_id, str):
+            raise WorkspaceIncompatibleError("event anchor source_id is invalid")
+        source_ids = (source_id,)
     elif kind == "session_attached":
-        source_ids = tuple(payload["source_ids"])
-        session_id = payload["session_id"]
+        raw_source_ids = payload.get("source_ids")
+        raw_session_id = payload.get("session_id")
+        if not isinstance(raw_source_ids, (list, tuple)) or not all(
+            isinstance(source_id, str) for source_id in raw_source_ids
+        ):
+            raise WorkspaceIncompatibleError("event source_ids are invalid")
+        if not isinstance(raw_session_id, str):
+            raise WorkspaceIncompatibleError("event session_id is invalid")
+        source_ids = tuple(raw_source_ids)
+        session_id = raw_session_id
     elif kind == "context_committed":
-        entries = [_entry_from_input(item) for item in payload["entries"]]
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, (list, tuple)):
+            raise WorkspaceIncompatibleError("event entries are invalid")
+        entries = [_entry_from_input(item) for item in raw_entries]
         source_ids = tuple(sorted({source_id for entry in entries for source_id in entry.source_ids}))
         sessions = {entry.session_id for entry in entries if entry.session_id is not None}
         session_id = next(iter(sessions)) if len(sessions) == 1 else None
         engine_refs = tuple(sorted({ref for entry in entries for ref in entry.receipt_refs}))
         recovery_refs = tuple(sorted({ref for entry in entries for ref in entry.recovery_refs}))
     return WorkspaceReceipt(
-        state.identity.workspace_id,
-        state.identity.state_id,
-        event["sequence"],
-        event["event_id"],
+        identity.workspace_id,
+        identity.state_id,
+        _positive_int(event.get("sequence"), "event sequence"),
+        _uuid(event.get("event_id"), "event_id"),
         kind,
-        event["event_digest"],
+        _digest_value(event.get("event_digest"), "event_digest"),
         state.digest(),
         source_ids,
         session_id,
@@ -3020,7 +3100,10 @@ def _project(
                 if exc.state is None:
                     exc.state = state
                 raise
-            previous_digest = event["event_digest"]
+            event_digest = event.get("event_digest")
+            if not isinstance(event_digest, str):
+                raise _ProjectionFailure("incompatible", state)
+            previous_digest = event_digest
             expected_sequence += 1
         final_inodes = []
         for name in published:
@@ -3167,7 +3250,7 @@ def _fsync_directory(path: str) -> None:
 
 
 @contextlib.contextmanager
-def _directory_lock(directory_path: str, lock_name: str) -> Iterator[None]:
+def _directory_lock(directory_path: str, lock_name: str) -> Iterator[int]:
     if fcntl is None:
         raise WorkspaceLockError()
     directory_fd = -1
@@ -3349,7 +3432,9 @@ def _event_record(workspace_id: str, sequence: int, event_id: str, kind: str, pa
     return _mapping(dict(unsigned, event_digest=digest))
 
 
-_SESSION_BINDINGS = weakref.WeakKeyDictionary()
+_SESSION_BINDINGS: weakref.WeakKeyDictionary[ContextSession, Tuple[str, str]] = (
+    weakref.WeakKeyDictionary()
+)
 _SESSION_BINDINGS_LOCK = threading.RLock()
 
 
@@ -3359,9 +3444,12 @@ class ContextWorkspace:
     def __init__(self, root: str, workspace_path: str, state: _WorkspaceState) -> None:
         self._root = root
         self._workspace_path = workspace_path
-        self._creation_receipt = state.receipts[state.events[0]["event_id"]]
-        self._runtime_sessions = {}
-        self._runtime_source_bindings = {}
+        event_id = state.events[0].get("event_id")
+        if not isinstance(event_id, str):
+            raise WorkspaceCorruptError()
+        self._creation_receipt = state.receipts[event_id]
+        self._runtime_sessions: Dict[str, ContextSession] = {}
+        self._runtime_source_bindings: Dict[str, SourceAnchor] = {}
 
     @property
     def workspace_id(self) -> str:
@@ -3370,6 +3458,8 @@ class ContextWorkspace:
     @property
     def identity(self) -> WorkspaceIdentity:
         state = self._read_state()
+        if state.identity is None:
+            raise WorkspaceCorruptError()
         return state.identity
 
     @property
@@ -3424,7 +3514,8 @@ class ContextWorkspace:
             events_path = os.path.join(temporary_workspace, "events")
             os.mkdir(events_path, 0o700)
             _enforce_owner_only(events_path, 0o700)
-            filename = "0000000000000001-" + event["event_digest"].removeprefix("sha256:") + ".json"
+            event_digest = _digest_value(event.get("event_digest"), "event_digest")
+            filename = "0000000000000001-" + event_digest.removeprefix("sha256:") + ".json"
             _write_event(events_path, filename, event_bytes)
             _fsync_directory(temporary_workspace)
             with _parent_create_lock(workspaces):
@@ -3526,7 +3617,7 @@ class ContextWorkspace:
                 "fork": _plain(fork.to_dict()),
                 "inherited_state": inherited_state,
             },
-            created["event_digest"],
+            _digest_value(created.get("event_digest"), "event_digest"),
         )
         candidate = _WorkspaceState()
         try:
@@ -3556,7 +3647,7 @@ class ContextWorkspace:
             for event in (created, forked):
                 filename = (
                     f"{event['sequence']:016d}-"
-                    + event["event_digest"].removeprefix("sha256:")
+                    + _digest_value(event.get("event_digest"), "event_digest").removeprefix("sha256:")
                     + ".json"
                 )
                 _write_event(events_path, filename, _canonical(event) + b"\n")
@@ -3712,7 +3803,7 @@ class ContextWorkspace:
                     raise WorkspaceConflictError()
                 if state.lifecycle != "active":
                     raise WorkspaceLifecycleError()
-                if len(state.events) + 1 > state.policy.max_events:
+                if len(state.events) + 1 > _state_policy(state).max_events:
                     raise WorkspacePolicyError()
                 candidate = state.clone()
                 event = _event_record(
@@ -3737,7 +3828,7 @@ class ContextWorkspace:
                     raise WorkspaceIOError() from exc
                 filename = (
                     f"{event['sequence']:016d}-"
-                    f"{event['event_digest'].removeprefix('sha256:')}.json"
+                    f"{_digest_value(event.get('event_digest'), 'event_digest').removeprefix('sha256:')}.json"
                 )
                 try:
                     if not _same_inode(lock.workspace_stat, os.fstat(lock.workspace_fd)) or not _same_inode(
@@ -3795,7 +3886,7 @@ class ContextWorkspace:
             raise WorkspaceLifecycleError()
         if anchor.source_id in state.sources:
             raise WorkspaceConflictError()
-        if len(state.sources) + 1 > state.policy.max_sources:
+        if len(state.sources) + 1 > _state_policy(state).max_sources:
             raise WorkspacePolicyError()
         _ensure_external_allowed(state, anchor)
         _reject_sensitive(anchor.to_dict(), "anchor")
@@ -3822,8 +3913,11 @@ class ContextWorkspace:
             existing = current.receipts.get(selected_event_id)
             if existing is not None:
                 event = next(event for event in current.events if event["event_id"] == selected_event_id)
-                if event["kind"] == "source_updated" and _canonical(
-                    event["payload"]["anchor"]
+                event_payload = event.get("payload")
+                if not isinstance(event_payload, Mapping):
+                    raise WorkspaceConflictError()
+                if event.get("kind") == "source_updated" and _canonical(
+                    event_payload.get("anchor")
                 ) == _canonical(anchor.to_dict()):
                     return existing
                 raise WorkspaceConflictError()
@@ -3881,8 +3975,8 @@ class ContextWorkspace:
             session.prepare(source)
             _revalidate_source_pin(source, pin)
         with _SESSION_BINDINGS_LOCK:
-            bound = _SESSION_BINDINGS.get(session)
-            if bound is not None and bound != self._session_binding_key():
+            session_binding = _SESSION_BINDINGS.get(session)
+            if session_binding is not None and session_binding != self._session_binding_key():
                 raise WorkspaceConflictError()
             _SESSION_BINDINGS[session] = self._session_binding_key()
         payload = {
@@ -3970,9 +4064,12 @@ class ContextWorkspace:
         if existing is not None:
             if event_id is not None:
                 raise WorkspaceConflictError()
+            existing_source_ids = existing.get("source_ids")
+            if not isinstance(existing_source_ids, (list, tuple)):
+                raise WorkspaceConflictError()
             if (
                 existing["task_id"] == task_id_value
-                and tuple(existing["source_ids"]) == tuple(source_ids)
+                and tuple(existing_source_ids) == tuple(source_ids)
             ):
                 receipt = next(
                     receipt
@@ -4009,7 +4106,7 @@ class ContextWorkspace:
         if state.lifecycle != "active":
             raise WorkspaceLifecycleError()
         selected_session = None
-        provenance = None
+        provenance: Optional[Dict[str, object]] = None
         receipt_refs: Tuple[str, ...] = ()
         recovery_refs: Tuple[str, ...] = ()
         bound_source_ids: Tuple[str, ...] = ()
@@ -4063,9 +4160,14 @@ class ContextWorkspace:
                 raise WorkspaceConflictError()
             matching = []
             matching_anchors = {}
-            for source_id in durable[0]["source_ids"]:
+            durable_source_ids = durable[0].get("source_ids")
+            if not isinstance(durable_source_ids, (list, tuple)):
+                raise WorkspaceConflictError()
+            for source_id in durable_source_ids:
+                if not isinstance(source_id, str):
+                    raise WorkspaceConflictError()
                 anchor = state.sources[source_id]
-                effective = anchor
+                effective: Optional[SourceAnchor] = anchor
                 if anchor.engine_binding is None:
                     effective = self._runtime_source_bindings.get(source_id)
                 if effective is not None and effective.engine_binding is not None and _plain(
@@ -4103,7 +4205,7 @@ class ContextWorkspace:
             }
             provenance["receipt_proof"] = receipt_proof
             provenance["receipt_proof_digest"] = _digest(receipt_proof)
-        normalized = []
+        normalized: List[ProjectContextEntry] = []
         existing_ids = {entry.entry_id for entry in state.entries}
         for raw in entries:
             entry = _entry_from_input(raw)
@@ -4137,9 +4239,9 @@ class ContextWorkspace:
                 recovery_refs,
             )
             _reject_sensitive(entry.to_dict(), "value")
-            if entry.category not in state.policy.allowed_categories:
+            if entry.category not in _state_policy(state).allowed_categories:
                 raise WorkspacePolicyError()
-            if len(entry.value.encode("utf-8")) > state.policy.max_entry_bytes:
+            if len(entry.value.encode("utf-8")) > _state_policy(state).max_entry_bytes:
                 raise WorkspacePolicyError()
             normalized.append(entry)
         if session is None and any(entry.receipt_refs or entry.recovery_refs for entry in normalized):
@@ -4154,9 +4256,9 @@ class ContextWorkspace:
         if any(entry.entry_id in existing_ids for entry in normalized):
             raise WorkspaceConflictError()
         candidate_entries = list(state.entries) + normalized
-        if len(candidate_entries) > state.policy.max_context_entries:
+        if len(candidate_entries) > _state_policy(state).max_context_entries:
             raise WorkspacePolicyError()
-        if _state_context_bytes(candidate_entries) > state.policy.max_context_bytes:
+        if _state_context_bytes(candidate_entries) > _state_policy(state).max_context_bytes:
             raise WorkspacePolicyError()
         return self._append(
             "context_committed",
@@ -4196,7 +4298,7 @@ class ContextWorkspace:
             "package_lock_digest": logical_state["package_lock_digest"],
             "policy_digest": _domain_digest(
                 "leanctx.workspace.policy.v1",
-                state.policy.to_dict(),
+                _state_policy(state).to_dict(),
             ),
             "project_context_digest": _domain_digest(
                 "leanctx.project-context.state.v1",
@@ -4205,7 +4307,7 @@ class ContextWorkspace:
             "lineage": {
                 "kind": "workspace",
                 "workspace_id": self.workspace_id,
-                "state_id": state.identity.state_id,
+                "state_id": _state_identity(state).state_id,
             },
             "engine_identity": {
                 "interface_version": "1.0.0",
@@ -4281,7 +4383,7 @@ class ContextWorkspace:
                 or lineage.parent_checkpoint_envelope_digest != base.envelope_digest
             ):
                 raise WorkspaceConflictError()
-        lineage = (
+        target_lineage = (
             ForkLineageV1.from_dict(state.fork_lineage)
             if state.fork_lineage is not None
             else None
@@ -4290,8 +4392,8 @@ class ContextWorkspace:
             base,
             target,
             ancestry=ancestry,
-            base_lineage=lineage if base.workspace_id == self.workspace_id else None,
-            target_lineage=lineage,
+            base_lineage=target_lineage if base.workspace_id == self.workspace_id else None,
+            target_lineage=target_lineage,
         )
 
     def create_handoff(
@@ -4687,6 +4789,8 @@ class ContextWorkspace:
         max_bytes: Optional[int] = None,
     ) -> ProjectContext:
         state = self._read_state()
+        state_policy = _state_policy(state)
+        state_identity = _state_identity(state)
         if categories is None:
             selected_categories = set(_CATEGORIES)
         else:
@@ -4697,14 +4801,14 @@ class ContextWorkspace:
                 raise WorkspaceValidationError("categories contains an invalid category")
         if limit is not None:
             _positive_int(limit, "limit")
-            if limit > state.policy.max_context_entries:
+            if limit > state_policy.max_context_entries:
                 raise WorkspacePolicyError()
         if max_bytes is not None:
             _positive_int(max_bytes, "max_bytes")
-            if max_bytes > state.policy.max_context_bytes:
+            if max_bytes > state_policy.max_context_bytes:
                 raise WorkspacePolicyError()
-        entry_limit = state.policy.max_context_entries if limit is None else limit
-        byte_limit = state.policy.max_context_bytes if max_bytes is None else max_bytes
+        entry_limit = state_policy.max_context_entries if limit is None else limit
+        byte_limit = state_policy.max_context_bytes if max_bytes is None else max_bytes
         eligible = [entry for entry in state.entries if entry.category in selected_categories]
         filtered_count = len(state.entries) - len(eligible)
         selected: List[ProjectContextEntry] = []
@@ -4721,7 +4825,7 @@ class ContextWorkspace:
                     break
         omitted = len(eligible) - len(selected)
         return ProjectContext(
-            state.identity.workspace_id,
+            state_identity.workspace_id,
             state.logical_digest(),
             tuple(selected),
             filtered_count,
@@ -4742,15 +4846,18 @@ class ContextWorkspace:
             existing = current.receipts.get(selected_event_id)
             if existing is not None:
                 event = next(event for event in current.events if event["event_id"] == selected_event_id)
-                if event["kind"] == "policy_tightened" and _canonical(
-                    event["payload"]["policy"]
+                event_payload = event.get("payload")
+                if not isinstance(event_payload, Mapping):
+                    raise WorkspaceConflictError()
+                if event.get("kind") == "policy_tightened" and _canonical(
+                    event_payload.get("policy")
                 ) == _canonical(policy.to_dict()):
                     return existing
                 raise WorkspaceConflictError()
         state = self._read_state()
         if state.lifecycle != "active":
             raise WorkspaceLifecycleError()
-        if not policy.is_tightening(state.policy):
+        if not policy.is_tightening(_state_policy(state)):
             raise WorkspacePolicyError()
         if any(entry.category not in policy.allowed_categories for entry in state.entries):
             raise WorkspacePolicyError()
@@ -4766,7 +4873,7 @@ class ContextWorkspace:
             raise
         payload = {
             "policy": _plain(policy.to_dict()),
-            "previous_policy_digest": _digest(state.policy.to_dict()),
+            "previous_policy_digest": _digest(_state_policy(state).to_dict()),
         }
         return self._append("policy_tightened", payload, event_id=event_id)
 
