@@ -43,8 +43,8 @@ attachments. Public claims must not imply that a private capability ships.
 
 The only supported Preview import is `leanctx_sdk.preview`. Historical
 `leanctx_product_sdk.research` paths are migration inputs, not public aliases.
-Engine-dependent package operations stay Internal until the Engine release gate
-closes.
+Engine-dependent `.ctxpkg` operations are Preview and bind to the exact public
+Engine release and artifact digests in `COMPATIBILITY.md`.
 
 ## Promotion gate
 

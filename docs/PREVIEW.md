@@ -23,8 +23,11 @@ fork lineage through `ContextWorkspace.fork`, bounded delta and handoff
 admission, and policy inheritance. It does not persist raw transcripts,
 provider credentials, or model state, and it does not require Cloud.
 
-Checkpoint package pin/install/seed/seal helpers remain INTERNAL until a
-supported public Engine release contains the required protocol extension.
+The Preview namespace also exposes the narrow `.ctxpkg` path:
+`seal_checkpoint_package`, `seed_workspace_from_package`, and
+`migrate_snapshot_v1`. These operations require the supported public Engine
+release declared in `COMPATIBILITY.md`; signature, compatibility, and policy
+checks fail closed.
 
 Run the provider-free lifecycle smoke from a repository checkout:
 

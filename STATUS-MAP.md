@@ -40,12 +40,12 @@ Stable and does not expand the five-primitive Stable contract.
 
 Engine-dependent package operations (`seal_checkpoint_package`,
 `seed_workspace_from_package`, `migrate_snapshot_v1`, and their inspection/
-engine classes) are **Internal** pending a supported Engine release/tag/package;
-they are not Preview promises.
+engine classes) are **Preview** and require the supported public Engine release
+declared in `COMPATIBILITY.md`.
 
 ## Private research — not shipped as SDK API
 
-Cloud Receipt Board and Governed Optimization remain private research.
+P8 Cloud Receipt Board and P9 Governed Optimization remain private research.
 They are not importable, documented as available, packaged, or implied by the
 SDK.
 

@@ -1,4 +1,4 @@
-"""Internal `.ctxpkg v2` checkpoint lifecycle bridge.
+"""Preview `.ctxpkg v2` checkpoint lifecycle bridge.
 
 The open Engine owns package parsing, hashing and Ed25519 verification. This
 module owns Product admission and Workspace lifecycle semantics only.

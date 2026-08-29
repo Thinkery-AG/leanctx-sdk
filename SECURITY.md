@@ -7,14 +7,10 @@ best-effort fixes but do not have the Stable compatibility guarantee.
 
 ## Reporting
 
-Use GitHub Private Vulnerability Reporting for the final Thinkery-controlled
+Use GitHub Private Vulnerability Reporting for the Thinkery-controlled
 repository. Do not include secrets, prompts, customer data, proprietary source,
 or credentials in public issues. No email address is published until its
 operation is independently verified.
-
-The repository destination and Private Vulnerability Reporting setting must be
-verified before public release. Until then, this local candidate is not a
-public security intake.
 
 ## Product boundary
 

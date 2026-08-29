@@ -18,6 +18,16 @@ from ..errors import (
     WorkspaceSensitiveDataError,
     WorkspaceValidationError,
 )
+from ..checkpoint_package import (
+    CheckpointPackageInspection,
+    LocalCheckpointPackageEngine,
+    SnapshotV1Inspection,
+    SnapshotV1MigrationProvenance,
+    SnapshotV1MigrationResult,
+    migrate_snapshot_v1,
+    seal_checkpoint_package,
+    seed_workspace_from_package,
+)
 from ..workspace import (
     ContextCheckpointV2,
     ContextWorkspace,
@@ -55,6 +65,7 @@ ContextDelta = ContextDeltaV1
 ContextHandoff = ContextHandoffV1
 
 __all__ = [
+    "CheckpointPackageInspection",
     "ContextCheckpointV2",
     "ContextCheckpoint",
     "ConflictEntryV1",
@@ -68,6 +79,7 @@ __all__ = [
     "EvidenceRefV1",
     "ForkLineageV1",
     "HandoffAdmissionV1",
+    "LocalCheckpointPackageEngine",
     "PackagePin",
     "NarrowReconciliationV1",
     "PolicyInheritanceV1",
@@ -79,6 +91,9 @@ __all__ = [
     "SourceRevision",
     "SourceScope",
     "SourceTrust",
+    "SnapshotV1Inspection",
+    "SnapshotV1MigrationProvenance",
+    "SnapshotV1MigrationResult",
     "WorkspaceAlreadyExistsError",
     "WorkspaceConflictError",
     "WorkspaceCorruptError",
@@ -98,4 +113,7 @@ __all__ = [
     "WorkspaceStatus",
     "WorkspaceStateRefV1",
     "WorkspaceValidationError",
+    "migrate_snapshot_v1",
+    "seal_checkpoint_package",
+    "seed_workspace_from_package",
 ]

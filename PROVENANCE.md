@@ -13,8 +13,10 @@
 
 No SDK implementation is copied or line-adapted from LeanCTX Engine. The
 clean-reimplementation boundary covers Stable and Preview additions. Engine is
-consumed only through its public CLI wire boundary; Engine internals, Cloud,
-governed optimization, and hosted services are not dependencies.
+consumed only through its public CLI wire boundary. Release CI downloads and
+signature/hash-verifies the pinned public Engine release archives; it does not
+checkout or rebuild Engine source. Engine internals, Cloud, governed
+optimization, and hosted services are not dependencies.
 
 Third-party wheels are dependencies, not SDK source. Their digests, declared
 licenses, content audit, and accepted findings are bound separately by release

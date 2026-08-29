@@ -1,7 +1,8 @@
 # Quickstart
 
-Install `leanctx-sdk==1.0.0` and a supported LeanCTX Engine artifact from the
-compatibility matrix. Provider credentials are not required for deterministic
+Install `leanctx-sdk==1.0.0` and the exact LeanCTX Engine `v3.10.0` artifact
+listed in the compatibility matrix. Verify its signed checksum before putting
+`lean-ctx` on `PATH`. Provider credentials are not required for deterministic
 local use.
 
 ```python

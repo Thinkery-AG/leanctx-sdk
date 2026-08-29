@@ -35,6 +35,21 @@ def _validate(values: dict[str, str]) -> None:
         raise ValueError("final evidence requires Engine v3.10.0")
     if values.get("pypi_project") != "leanctx-sdk":
         raise ValueError("final evidence requires the leanctx-sdk PyPI project")
+    if values.get("engine_release_repository") != "yvgude/lean-ctx":
+        raise ValueError("final evidence requires the public Engine repository")
+    expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0"
+    if values.get("engine_release_url") != expected_release_url:
+        raise ValueError("final evidence requires the public Engine release URL")
+    if values.get("engine_linux_asset") != "lean-ctx-x86_64-unknown-linux-gnu.tar.gz":
+        raise ValueError("final evidence requires the supported Linux Engine asset")
+    if values.get("engine_macos_asset") != "lean-ctx-aarch64-apple-darwin.tar.gz":
+        raise ValueError("final evidence requires the supported macOS Engine asset")
+    expected_cosign_identity = (
+        "https://github.com/yvgude/lean-ctx/.github/workflows/"
+        "release.yml@refs/tags/v3.10.0"
+    )
+    if values.get("engine_cosign_identity") != expected_cosign_identity:
+        raise ValueError("final evidence requires the Engine release signer identity")
     if "/" not in values.get("public_repository", ""):
         raise ValueError("final evidence requires an owner/repository identity")
     for key in ("sdk_commit", "engine_commit"):
@@ -44,6 +59,9 @@ def _validate(values: dict[str, str]) -> None:
         "wheel_sha256",
         "engine_linux_sha256",
         "engine_macos_sha256",
+        "engine_linux_archive_sha256",
+        "engine_macos_archive_sha256",
+        "engine_checksums_sha256",
         "dependency_manifest_sha256",
         "dependency_policy_sha256",
         "build_lock_sha256",
@@ -72,6 +90,17 @@ Engine Linux x86_64 SHA-256: `{engine_linux_sha256}`
 
 Engine macOS arm64 SHA-256: `{engine_macos_sha256}`
 
+Public Engine release: `{engine_release_url}`
+
+Linux archive `{engine_linux_asset}` SHA-256:
+`{engine_linux_archive_sha256}`
+
+macOS archive `{engine_macos_asset}` SHA-256:
+`{engine_macos_archive_sha256}`
+
+Signed `SHA256SUMS` SHA-256: `{engine_checksums_sha256}`; signer identity:
+`{engine_cosign_identity}`.
+
 Dependency manifest SHA-256: `{dependency_manifest_sha256}`
 
 Dependency policy SHA-256: `{dependency_policy_sha256}`
@@ -96,7 +125,9 @@ Trusted Publishing gate recorded in the final ship packet.
 
 {common}Tested Engine `{engine_version}` at `{engine_commit}`, released as
 `{engine_tag}`; interface/schema/transport: `1.0.0` / `1` / `1`. Linux x86_64
-and macOS arm64 artifacts are separate and digest-bound. Installed contract
+and macOS arm64 archives come only from `{engine_release_repository}`, are
+signature- and digest-bound, and yield separately digest-bound binaries.
+Installed contract
 gates in this evidence run cover Python
 `{verified_python_matrix}`; the declared support matrix is `{python_matrix}`. The
 provider-free `{framework_version}` path is certified on CPython 3.11,
@@ -119,7 +150,8 @@ GitHub OIDC Trusted Publishing and no long-lived registry credential.
 """,
         "PROVENANCE.md": """# Release provenance
 
-{common}Engine source and platform digests, dependency closure/policy, all tool
+{common}Public Engine release identity, signed checksums, archive and extracted
+binary digests, dependency closure/policy, all tool
 locks, workflow identity, test artifacts, evidence payload digest, and final
 bundle digest are recorded in `provenance.json`, `PAYLOAD-SHA256SUMS`,
 `SHA256SUMS`, and `EVIDENCE-BUNDLE-SHA256`. Release workflow/run:
@@ -187,6 +219,14 @@ def main() -> None:
         "engine-tag",
         "engine-linux-sha256",
         "engine-macos-sha256",
+        "engine-release-repository",
+        "engine-release-url",
+        "engine-linux-asset",
+        "engine-macos-asset",
+        "engine-linux-archive-sha256",
+        "engine-macos-archive-sha256",
+        "engine-checksums-sha256",
+        "engine-cosign-identity",
         "dependency-manifest-sha256",
         "dependency-policy-sha256",
         "build-lock-sha256",

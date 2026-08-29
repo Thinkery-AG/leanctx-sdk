@@ -60,6 +60,11 @@ compatibility guarantee.
   `DeltaItemV1`, `EvidenceRefV1`, `ForkLineageV1`, `HandoffAdmissionV1`,
   `NarrowReconciliationV1`, `PolicyInheritanceV1`, `WorkspaceForkV1`,
   `WorkspaceStateRefV1`.
+- Checkpoint-package values: `CheckpointPackageInspection`,
+  `LocalCheckpointPackageEngine`, `SnapshotV1Inspection`,
+  `SnapshotV1MigrationProvenance`, `SnapshotV1MigrationResult`.
+- Checkpoint-package operations: `migrate_snapshot_v1`,
+  `seal_checkpoint_package`, `seed_workspace_from_package`.
 - Workspace errors: `WorkspaceError`, `WorkspaceAlreadyExistsError`,
   `WorkspaceConflictError`, `WorkspaceCorruptError`, `WorkspaceIOError`,
   `WorkspaceIncompatibleError`, `WorkspaceLifecycleError`,
@@ -74,23 +79,6 @@ The unversioned primary names are aliases over the frozen wire contracts:
 `ContextDelta` → `ContextDeltaV1` (`leanctx.context-delta/v1`), and
 `ContextHandoff` → `ContextHandoffV1` (`leanctx.context-handoff/v1`).
 Versioned record names remain schema identifiers, not separate stability tiers.
-
-## Internal Engine-dependent package surface
-
-These implementation symbols are `INTERNAL`, have no public compatibility
-promise, and remain excluded from the public Preview allowlist until a
-supported Engine release/tag/package is available:
-
-- `CheckpointPackageInspection`, `LocalCheckpointPackageEngine`,
-  `SnapshotV1Inspection`, `SnapshotV1MigrationProvenance`,
-  `SnapshotV1MigrationResult`.
-- `migrate_snapshot_v1`, `seal_checkpoint_package`,
-  `seed_workspace_from_package`.
-
-They must not be re-exported from `leanctx_sdk.preview` or documented as
-supported install/seed/seal operations. Their modules may be packaged when
-required as Internal implementation support; packaging does not make them
-public or grant a compatibility promise.
 
 ## Excluded surface
 

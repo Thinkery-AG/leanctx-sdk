@@ -14,13 +14,14 @@
 
 - Explicit `leanctx_sdk.preview` namespace.
 - Local Workspace, Checkpoint, Delta, Handoff, fork, and policy-inheritance
-  evaluation APIs. Engine-dependent package lifecycle helpers remain Internal
-  until a compatible public Engine release is bound.
+  evaluation APIs.
+- Narrow `.ctxpkg` seal, seed, and SnapshotV1 migration operations backed by
+  the supported public Engine `v3.10.0` release.
 
 ### Distribution
 
 - Distribution `leanctx-sdk`, import `leanctx_sdk`, version `1.0.0`.
 - Perpetual source-available SDK license with no automatic open-source date;
   commercial Production Use requires a Thinkery AG agreement.
-- Cloud Receipt Board, Governed Optimization, and private research evidence
+- P8 Cloud Receipt Board, P9 Governed Optimization, and private research evidence
   are excluded.
