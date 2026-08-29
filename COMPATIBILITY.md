@@ -4,18 +4,23 @@
 
 | Component | Declared scope | Release status |
 | --- | --- | --- |
-| Python | CPython 3.9–3.12 | supported after final artifact approval |
+| Python | CPython 3.9–3.12 | supported |
 | SDK wheel | pure Python, `py3-none-any` | release artifact |
-| Local Engine | commit `5a90893092a7d31a8dae41ea6710b5a0c5048d15` | tested RC; public Engine release identity pending |
+| Local Engine | `v3.10.0`, commit `5b6920216177b01f48694efff1d6be9505665263` | supported public release |
 | Engine protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.11, macOS arm64 | optional provider-free reference gate |
 
-The accepted macOS arm64 Engine candidate has SHA-256
-`e98b3367feea41298469a27c4e87fea7956117bc5b2c48072e6e7d55e0b08857`.
-That commit is not the commit currently named by the Engine `v3.9.20` tag, so
-SDK publication must not claim Engine `3.9.20` compatibility. A supported,
-immutable Engine release identity representing the tested contract is a
-release blocker.
+The supported Engine release is
+[`v3.10.0`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0).
+Its signed `SHA256SUMS` has SHA-256
+`0fab38178ac0cbb4b1f807c602f77bc738082672f627fe02448b8be8e7f5d8e4`.
+Release CI verifies the Sigstore identity
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.0`.
+
+| Platform | Release archive SHA-256 | Extracted binary SHA-256 |
+| --- | --- | --- |
+| Linux x86_64 GNU | `f5ad20cbf3eba9ff3024348cc0abe71199f47ae0e13d5554bfeb6345154928e0` | `735f60243cf4030ee6bbb292f06fb23742483fd4c857aac91e02914b3a80ac03` |
+| macOS arm64 | `ecd773971d118a19a3de723e82d9f0831c8e1543094d350b3861bcaa75dc6035` | `8f7787ccc6376f1d34b8d342fbc916bd082673e6797ea384e6e10edc3641b4eb` |
 
 Compatibility is never inferred from a version string, shared checkout, or
 newer commit. The Engine commit, platform artifact digest, interface, schema,
@@ -27,14 +32,14 @@ schema or transport values are rejected.
 `leanctx_sdk.preview` contains local Workspace, Checkpoint, Delta, Handoff, and
 fork APIs. Preview APIs may change or be removed outside the stable deprecation
 policy. Engine-dependent package installation, seeding, sealing, migration,
-and verification helpers remain Internal until a matching supported public
-Engine release exists.
+and verification helpers are Preview and require the exact Engine release
+above.
 
-Cloud Receipt Board, Governed Optimization/AutoTune, streaming, model routing,
-and generalized framework orchestration are not shipped.
+P8 Cloud Receipt Board, P9 Governed Optimization/AutoTune, streaming, model
+routing, and generalized framework orchestration are not shipped.
 
 ## Platform limits
 
-Linux, Windows, macOS x86_64, other Python ABI closures, alternate frameworks,
-Cloud, and alternate Engine majors require separate evidence. Provider
-credentials and live model calls remain host-owned.
+Windows, macOS x86_64, other Linux architectures, other Python ABI closures,
+alternate frameworks, Cloud, and alternate Engine majors require separate
+evidence. Provider credentials and live model calls remain host-owned.

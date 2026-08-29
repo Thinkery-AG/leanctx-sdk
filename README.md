@@ -15,8 +15,8 @@ The final distribution is `leanctx-sdk` and the import namespace is
 python -m pip install leanctx-sdk==1.0.0
 ```
 
-Public installation remains disabled until the reviewed wheel, license,
-repository, and PyPI identity receive final authorization.
+Install the supported public Engine `v3.10.0` artifact described in
+[COMPATIBILITY.md](COMPATIBILITY.md) before running the SDK.
 
 ## 5-minute Quickstart
 
@@ -72,12 +72,16 @@ Local Workspace, Checkpoint, Delta, and Handoff APIs are available from
 `leanctx_sdk.preview`. Preview APIs may change in minor releases and are not
 covered by the Stable v1 compatibility guarantee.
 
+The same namespace contains the narrow Engine-backed `.ctxpkg` seal, seed, and
+SnapshotV1 migration operations.
+
 ```python
 from leanctx_sdk.preview import ContextCheckpoint, ContextWorkspace
 ```
 
-See [docs/PREVIEW.md](docs/PREVIEW.md). Receipt Board, Governed Optimization,
-Cloud, and production AutoTune are private Research and are not included.
+See [docs/PREVIEW.md](docs/PREVIEW.md). P8 Receipt Board, P9 Governed
+Optimization, Cloud, and production AutoTune are private Research and are not
+included.
 
 Run the provider-free lifecycle example with
 `python examples/preview_workspace.py` from a source checkout.
@@ -86,7 +90,8 @@ Run the provider-free lifecycle example with
 
 LeanCTX Engine is Apache-2.0, independently useful, and remains a separate
 product. The dependency is one-way: SDK → Engine. See
-[COMPATIBILITY.md](COMPATIBILITY.md) before selecting an Engine artifact.
+[COMPATIBILITY.md](COMPATIBILITY.md) for the exact supported public
+[`v3.10.0` release](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0).
 
 ## Documentation
 

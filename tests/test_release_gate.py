@@ -319,15 +319,22 @@ class ReleaseGateTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotRegex(workflow, r"uses:\s+[^\s]+@(v\d+|main|master)\b")
         for required in (
-            "ENGINE_COMMIT: 5a90893092a7d31a8dae41ea6710b5a0c5048d15",
-            "ENGINE_VERSION: 3.9.20",
-            "ENGINE_TAG: PENDING_PUBLIC_ENGINE_RELEASE",
+            "ENGINE_COMMIT: 5b6920216177b01f48694efff1d6be9505665263",
+            "ENGINE_VERSION: 3.10.0",
+            "ENGINE_TAG: v3.10.0",
+            "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
+            "ENGINE_LINUX_ARCHIVE_SHA256: f5ad20cbf3eba9ff3024348cc0abe71199f47ae0e13d5554bfeb6345154928e0",
+            "ENGINE_MACOS_ARCHIVE_SHA256: ecd773971d118a19a3de723e82d9f0831c8e1543094d350b3861bcaa75dc6035",
+            "ENGINE_CHECKSUMS_SHA256: 0fab38178ac0cbb4b1f807c602f77bc738082672f627fe02448b8be8e7f5d8e4",
             "PYTHONPATH: src:.",
             "static-quality:",
             "source-secret-scan:",
             "engine-artifact:",
             "engine-macos-artifact:",
-            "ENGINE_MACOS_ARM64_SHA256: e98b3367feea41298469a27c4e87fea7956117bc5b2c48072e6e7d55e0b08857",
+            "ENGINE_LINUX_X86_64_SHA256: 735f60243cf4030ee6bbb292f06fb23742483fd4c857aac91e02914b3a80ac03",
+            "ENGINE_MACOS_ARM64_SHA256: 8f7787ccc6376f1d34b8d342fbc916bd082673e6797ea384e6e10edc3641b4eb",
+            "cosign verify-blob",
+            "runs-on: macos-26",
             "engine-linux-x86_64-",
             "engine-macos-arm64-",
             "sdk-artifact:",
@@ -346,6 +353,10 @@ class ReleaseGateTests(unittest.TestCase):
             "SDK_V1_APPROVED_ENGINE_COMMIT",
             "SDK_V1_APPROVED_ENGINE_VERSION",
             "SDK_V1_APPROVED_ENGINE_TAG",
+            "SDK_V1_APPROVED_ENGINE_LINUX_ARCHIVE_SHA256",
+            "SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256",
+            "SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256",
+            "SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY",
             "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
             "technical-release-gate:",
             "pull-request-validation:",
@@ -366,6 +377,14 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertIn("path: dist", framework)
         self.assertIn("realpath dist/*.whl", framework)
         self.assertNotIn("realpath download/*.whl", framework)
+        self.assertIn("pip download --require-hashes", framework)
+        self.assertNotIn("self-hosted", framework)
+        engine_jobs = workflow.split("  engine-artifact:", 1)[1].split(
+            "\n  sdk-artifact:", 1
+        )[0]
+        self.assertIn("git ls-remote", engine_jobs)
+        self.assertNotIn("cargo ", engine_jobs)
+        self.assertNotIn("rustup", engine_jobs)
         publication = workflow.split("  publish-pypi:", 1)[1].split(
             "\n  pull-request-validation:", 1
         )[0]
@@ -379,6 +398,15 @@ class ReleaseGateTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('name == "PYTHONPATH"', verifier)
 
+    def test_package_metadata_binds_public_repository(self):
+        metadata = (Path(__file__).parents[1] / "setup.cfg").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("url = https://github.com/Thinkery-AG/leanctx-sdk", metadata)
+        self.assertIn(
+            "Source = https://github.com/Thinkery-AG/leanctx-sdk", metadata
+        )
+
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
             "sdk_commit": "a" * 40,
@@ -389,6 +417,19 @@ class ReleaseGateTests(unittest.TestCase):
             "engine_tag": "v3.10.0",
             "engine_linux_sha256": "d" * 64,
             "engine_macos_sha256": "e" * 64,
+            "engine_release_repository": "yvgude/lean-ctx",
+            "engine_release_url": (
+                "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0"
+            ),
+            "engine_linux_asset": "lean-ctx-x86_64-unknown-linux-gnu.tar.gz",
+            "engine_macos_asset": "lean-ctx-aarch64-apple-darwin.tar.gz",
+            "engine_linux_archive_sha256": "6" * 64,
+            "engine_macos_archive_sha256": "7" * 64,
+            "engine_checksums_sha256": "8" * 64,
+            "engine_cosign_identity": (
+                "https://github.com/yvgude/lean-ctx/.github/workflows/"
+                "release.yml@refs/tags/v3.10.0"
+            ),
             "dependency_manifest_sha256": "f" * 64,
             "dependency_policy_sha256": "1" * 64,
             "build_lock_sha256": "2" * 64,
@@ -417,6 +458,8 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertIn(values["sdk_commit"], manifest)
             self.assertIn(values["framework_version"], manifest)
             self.assertIn(values["release_workflow"], manifest)
+            self.assertIn(values["engine_release_url"], manifest)
+            self.assertIn(values["engine_linux_archive_sha256"], manifest)
             license_status = (output / "LICENSE-STATUS.md").read_text(
                 encoding="utf-8"
             )

@@ -29,6 +29,10 @@ The release includes tested local-context capabilities under the explicit
 Forking remains available as the narrow `ContextWorkspace.fork` lifecycle
 operation and the versioned `WorkspaceForkV1` Preview record.
 
+The Preview namespace also includes the narrow Engine-backed `.ctxpkg` seal,
+seed, and SnapshotV1 migration path. It requires the exact public Engine
+`v3.10.0` artifacts listed in `COMPATIBILITY.md`.
+
 Preview is usable for evaluation and pilots but is not GA. Preview APIs may
 change in a MINOR release with release notes and migration guidance. Versioned
 contract types remain available in the Preview namespace.
@@ -37,7 +41,7 @@ contract types remain available in the Preview namespace.
 
 - Distribution: `leanctx-sdk`
 - Import package: `leanctx_sdk`
-- Candidate version: `1.0.0`
+- Version: `1.0.0`
 - Supported Python: 3.9–3.12
 - Typed package marker: included
 
@@ -48,7 +52,7 @@ The old staging identity `leanctx-product-sdk-local` and import
 
 - SDK-to-Engine dependency remains one-way and provider-neutral.
 - Stable imports do not depend on Preview.
-- Cloud Receipt Board and Governed Optimization research are absent from
+- P8 Cloud Receipt Board and P9 Governed Optimization research are absent from
   package imports and artifacts.
 - Source, wheel, namespace, secret, provenance, and installed-artifact checks
   are release gates.
@@ -59,13 +63,10 @@ LeanCTX Engine remains Apache-2.0. LeanCTX SDK uses a separate source-available
 license; commercial Production Use requires a written commercial agreement.
 There is no automatic open-source conversion date.
 
-The SDK license text is final. Final artifact hashes and the public repository,
-tag, and registry identities remain gated on external account authority; until
-then, publication commands are intentionally not advertised.
+The SDK license text is final and its exact hash is bound by release evidence.
 
 ## Not included
 
 - hosted Cloud service or Cloud control plane;
-- Receipt Board or Governed Optimization public APIs or production claims;
+- P8 Receipt Board or P9 Governed Optimization public APIs or production claims;
 - automatic migration from historical staging packages;
-- publication before all release identities and account bindings are verified.

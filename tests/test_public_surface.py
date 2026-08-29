@@ -57,6 +57,7 @@ ROOT_EXPORTS = {
 }
 
 PREVIEW_EXPORTS = {
+    "CheckpointPackageInspection",
     "ConflictEntryV1",
     "ConflictReportV1",
     "ContextCheckpoint",
@@ -70,6 +71,7 @@ PREVIEW_EXPORTS = {
     "EvidenceRefV1",
     "ForkLineageV1",
     "HandoffAdmissionV1",
+    "LocalCheckpointPackageEngine",
     "NarrowReconciliationV1",
     "PackagePin",
     "PolicyInheritanceV1",
@@ -81,6 +83,9 @@ PREVIEW_EXPORTS = {
     "SourceRevision",
     "SourceScope",
     "SourceTrust",
+    "SnapshotV1Inspection",
+    "SnapshotV1MigrationProvenance",
+    "SnapshotV1MigrationResult",
     "WorkspaceAlreadyExistsError",
     "WorkspaceConflictError",
     "WorkspaceCorruptError",
@@ -100,6 +105,9 @@ PREVIEW_EXPORTS = {
     "WorkspaceStateRefV1",
     "WorkspaceStatus",
     "WorkspaceValidationError",
+    "migrate_snapshot_v1",
+    "seal_checkpoint_package",
+    "seed_workspace_from_package",
 }
 
 

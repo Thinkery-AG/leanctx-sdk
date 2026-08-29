@@ -15,11 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ENGINE_COMMIT: 5a90893092a7d31a8dae41ea6710b5a0c5048d15
-  ENGINE_VERSION: 3.9.20
-  ENGINE_TAG: PENDING_PUBLIC_ENGINE_RELEASE
-  ENGINE_MACOS_ARM64_SHA256: e98b3367feea41298469a27c4e87fea7956117bc5b2c48072e6e7d55e0b08857
-  RUST_TOOLCHAIN: 1.97.1
+  ENGINE_COMMIT: 5b6920216177b01f48694efff1d6be9505665263
+  ENGINE_VERSION: 3.10.0
+  ENGINE_TAG: v3.10.0
+  ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
+  ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0
+  ENGINE_RELEASE_DOWNLOAD_URL: https://github.com/yvgude/lean-ctx/releases/download/v3.10.0
+  ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
+  ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
+  ENGINE_LINUX_ARCHIVE_SHA256: f5ad20cbf3eba9ff3024348cc0abe71199f47ae0e13d5554bfeb6345154928e0
+  ENGINE_MACOS_ARCHIVE_SHA256: ecd773971d118a19a3de723e82d9f0831c8e1543094d350b3861bcaa75dc6035
+  ENGINE_CHECKSUMS_SHA256: 0fab38178ac0cbb4b1f807c602f77bc738082672f627fe02448b8be8e7f5d8e4
+  ENGINE_LINUX_X86_64_SHA256: 735f60243cf4030ee6bbb292f06fb23742483fd4c857aac91e02914b3a80ac03
+  ENGINE_MACOS_ARM64_SHA256: 8f7787ccc6376f1d34b8d342fbc916bd082673e6797ea384e6e10edc3641b4eb
+  ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.0
+  ENGINE_COSIGN_ISSUER: https://token.actions.githubusercontent.com
   SOURCE_DATE_EPOCH: "1704067200"
 
 jobs:
@@ -102,57 +112,79 @@ jobs:
 
   engine-artifact:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     outputs:
       sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: yvgude/lean-ctx
-          ref: ${{ env.ENGINE_COMMIT }}
-          path: engine
-          persist-credentials: false
-      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-      - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
-        working-directory: engine/rust
-      - run: test "$(engine/rust/target/release/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - run: |
+          test "$(git ls-remote "https://github.com/$ENGINE_RELEASE_REPOSITORY.git" "refs/tags/$ENGINE_TAG^{}" | awk '{print $1}')" = "$ENGINE_COMMIT"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/$ENGINE_LINUX_ASSET"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS.sig"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS.pem"
+          test "$(sha256sum SHA256SUMS | cut -d ' ' -f1)" = "$ENGINE_CHECKSUMS_SHA256"
+          cosign verify-blob \
+            --certificate SHA256SUMS.pem \
+            --signature SHA256SUMS.sig \
+            --certificate-identity "$ENGINE_COSIGN_IDENTITY" \
+            --certificate-oidc-issuer "$ENGINE_COSIGN_ISSUER" \
+            SHA256SUMS
+          test "$(sha256sum "$ENGINE_LINUX_ASSET" | cut -d ' ' -f1)" = "$ENGINE_LINUX_ARCHIVE_SHA256"
+          grep -Fx "$ENGINE_LINUX_ARCHIVE_SHA256  $ENGINE_LINUX_ASSET" SHA256SUMS
+          test "$(tar -tzf "$ENGINE_LINUX_ASSET")" = lean-ctx
+          test "$(tar -tvzf "$ENGINE_LINUX_ASSET" | cut -c1)" = -
+          mkdir engine-artifact
+          tar -xzf "$ENGINE_LINUX_ASSET" -C engine-artifact
+          chmod 0755 engine-artifact/lean-ctx
+      - run: test "$(engine-artifact/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
       - id: digest
-        run: echo "sha256=$(sha256sum engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
-      - run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_COMMIT"
-      - run: test -z "$(git -C engine status --porcelain=v1 --untracked-files=all)"
+        run: echo "sha256=$(sha256sum engine-artifact/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - run: test "${{ steps.digest.outputs.sha256 }}" = "$ENGINE_LINUX_X86_64_SHA256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: engine-linux-x86_64-${{ env.ENGINE_COMMIT }}
-          path: engine/rust/target/release/lean-ctx
+          path: engine-artifact/lean-ctx
           if-no-files-found: error
           retention-days: 14
 
   engine-macos-artifact:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
-    timeout-minutes: 60
+    runs-on: macos-26
+    timeout-minutes: 10
     outputs:
       sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: yvgude/lean-ctx
-          ref: ${{ env.ENGINE_COMMIT }}
-          path: engine
-          persist-credentials: false
-      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-      - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
-        working-directory: engine/rust
-      - run: test "$(engine/rust/target/release/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - run: test "$(uname -m)" = arm64
+      - run: |
+          test "$(git ls-remote "https://github.com/$ENGINE_RELEASE_REPOSITORY.git" "refs/tags/$ENGINE_TAG^{}" | awk '{print $1}')" = "$ENGINE_COMMIT"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/$ENGINE_MACOS_ASSET"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS.sig"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --remote-name "$ENGINE_RELEASE_DOWNLOAD_URL/SHA256SUMS.pem"
+          test "$(shasum -a 256 SHA256SUMS | cut -d ' ' -f1)" = "$ENGINE_CHECKSUMS_SHA256"
+          cosign verify-blob \
+            --certificate SHA256SUMS.pem \
+            --signature SHA256SUMS.sig \
+            --certificate-identity "$ENGINE_COSIGN_IDENTITY" \
+            --certificate-oidc-issuer "$ENGINE_COSIGN_ISSUER" \
+            SHA256SUMS
+          test "$(shasum -a 256 "$ENGINE_MACOS_ASSET" | cut -d ' ' -f1)" = "$ENGINE_MACOS_ARCHIVE_SHA256"
+          grep -Fx "$ENGINE_MACOS_ARCHIVE_SHA256  $ENGINE_MACOS_ASSET" SHA256SUMS
+          test "$(tar -tzf "$ENGINE_MACOS_ASSET")" = lean-ctx
+          test "$(tar -tvzf "$ENGINE_MACOS_ASSET" | cut -c1)" = -
+          mkdir engine-artifact
+          tar -xzf "$ENGINE_MACOS_ASSET" -C engine-artifact
+          chmod 0755 engine-artifact/lean-ctx
+      - run: test "$(engine-artifact/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
       - id: digest
-        run: echo "sha256=$(shasum -a 256 engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: echo "sha256=$(shasum -a 256 engine-artifact/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
       - run: test "${{ steps.digest.outputs.sha256 }}" = "$ENGINE_MACOS_ARM64_SHA256"
-      - run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_COMMIT"
-      - run: test -z "$(git -C engine status --porcelain=v1 --untracked-files=all)"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: engine-macos-arm64-${{ env.ENGINE_COMMIT }}
-          path: engine/rust/target/release/lean-ctx
+          path: engine-artifact/lean-ctx
           if-no-files-found: error
           retention-days: 14
 
@@ -207,8 +239,6 @@ jobs:
     needs: [engine-artifact, sdk-artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      ENGINE_BIN: ${{ runner.temp }}/engine-artifact/lean-ctx
     strategy:
       fail-fast: false
       matrix:
@@ -220,6 +250,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python }}
+      - run: echo "ENGINE_BIN=$RUNNER_TEMP/engine-artifact/lean-ctx" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: engine-linux-x86_64-${{ env.ENGINE_COMMIT }}
@@ -291,10 +322,8 @@ jobs:
   framework-offline:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     needs: [engine-macos-artifact, sdk-artifact]
-    runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
-    timeout-minutes: 15
-    env:
-      WHEELHOUSE: ${{ vars.SDK_V1_WHEELHOUSE }}
+    runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -302,6 +331,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
+      - run: echo "WHEELHOUSE=$RUNNER_TEMP/wheelhouse" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sdk-wheel-${{ needs.sdk-artifact.outputs.sdk_commit }}
@@ -315,7 +345,16 @@ jobs:
           test "$(shasum -a 256 "$RUNNER_TEMP/engine-artifact/lean-ctx" | cut -d ' ' -f1)"
           = "${{ needs.engine-macos-artifact.outputs.sha256 }}"
       - run: chmod 0755 "$RUNNER_TEMP/engine-artifact/lean-ctx"
-      - run: test -n "$WHEELHOUSE" && test -d "$WHEELHOUSE"
+      - run: test "$(uname -m)" = arm64
+      - run: >-
+          python -m scripts.manifest_requirements
+          --manifest fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
+          > "$RUNNER_TEMP/sdk-v1-requirements.txt"
+      - run: mkdir -p "$WHEELHOUSE"
+      - run: >-
+          python -m pip download --require-hashes --only-binary=:all:
+          --dest "$WHEELHOUSE"
+          --requirement "$RUNNER_TEMP/sdk-v1-requirements.txt"
       - run: >-
           python scripts/validate_wheelhouse.py
           --manifest fixtures/openai-agents-0.8.4/wheelhouse-manifest.json
@@ -387,6 +426,14 @@ jobs:
       SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
       ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
       ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
+      ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
+      ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0
+      ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
+      ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
+      ENGINE_LINUX_ARCHIVE_SHA256: f5ad20cbf3eba9ff3024348cc0abe71199f47ae0e13d5554bfeb6345154928e0
+      ENGINE_MACOS_ARCHIVE_SHA256: ecd773971d118a19a3de723e82d9f0831c8e1543094d350b3861bcaa75dc6035
+      ENGINE_CHECKSUMS_SHA256: 0fab38178ac0cbb4b1f807c602f77bc738082672f627fe02448b8be8e7f5d8e4
+      ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.0
       DEPENDENCY_MANIFEST_SHA256: ${{ needs.dependency-audit.outputs.manifest_sha256 }}
       DEPENDENCY_POLICY_SHA256: ${{ needs.dependency-audit.outputs.policy_sha256 }}
       AUDIT_TOOL_LOCK_SHA256: ${{ needs.dependency-audit.outputs.tool_lock_sha256 }}
@@ -421,6 +468,14 @@ jobs:
           --engine-tag "$ENGINE_TAG"
           --engine-linux-sha256 "$ENGINE_LINUX_X86_64_SHA256"
           --engine-macos-sha256 "$ENGINE_MACOS_ARM64_SHA256"
+          --engine-release-repository "$ENGINE_RELEASE_REPOSITORY"
+          --engine-release-url "$ENGINE_RELEASE_URL"
+          --engine-linux-asset "$ENGINE_LINUX_ASSET"
+          --engine-macos-asset "$ENGINE_MACOS_ASSET"
+          --engine-linux-archive-sha256 "$ENGINE_LINUX_ARCHIVE_SHA256"
+          --engine-macos-archive-sha256 "$ENGINE_MACOS_ARCHIVE_SHA256"
+          --engine-checksums-sha256 "$ENGINE_CHECKSUMS_SHA256"
+          --engine-cosign-identity "$ENGINE_COSIGN_IDENTITY"
           --dependency-manifest-sha256 "$DEPENDENCY_MANIFEST_SHA256"
           --dependency-policy-sha256 "$DEPENDENCY_POLICY_SHA256"
           --build-lock-sha256 "$BUILD_TOOL_LOCK_SHA256"
@@ -456,6 +511,15 @@ jobs:
           'engine_sha256': {
           'linux_x86_64': os.environ['ENGINE_LINUX_X86_64_SHA256'],
           'macos_arm64': os.environ['ENGINE_MACOS_ARM64_SHA256']},
+          'engine_release': {
+          'repository': os.environ['ENGINE_RELEASE_REPOSITORY'],
+          'url': os.environ['ENGINE_RELEASE_URL'],
+          'linux_asset': os.environ['ENGINE_LINUX_ASSET'],
+          'macos_asset': os.environ['ENGINE_MACOS_ASSET'],
+          'linux_archive_sha256': os.environ['ENGINE_LINUX_ARCHIVE_SHA256'],
+          'macos_archive_sha256': os.environ['ENGINE_MACOS_ARCHIVE_SHA256'],
+          'checksums_sha256': os.environ['ENGINE_CHECKSUMS_SHA256'],
+          'cosign_identity': os.environ['ENGINE_COSIGN_IDENTITY']},
           'evidence_payload_sha256': os.environ['EVIDENCE_PAYLOAD_SHA256'],
           'framework_version': os.environ['FRAMEWORK_VERSION'],
           'framework_gate': os.environ['FRAMEWORK_GATE'],
@@ -468,7 +532,6 @@ jobs:
           'sdk_wheel_python': '3.11',
           'python_matrix': os.environ['PYTHON_MATRIX'].split(','),
           'quality_tool_lock_sha256': os.environ['QUALITY_TOOL_LOCK_SHA256'],
-          'rust_toolchain': os.environ['RUST_TOOLCHAIN'],
           'signing_provenance': os.environ['SIGNING_PROVENANCE'],
           'workflow_ref': os.environ['WORKFLOW_REF'],
           'workflow_run_id': os.environ['WORKFLOW_RUN_ID']
@@ -499,6 +562,10 @@ jobs:
       SDK_V1_APPROVED_ENGINE_COMMIT: ${{ vars.SDK_V1_APPROVED_ENGINE_COMMIT }}
       SDK_V1_APPROVED_ENGINE_VERSION: ${{ vars.SDK_V1_APPROVED_ENGINE_VERSION }}
       SDK_V1_APPROVED_ENGINE_TAG: ${{ vars.SDK_V1_APPROVED_ENGINE_TAG }}
+      SDK_V1_APPROVED_ENGINE_LINUX_ARCHIVE_SHA256: ${{ vars.SDK_V1_APPROVED_ENGINE_LINUX_ARCHIVE_SHA256 }}
+      SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256: ${{ vars.SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256 }}
+      SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256: ${{ vars.SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256 }}
+      SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY: ${{ vars.SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY }}
       SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
     steps:
       - if: github.event_name != 'pull_request'
@@ -519,6 +586,10 @@ jobs:
           test "$ENGINE_COMMIT" = "$SDK_V1_APPROVED_ENGINE_COMMIT"
           test "$ENGINE_VERSION" = "$SDK_V1_APPROVED_ENGINE_VERSION"
           test "$ENGINE_TAG" = "$SDK_V1_APPROVED_ENGINE_TAG"
+          test "$ENGINE_LINUX_ARCHIVE_SHA256" = "$SDK_V1_APPROVED_ENGINE_LINUX_ARCHIVE_SHA256"
+          test "$ENGINE_MACOS_ARCHIVE_SHA256" = "$SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256"
+          test "$ENGINE_CHECKSUMS_SHA256" = "$SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256"
+          test "$ENGINE_COSIGN_IDENTITY" = "$SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY"
           test "$ENGINE_VERSION" = 3.10.0
           test "$ENGINE_TAG" = v3.10.0
       - if: github.event_name == 'pull_request'
