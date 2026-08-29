@@ -1,6 +1,6 @@
 # LeanCTX SDK 1.0.0 Release Notes
 
-Status: technically prepared release candidate; not publicly released.
+Status: Stable release.
 
 ## Stable SDK v1
 
@@ -18,14 +18,16 @@ surface manifest.
 
 ## Preview local context
 
-The release candidate includes tested P5–P7 capabilities under the explicit
+The release includes tested local-context capabilities under the explicit
 `leanctx_sdk.preview` namespace:
 
 - `ContextWorkspace` for durable, project-scoped local context;
 - `ContextCheckpoint` for portable, integrity-checked checkpoints;
-- `ContextFork` for isolated branches from an immutable checkpoint;
 - `ContextDelta` for bounded parallel local changes;
 - `ContextHandoff` for explicit, evidence-linked handoff.
+
+Forking remains available as the narrow `ContextWorkspace.fork` lifecycle
+operation and the versioned `WorkspaceForkV1` Preview record.
 
 Preview is usable for evaluation and pilots but is not GA. Preview APIs may
 change in a MINOR release with release notes and migration guidance. Versioned
@@ -46,8 +48,8 @@ The old staging identity `leanctx-product-sdk-local` and import
 
 - SDK-to-Engine dependency remains one-way and provider-neutral.
 - Stable imports do not depend on Preview.
-- P8 Cloud Receipt Board and P9 Governed Optimization remain private research
-  and are absent from package imports and artifacts.
+- Cloud Receipt Board and Governed Optimization research are absent from
+  package imports and artifacts.
 - Source, wheel, namespace, secret, provenance, and installed-artifact checks
   are release gates.
 
@@ -57,13 +59,13 @@ LeanCTX Engine remains Apache-2.0. LeanCTX SDK uses a separate source-available
 license; commercial Production Use requires a written commercial agreement.
 There is no automatic open-source conversion date.
 
-The exact SDK license text and final artifact hashes require explicit human
-approval before publication. Until the final ship packet is approved, install,
-repository, tag, and registry commands are intentionally not advertised.
+The SDK license text is final. Final artifact hashes and the public repository,
+tag, and registry identities remain gated on external account authority; until
+then, publication commands are intentionally not advertised.
 
 ## Not included
 
 - hosted Cloud service or Cloud control plane;
-- P8/P9 public APIs or production claims;
+- Receipt Board or Governed Optimization public APIs or production claims;
 - automatic migration from historical staging packages;
-- authorization to publish, tag, announce, or upload this candidate.
+- publication before all release identities and account bindings are verified.

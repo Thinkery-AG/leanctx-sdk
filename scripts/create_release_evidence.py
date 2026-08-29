@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -21,8 +22,41 @@ REQUIRED_FILES = (
     "PUBLISH-STATUS.md",
 )
 
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate(values: dict[str, str]) -> None:
+    if values.get("publication_authorization") != "APPROVED":
+        raise ValueError("final evidence requires explicit publication authorization")
+    if values.get("sdk_version") != "1.0.0":
+        raise ValueError("final evidence requires SDK version 1.0.0")
+    if values.get("engine_version") != "3.10.0" or values.get("engine_tag") != "v3.10.0":
+        raise ValueError("final evidence requires Engine v3.10.0")
+    if values.get("pypi_project") != "leanctx-sdk":
+        raise ValueError("final evidence requires the leanctx-sdk PyPI project")
+    if "/" not in values.get("public_repository", ""):
+        raise ValueError("final evidence requires an owner/repository identity")
+    for key in ("sdk_commit", "engine_commit"):
+        if not _COMMIT.fullmatch(values.get(key, "")):
+            raise ValueError(f"final evidence requires a valid {key}")
+    for key in (
+        "wheel_sha256",
+        "engine_linux_sha256",
+        "engine_macos_sha256",
+        "dependency_manifest_sha256",
+        "dependency_policy_sha256",
+        "build_lock_sha256",
+        "quality_lock_sha256",
+        "audit_lock_sha256",
+        "license_sha256",
+    ):
+        if not _SHA256.fullmatch(values.get(key, "")):
+            raise ValueError(f"final evidence requires a valid {key}")
+
 
 def generate(output: Path, values: dict[str, str]) -> None:
+    _validate(values)
     output.mkdir(parents=True, exist_ok=True)
     common = (
         f"SDK commit: `{values['sdk_commit']}`\n\n"
@@ -54,22 +88,16 @@ Signing/provenance status: `{signing_provenance}`.
 """,
         "DECISION-GATE.md": """# Decision gate
 
-Technical gates: PASS. Custom-license product policy: APPROVED. Candidate legal
-text is materialized; exact-text and publication authority remain
-PENDING_HUMAN_AUTHORITY.
-
-The revised ten-row authority matrix is retained in the private decision
-packet. Approved policy rows do not authorize a registry upload, public
-repository, tag, GA claim, active commercial license, namespace claim, or
-pricing commitment.
+Technical gates: PASS. Custom-license product policy and exact release text:
+APPROVED. Final publication remains bound to the exact hashes and protected
+Trusted Publishing gate recorded in the final ship packet.
 """,
         "ENGINE-SDK-COMPATIBILITY.md": """# Engine × SDK compatibility
 
-{common}Tested Engine binary reports `3.9.20` at `{engine_commit}`;
-interface/schema/transport: `1.0.0` / `1` / `1`. This commit is not represented
-by the current public `v3.9.20` tag, so a supported Engine release identity is a
-publication blocker. Linux x86_64 and macOS arm64 artifacts are separate and
-digest-bound. Installed contract gates in this evidence run cover Python
+{common}Tested Engine `{engine_version}` at `{engine_commit}`, released as
+`{engine_tag}`; interface/schema/transport: `1.0.0` / `1` / `1`. Linux x86_64
+and macOS arm64 artifacts are separate and digest-bound. Installed contract
+gates in this evidence run cover Python
 `{verified_python_matrix}`; the declared support matrix is `{python_matrix}`. The
 provider-free `{framework_version}` path is certified on CPython 3.11,
 macOS 11+ arm64, using the exact 41-wheel closure.
@@ -86,8 +114,8 @@ and bound by `SHA256SUMS`. Verified Python matrix: `{verified_python_matrix}`.
 The exact dependency closure passed pip-audit plus hash, ZIP safety, symlink,
 import-hook, size, secret-pattern, license-declaration, and reviewed build-path
 policy checks. Git-tracked SDK inputs passed the deterministic source secret
-scan. Findings and exact tool versions are under `artifacts/`.
-Publication remains fail-closed and no release credential is present.
+scan. Findings and exact tool versions are under `artifacts/`. Publication uses
+GitHub OIDC Trusted Publishing and no long-lived registry credential.
 """,
         "PROVENANCE.md": """# Release provenance
 
@@ -124,26 +152,22 @@ preserve native result/exception identity without a provider call.
         "MIGRATION.md": """# Migration evidence
 
 `MIGRATION.md` in SDK commit `{sdk_commit}` is the reviewed legacy → Product SDK
-boundary and rollback plan. P5–P7 are available only under
-`leanctx_sdk.preview`; P8, P9, Cloud, and Engine package operations are absent.
+boundary and rollback plan. Workspace/checkpoint/delta/handoff and narrow
+package lifecycle operations are Preview; hosted Cloud and optimization
+research are absent.
 """,
         "LICENSE-STATUS.md": """# License status
 
-Product direction: `CUSTOM_LICENSE_POLICY_APPROVED`. The intended model is a
+Status: `CUSTOM_LICENSE_TEXT_APPROVED`. The model is a
 perpetual source-available SDK license plus a separate commercial Production
 license, with no Change Date or automatic open-source conversion. BSL 1.1 is
-rejected. Exact source-license text, commercial agreement, owner, Production
-Use definition, OEM/pricing, contribution, and security/release authority
-remain pending. Status: `LICENSE_TEXT_APPROVAL_PENDING`. The candidate text is materialized,
-but publication requires approval of its exact SHA-256.
+rejected. LICENSE SHA-256: `{license_sha256}`.
 """,
         "PUBLISH-STATUS.md": """# Publish status
 
-PRIVATE / NOT PUBLISHED. The pipeline contains no publish job or publication
-credential. Exact custom-license text, commercial minimum form, public
-licensing explanation, repository, registry, namespace, contributor, security,
-Engine release identity, and release authority must be explicitly approved
-before publication.
+Repository: `{public_repository}`. PyPI project: `{pypi_project}`. Publication
+is available only from the exact `v1.0.0` tag after all technical gates and the
+approved wheel-hash guard pass, using GitHub OIDC Trusted Publishing.
 """,
     }
     for filename in REQUIRED_FILES:
@@ -159,6 +183,8 @@ def main() -> None:
         "sdk-version",
         "wheel-sha256",
         "engine-commit",
+        "engine-version",
+        "engine-tag",
         "engine-linux-sha256",
         "engine-macos-sha256",
         "dependency-manifest-sha256",
@@ -172,6 +198,10 @@ def main() -> None:
         "release-workflow",
         "release-run",
         "signing-provenance",
+        "license-sha256",
+        "public-repository",
+        "pypi-project",
+        "publication-authorization",
     ):
         parser.add_argument(f"--{name}", required=True)
     args = parser.parse_args()

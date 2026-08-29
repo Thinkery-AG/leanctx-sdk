@@ -27,7 +27,7 @@ the model/tool/retry loop host-owned, abort and re-raise original exceptions,
 and retain a reversible host feature flag until receipt and recovery checks
 pass.
 
-P5–P7 local Research imports move to the explicit Preview namespace:
+Local-context Research imports move to the explicit Preview namespace:
 
 ```python
 from leanctx_sdk.preview import ContextWorkspace, ContextCheckpoint

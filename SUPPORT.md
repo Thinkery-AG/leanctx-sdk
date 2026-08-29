@@ -1,9 +1,7 @@
 # Support status
 
-This is an unpublished technical release candidate with approved licensing
-policy but unapproved legal text. Final commercial support owner, security
-channel, severity SLA, and supported-version window remain
-`PENDING_HUMAN_AUTHORITY`. Current evidence certifies only the exact SDK commit,
-wheel digest, Engine commit/binary digest, and compatibility rows recorded by
-the closeout bundle. No support claim extends to post-v1 APIs or untested
-platforms.
+Support covers only the exact SDK and Engine versions listed in
+`COMPATIBILITY.md`. Report vulnerabilities through GitHub Private Vulnerability
+Reporting. Commercial support terms require a separate written Thinkery AG
+agreement. No support claim extends to Preview compatibility, unlisted APIs,
+or untested platforms.

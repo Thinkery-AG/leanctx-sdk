@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — release candidate
+## 1.0.0
 
 ### Stable
 
@@ -13,13 +13,14 @@
 ### Preview
 
 - Explicit `leanctx_sdk.preview` namespace.
-- Local Workspace, Checkpoint, Fork, Delta, Handoff, and policy-inheritance
-  evaluation APIs.
+- Local Workspace, Checkpoint, Delta, Handoff, fork, and policy-inheritance
+  evaluation APIs. Engine-dependent package lifecycle helpers remain Internal
+  until a compatible public Engine release is bound.
 
 ### Distribution
 
 - Distribution `leanctx-sdk`, import `leanctx_sdk`, version `1.0.0`.
 - Perpetual source-available SDK license with no automatic open-source date;
   commercial Production Use requires a Thinkery AG agreement.
-- Private P8/P9, Cloud, production AutoTune, and internal Research evidence are
-  excluded.
+- Cloud Receipt Board, Governed Optimization, and private research evidence
+  are excluded.

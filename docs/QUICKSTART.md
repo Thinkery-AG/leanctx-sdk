@@ -13,9 +13,9 @@ root = Path.cwd()
 session = ContextSession(
     "inspect configuration",
     project_root=root,
-    engine=SubprocessEngineClient("/absolute/path/to/lean-ctx"),
+    engine=SubprocessEngineClient(),  # uses the compatible `lean-ctx` on PATH
 )
-source = ContextSource("src/config.py", project_root=root)
+source = ContextSource("README.md", project_root=root)
 view = session.prepare(source)
 plan = session.current_plan
 assert plan is not None
@@ -34,3 +34,6 @@ print(plan.plan_id, receipt.receipt_id)
 
 Replace the deterministic host step with your framework or model call. LeanCTX
 never owns that loop, its tools, retries, scheduling, or returned object.
+
+Run `lean-ctx --version` first and compare it with `COMPATIBILITY.md`. The
+example expects a project `README.md`; replace that path with any project file.

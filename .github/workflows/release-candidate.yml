@@ -1,8 +1,11 @@
-name: SDK release candidate
+name: SDK release
 
 on:
   pull_request:
   workflow_dispatch:
+  push:
+    tags:
+      - v1.0.0
 
 permissions:
   contents: read
@@ -13,6 +16,8 @@ concurrency:
 
 env:
   ENGINE_COMMIT: 5a90893092a7d31a8dae41ea6710b5a0c5048d15
+  ENGINE_VERSION: 3.9.20
+  ENGINE_TAG: PENDING_PUBLIC_ENGINE_RELEASE
   ENGINE_MACOS_ARM64_SHA256: e98b3367feea41298469a27c4e87fea7956117bc5b2c48072e6e7d55e0b08857
   RUST_TOOLCHAIN: 1.97.1
   SOURCE_DATE_EPOCH: "1704067200"
@@ -65,13 +70,7 @@ jobs:
       - run: ruff check src tests scripts examples 2>&1 | tee -a static-quality.log
       - run: >-
           MYPYPATH=src mypy --ignore-missing-imports
-          src/leanctx_sdk/__init__.py
-          src/leanctx_sdk/engine.py
-          src/leanctx_sdk/errors.py
-          src/leanctx_sdk/protocol.py
-          src/leanctx_sdk/receipt.py
-          src/leanctx_sdk/session.py
-          src/leanctx_sdk/integrations
+          src/leanctx_sdk
           2>&1 | tee -a static-quality.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -116,6 +115,7 @@ jobs:
       - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
       - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
         working-directory: engine/rust
+      - run: test "$(engine/rust/target/release/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
       - id: digest
         run: echo "sha256=$(sha256sum engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
       - run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_COMMIT"
@@ -128,7 +128,7 @@ jobs:
           retention-days: 14
 
   engine-macos-artifact:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
     timeout-minutes: 60
     outputs:
@@ -143,6 +143,7 @@ jobs:
       - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
       - run: cargo +"$RUST_TOOLCHAIN" build --release --locked
         working-directory: engine/rust
+      - run: test "$(engine/rust/target/release/lean-ctx --version | awk '{print $2}')" = "$ENGINE_VERSION"
       - id: digest
         run: echo "sha256=$(shasum -a 256 engine/rust/target/release/lean-ctx | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
       - run: test "${{ steps.digest.outputs.sha256 }}" = "$ENGINE_MACOS_ARM64_SHA256"
@@ -288,7 +289,7 @@ jobs:
           retention-days: 14
 
   framework-offline:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     needs: [engine-macos-artifact, sdk-artifact]
     runs-on: [self-hosted, macOS, ARM64, leanctx-sdk-release]
     timeout-minutes: 15
@@ -356,7 +357,7 @@ jobs:
 
   provenance:
     if: >-
-      ${{ always() && github.event_name == 'workflow_dispatch' &&
+      ${{ always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) &&
       needs.source-contract.result == 'success' &&
       needs.static-quality.result == 'success' &&
       needs.source-secret-scan.result == 'success' &&
@@ -365,7 +366,7 @@ jobs:
       needs.sdk-artifact.result == 'success' &&
       needs.installed-engine-contract.result == 'success' &&
       needs.dependency-audit.result == 'success' &&
-      needs.publication-disabled.result == 'success' &&
+      needs.publication-guard.result == 'success' &&
       needs.framework-offline.result == 'success' }}
     needs:
       - source-contract
@@ -377,7 +378,7 @@ jobs:
       - installed-engine-contract
       - dependency-audit
       - framework-offline
-      - publication-disabled
+      - publication-guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -393,7 +394,10 @@ jobs:
       QUALITY_TOOL_LOCK_SHA256: ${{ needs.static-quality.outputs.lock_sha256 }}
       WORKFLOW_REF: ${{ github.workflow_ref }}
       WORKFLOW_RUN_ID: ${{ github.run_id }}
-      SIGNING_PROVENANCE: NOT_CONFIGURED_PENDING_HUMAN_AUTHORITY
+      SIGNING_PROVENANCE: GITHUB_OIDC_TRUSTED_PUBLISHING
+      PUBLIC_REPOSITORY: ${{ github.repository }}
+      PYPI_PROJECT: leanctx-sdk
+      PUBLICATION_AUTHORIZATION: ${{ vars.SDK_V1_PUBLICATION_AUTHORIZED }}
       FRAMEWORK_GATE: ${{ needs.framework-offline.result }}
       FRAMEWORK_VERSION: openai-agents==0.8.4
       PYTHON_MATRIX: 3.9,3.10,3.11,3.12
@@ -413,6 +417,8 @@ jobs:
           --sdk-version "$SDK_VERSION"
           --wheel-sha256 "$SDK_WHEEL_SHA256"
           --engine-commit "$ENGINE_COMMIT"
+          --engine-version "$ENGINE_VERSION"
+          --engine-tag "$ENGINE_TAG"
           --engine-linux-sha256 "$ENGINE_LINUX_X86_64_SHA256"
           --engine-macos-sha256 "$ENGINE_MACOS_ARM64_SHA256"
           --dependency-manifest-sha256 "$DEPENDENCY_MANIFEST_SHA256"
@@ -426,6 +432,10 @@ jobs:
           --release-workflow "$WORKFLOW_REF"
           --release-run "$WORKFLOW_RUN_ID"
           --signing-provenance "$SIGNING_PROVENANCE"
+          --license-sha256 "$(sha256sum LICENSE | cut -d ' ' -f1)"
+          --public-repository "$PUBLIC_REPOSITORY"
+          --pypi-project "$PYPI_PROJECT"
+          --publication-authorization "$PUBLICATION_AUTHORIZATION"
       - run: >-
           find "$EVIDENCE_DIR" -type f
           ! -name provenance.json ! -name PAYLOAD-SHA256SUMS
@@ -451,7 +461,7 @@ jobs:
           'framework_gate': os.environ['FRAMEWORK_GATE'],
           'gates': ['source-contract', 'static-quality', 'source-secret-scan', 'engine-artifact',
           'sdk-artifact', 'installed-engine-contract', 'dependency-audit',
-          'framework-offline', 'publication-disabled'],
+          'framework-offline', 'publication-guard'],
           'sdk_commit': os.environ['SDK_COMMIT'],
           'sdk_version': os.environ['SDK_VERSION'],
           'sdk_wheel_sha256': os.environ['SDK_WHEEL_SHA256'],
@@ -474,21 +484,86 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publication-disabled:
+  publication-guard:
+    needs: sdk-artifact
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
       SDK_V1_PUBLICATION_AUTHORIZED: ${{ vars.SDK_V1_PUBLICATION_AUTHORIZED }}
+      SDK_V1_APPROVED_SDK_COMMIT: ${{ vars.SDK_V1_APPROVED_SDK_COMMIT }}
+      SDK_V1_APPROVED_VERSION: ${{ vars.SDK_V1_APPROVED_VERSION }}
+      SDK_V1_APPROVED_WHEEL_SHA256: ${{ vars.SDK_V1_APPROVED_WHEEL_SHA256 }}
+      SDK_V1_APPROVED_LICENSE_SHA256: ${{ vars.SDK_V1_APPROVED_LICENSE_SHA256 }}
+      SDK_V1_APPROVED_REPOSITORY: ${{ vars.SDK_V1_APPROVED_REPOSITORY }}
+      SDK_V1_APPROVED_PYPI_PROJECT: ${{ vars.SDK_V1_APPROVED_PYPI_PROJECT }}
+      SDK_V1_APPROVED_ENGINE_COMMIT: ${{ vars.SDK_V1_APPROVED_ENGINE_COMMIT }}
+      SDK_V1_APPROVED_ENGINE_VERSION: ${{ vars.SDK_V1_APPROVED_ENGINE_VERSION }}
+      SDK_V1_APPROVED_ENGINE_TAG: ${{ vars.SDK_V1_APPROVED_ENGINE_TAG }}
+      SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
     steps:
-      - run: test -z "$SDK_V1_PUBLICATION_AUTHORIZED"
+      - if: github.event_name != 'pull_request'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: test "$GITHUB_REF" = refs/tags/v1.0.0
+      - if: github.event_name != 'pull_request'
+        run: |
+          test "$SDK_V1_PUBLICATION_AUTHORIZED" = APPROVED
+          test "$GITHUB_SHA" = "$SDK_V1_APPROVED_SDK_COMMIT"
+          test "$SDK_V1_APPROVED_VERSION" = 1.0.0
+          test "$SDK_WHEEL_SHA256" = "$SDK_V1_APPROVED_WHEEL_SHA256"
+          test "$(sha256sum LICENSE | cut -d ' ' -f1)" = "$SDK_V1_APPROVED_LICENSE_SHA256"
+          test "$GITHUB_REPOSITORY" = "$SDK_V1_APPROVED_REPOSITORY"
+          test "$SDK_V1_APPROVED_PYPI_PROJECT" = leanctx-sdk
+          test "$ENGINE_COMMIT" = "$SDK_V1_APPROVED_ENGINE_COMMIT"
+          test "$ENGINE_VERSION" = "$SDK_V1_APPROVED_ENGINE_VERSION"
+          test "$ENGINE_TAG" = "$SDK_V1_APPROVED_ENGINE_TAG"
+          test "$ENGINE_VERSION" = 3.10.0
+          test "$ENGINE_TAG" = v3.10.0
+      - if: github.event_name == 'pull_request'
+        run: echo "Validation run; no publication requested."
 
   technical-release-gate:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     needs: provenance
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - run: echo "SDK v1 technical release gates passed; publication remains disabled."
+      - run: echo "SDK v1 technical release gates passed."
+
+  publish-pypi:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - provenance
+      - publication-guard
+      - sdk-artifact
+      - technical-release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/leanctx-sdk/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sdk-wheel-${{ needs.sdk-artifact.outputs.sdk_commit }}
+          path: download
+      - env:
+          APPROVED_SHA256: ${{ vars.SDK_V1_APPROVED_WHEEL_SHA256 }}
+          BUILT_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
+        run: |
+          test "$BUILT_SHA256" = "$APPROVED_SHA256"
+          test "$(sha256sum download/leanctx_sdk-1.0.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
+          mkdir publish
+          cp download/leanctx_sdk-1.0.0-py3-none-any.whl publish/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: publish
+          print-hash: true
 
   pull-request-validation:
     if: github.event_name == 'pull_request'
@@ -500,7 +575,7 @@ jobs:
       - sdk-artifact
       - installed-engine-contract
       - dependency-audit
-      - publication-disabled
+      - publication-guard
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

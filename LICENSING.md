@@ -17,6 +17,5 @@ another open-source license. A signed commercial agreement may override the
 source license only for rights it expressly grants.
 
 See [LICENSE](LICENSE), [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md), and
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). The exact local release candidate
-and exact SHA-256 of each license require explicit human approval before
-publication.
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). These files are the applicable SDK
+release terms; artifact-specific hashes are published with release provenance.

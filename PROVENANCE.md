@@ -11,10 +11,10 @@
 | `.github/workflows/**`, `requirements/**` | `CLEAN_REIMPLEMENT` | release policy and exact tool locks |
 | examples and public documentation | `CLEAN_REIMPLEMENT` | public Product contract |
 
-No SDK implementation is copied or line-adapted from LeanCTX Engine. The P4
-clean-reimplementation boundary remains valid after P5–P7 additions. Engine is
-consumed only through its public CLI wire boundary; Engine internals, P8/P9,
-Cloud, and hosted services are not dependencies.
+No SDK implementation is copied or line-adapted from LeanCTX Engine. The
+clean-reimplementation boundary covers Stable and Preview additions. Engine is
+consumed only through its public CLI wire boundary; Engine internals, Cloud,
+governed optimization, and hosted services are not dependencies.
 
 Third-party wheels are dependencies, not SDK source. Their digests, declared
 licenses, content audit, and accepted findings are bound separately by release

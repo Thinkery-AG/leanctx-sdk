@@ -61,7 +61,6 @@ PREVIEW_EXPORTS = {
     "ConflictReportV1",
     "ContextCheckpoint",
     "ContextCheckpointV2",
-    "ContextFork",
     "ContextDelta",
     "ContextDeltaV1",
     "ContextHandoff",
@@ -113,7 +112,6 @@ class PublicSurfaceTests(unittest.TestCase):
 
     def test_preview_aliases_bind_versioned_contracts(self):
         self.assertIs(preview.ContextCheckpoint, preview.ContextCheckpointV2)
-        self.assertIs(preview.ContextFork, preview.WorkspaceForkV1)
         self.assertIs(preview.ContextDelta, preview.ContextDeltaV1)
         self.assertIs(preview.ContextHandoff, preview.ContextHandoffV1)
 

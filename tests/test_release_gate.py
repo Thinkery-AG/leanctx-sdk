@@ -52,8 +52,10 @@ Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'open
             b"Terms require an executed agreement with Thinkery AG.\n"
         ),
         f"{DIST_INFO}/licenses/THIRD_PARTY_NOTICES": (
-            b"LeanCTX SDK third-party notice status\n"
-            b"The optional OpenAI Agents integration is separately distributed.\n"
+            "LeanCTX SDK v1.0.0 — Third-Party Notices\n"
+            "The exact 41-wheel audit includes openai-agents 0.8.4 — MIT.\n"
+        ).encode(
+            "utf-8"
         ),
     }
     if extra:
@@ -70,7 +72,7 @@ Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'open
 
 
 class ReleaseGateTests(unittest.TestCase):
-    def test_custom_license_review_material_is_fail_closed(self):
+    def test_custom_license_release_material_is_final_and_consistent(self):
         repository = Path(__file__).resolve().parents[1]
         required = (
             "LICENSE",
@@ -95,8 +97,14 @@ class ReleaseGateTests(unittest.TestCase):
 
         licensing = (repository / "LICENSING.md").read_text(encoding="utf-8")
         self.assertRegex(licensing, r"source[- ]available")
-        self.assertIn("human approval", licensing)
-        self.assertIn("exact SHA-256", licensing)
+        self.assertIn("artifact-specific hashes", licensing)
+        notices = (repository / "THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
+        self.assertIn("exact 41-wheel", notices)
+        self.assertIn("openai-agents 0.8.4 — MIT", notices)
+        self.assertNotRegex(
+            "\n".join((license_text, licensing, notices)).lower(),
+            r"draft|placeholder|todo legal|counsel must",
+        )
         self.assertFalse((repository / "legal").exists())
         self.assertFalse((repository / "docs/internal").exists())
 
@@ -312,6 +320,8 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"uses:\s+[^\s]+@(v\d+|main|master)\b")
         for required in (
             "ENGINE_COMMIT: 5a90893092a7d31a8dae41ea6710b5a0c5048d15",
+            "ENGINE_VERSION: 3.9.20",
+            "ENGINE_TAG: PENDING_PUBLIC_ENGINE_RELEASE",
             "PYTHONPATH: src:.",
             "static-quality:",
             "source-secret-scan:",
@@ -325,7 +335,18 @@ class ReleaseGateTests(unittest.TestCase):
             "dependency-audit:",
             "framework-offline:",
             "provenance:",
-            "publication-disabled:",
+            "publication-guard:",
+            "publish-pypi:",
+            "SDK_V1_APPROVED_SDK_COMMIT",
+            "SDK_V1_APPROVED_VERSION",
+            "SDK_V1_APPROVED_WHEEL_SHA256",
+            "SDK_V1_APPROVED_LICENSE_SHA256",
+            "SDK_V1_APPROVED_REPOSITORY",
+            "SDK_V1_APPROVED_PYPI_PROJECT",
+            "SDK_V1_APPROVED_ENGINE_COMMIT",
+            "SDK_V1_APPROVED_ENGINE_VERSION",
+            "SDK_V1_APPROVED_ENGINE_TAG",
+            "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
             "technical-release-gate:",
             "pull-request-validation:",
             "scripts/verify_wheel_install.py",
@@ -339,6 +360,24 @@ class ReleaseGateTests(unittest.TestCase):
             "pip-audit --require-hashes --disable-pip",
         ):
             self.assertIn(required, workflow)
+        framework = workflow.split("  framework-offline:", 1)[1].split(
+            "\n  provenance:", 1
+        )[0]
+        self.assertIn("path: dist", framework)
+        self.assertIn("realpath dist/*.whl", framework)
+        self.assertNotIn("realpath download/*.whl", framework)
+        publication = workflow.split("  publish-pypi:", 1)[1].split(
+            "\n  pull-request-validation:", 1
+        )[0]
+        self.assertIn("path: download", publication)
+        self.assertIn("cp download/leanctx_sdk-1.0.0-py3-none-any.whl", publication)
+        self.assertNotIn("path: dist", publication)
+
+    def test_workspace_clean_install_drops_source_pythonpath(self):
+        verifier = (
+            Path(__file__).parents[1] / "scripts/verify_workspace_installed.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('name == "PYTHONPATH"', verifier)
 
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
@@ -346,6 +385,8 @@ class ReleaseGateTests(unittest.TestCase):
             "sdk_version": "1.0.0",
             "wheel_sha256": "b" * 64,
             "engine_commit": "c" * 40,
+            "engine_version": "3.10.0",
+            "engine_tag": "v3.10.0",
             "engine_linux_sha256": "d" * 64,
             "engine_macos_sha256": "e" * 64,
             "dependency_manifest_sha256": "f" * 64,
@@ -358,7 +399,11 @@ class ReleaseGateTests(unittest.TestCase):
             "framework_version": "openai-agents==0.8.4",
             "release_workflow": ".github/workflows/release-candidate.yml@" + "a" * 40,
             "release_run": "fixture-run",
-            "signing_provenance": "NOT_CONFIGURED_PENDING_HUMAN_AUTHORITY",
+            "signing_provenance": "GITHUB_OIDC_TRUSTED_PUBLISHING",
+            "license_sha256": "5" * 64,
+            "public_repository": "thinkery-ag/leanctx-sdk",
+            "pypi_project": "leanctx-sdk",
+            "publication_authorization": "APPROVED",
         }
         with tempfile.TemporaryDirectory() as root:
             output = Path(root) / "release-evidence/sdk-v1" / values["sdk_commit"]
@@ -375,15 +420,20 @@ class ReleaseGateTests(unittest.TestCase):
             license_status = (output / "LICENSE-STATUS.md").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("CUSTOM_LICENSE_POLICY_APPROVED", license_status)
-            self.assertIn("LICENSE_TEXT_APPROVAL_PENDING", license_status)
-            self.assertIn("candidate text is materialized", license_status)
+            self.assertIn("CUSTOM_LICENSE_TEXT_APPROVED", license_status)
+            self.assertIn(values["license_sha256"], license_status)
             self.assertNotIn("license family: BSL", license_status)
             decision_gate = (output / "DECISION-GATE.md").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("Custom-license product policy: APPROVED", decision_gate)
+            self.assertIn("Custom-license product policy and exact release text", decision_gate)
             self.assertNotIn("All ten authority rows remain", decision_gate)
+
+            blocked = dict(values, publication_authorization="PENDING")
+            blocked_output = Path(root) / "blocked"
+            with self.assertRaisesRegex(ValueError, "publication authorization"):
+                generate(blocked_output, blocked)
+            self.assertFalse(blocked_output.exists())
 
 
 if __name__ == "__main__":

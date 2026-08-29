@@ -420,7 +420,7 @@ class SourceTrust:
             if self._construction_token is not _TRUST_CONSTRUCTION_TOKEN or not refs or any(
                 not _P4_RECEIPT_REF_RE.fullmatch(ref) for ref in refs
             ):
-                raise WorkspaceValidationError("verified trust requires P4-bound evidence")
+                raise WorkspaceValidationError("verified trust requires receipt-bound evidence")
         object.__setattr__(self, "evidence_refs", refs)
 
     def to_dict(self) -> Mapping[str, object]:
@@ -1875,7 +1875,7 @@ def _anchor_with_evidence(
         if _plain(source.to_dict()) != _plain(anchor.engine_binding):
             raise WorkspaceConflictError()
         if not _P4_RECEIPT_REF_RE.fullmatch(link.receipt_ref):
-            raise WorkspaceValidationError("evidence receipt ref is not P4-bound")
+            raise WorkspaceValidationError("evidence receipt ref is not lifecycle-bound")
         _validate_anchor_binding(anchor, source)
         refs.append(link.receipt_ref)
     refs = list(_refs(refs, "evidence_receipts", _MAX_ENTRY_REFS))
@@ -3751,7 +3751,7 @@ class ContextWorkspace:
         evidence_receipts: Sequence[ContextReceipt] = (),
     ) -> WorkspaceReceipt:
         if kind not in _EVENT_KINDS or kind == "workspace_created":
-            raise WorkspaceValidationError("event kind is not a mutable P5 event")
+            raise WorkspaceValidationError("event kind is not a mutable workspace event")
         _exact(payload, _event_payload_keys(kind), f"{kind} payload")
         selected_event_id = str(uuid.uuid4()) if event_id is None else _uuid(event_id, "event_id")
         _reject_sensitive(payload, "payload")
@@ -4179,7 +4179,7 @@ class ContextWorkspace:
                 raise WorkspaceConflictError()
             _validate_anchor_binding(matching_anchors[matching[0]], receipt_source)
             if not _P4_RECEIPT_REF_RE.fullmatch(receipt_link.receipt_ref):
-                raise WorkspaceValidationError("receipt ref is not P4-bound")
+                raise WorkspaceValidationError("receipt ref is not lifecycle-bound")
             bound_source_ids = (matching[0],)
             receipt_refs = _refs((receipt_link.receipt_ref,), "receipt_refs", _MAX_ENTRY_REFS)
             if recovery_ref is not None:

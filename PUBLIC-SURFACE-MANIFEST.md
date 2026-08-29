@@ -49,7 +49,7 @@ be re-exported from the root package. All are `PREVIEW`, since 1.0.0, owned by
 the SDK API owner, and may change in a minor release without the Stable v1
 compatibility guarantee.
 
-- Primary capabilities: `ContextWorkspace`, `ContextCheckpoint`, `ContextFork`,
+- Primary capabilities: `ContextWorkspace`, `ContextCheckpoint`,
   `ContextDelta`, `ContextHandoff`; versioned contracts `ContextCheckpointV2`,
   `ContextDeltaV1`, `ContextHandoffV1` remain public Preview aliases/types.
 - Workspace values: `PackagePin`, `ProjectContext`, `ProjectContextEntry`,
@@ -71,7 +71,6 @@ package must expose no `research` alias in the release artifact.
 
 The unversioned primary names are aliases over the frozen wire contracts:
 `ContextCheckpoint` → `ContextCheckpointV2` (`leanctx.context-checkpoint/v2`),
-`ContextFork` → `WorkspaceForkV1` (`leanctx.workspace-fork/v1`),
 `ContextDelta` → `ContextDeltaV1` (`leanctx.context-delta/v1`), and
 `ContextHandoff` → `ContextHandoffV1` (`leanctx.context-handoff/v1`).
 Versioned record names remain schema identifiers, not separate stability tiers.
@@ -95,7 +94,7 @@ public or grant a compatibility promise.
 
 ## Excluded surface
 
-- P8 Cloud Receipt Board and P9 Governed Optimization symbols.
+- Hosted Cloud and governed-optimization symbols.
 - Private service contracts, credentials, tenant logic, billing logic, policy
   internals, research datasets, proof bundles, and internal reports.
 - Source modules not reachable through the root or Preview `__all__` allowlists.
@@ -103,8 +102,7 @@ public or grant a compatibility promise.
 ## Release invariants
 
 1. Root `__all__` equals Stable primitives plus Stable supporting surface.
-2. Preview `__all__` equals the Preview namespace list above and excludes the
-   Internal package surface.
+2. Preview `__all__` equals the Preview namespace list above.
 3. Stable imports never depend on Preview modules.
 4. Public modules never import private research or Cloud implementation.
 5. Clean-wheel import and namespace-purity tests verify these invariants.

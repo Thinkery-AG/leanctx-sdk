@@ -15,8 +15,8 @@ The final distribution is `leanctx-sdk` and the import namespace is
 python -m pip install leanctx-sdk==1.0.0
 ```
 
-Public installation remains disabled until the exact release candidate,
-license, repository, and PyPI identity receive final authorization.
+Public installation remains disabled until the reviewed wheel, license,
+repository, and PyPI identity receive final authorization.
 
 ## 5-minute Quickstart
 
@@ -26,9 +26,9 @@ from pathlib import Path
 from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
 
 root = Path.cwd()
-engine = SubprocessEngineClient("/absolute/path/to/lean-ctx")
+engine = SubprocessEngineClient()  # uses the compatible `lean-ctx` on PATH
 session = ContextSession("inspect the configuration", project_root=root, engine=engine)
-source = ContextSource("src/config.py", project_root=root)
+source = ContextSource("README.md", project_root=root)
 
 view = session.prepare(source)
 plan = session.current_plan
@@ -68,17 +68,19 @@ follow SemVer; see [docs/SEMVER-AND-DEPRECATION.md](docs/SEMVER-AND-DEPRECATION.
 
 ## Preview
 
-Local Workspace, Checkpoint, Delta, Fork, and Handoff APIs are available from
+Local Workspace, Checkpoint, Delta, and Handoff APIs are available from
 `leanctx_sdk.preview`. Preview APIs may change in minor releases and are not
 covered by the Stable v1 compatibility guarantee.
 
 ```python
-from leanctx_sdk.preview import ContextCheckpoint, ContextFork, ContextWorkspace
+from leanctx_sdk.preview import ContextCheckpoint, ContextWorkspace
 ```
 
-See [docs/PREVIEW.md](docs/PREVIEW.md). P8 Receipt Board, P9 Governed
-Optimization, Cloud, and production AutoTune are private Research and are not
-included.
+See [docs/PREVIEW.md](docs/PREVIEW.md). Receipt Board, Governed Optimization,
+Cloud, and production AutoTune are private Research and are not included.
+
+Run the provider-free lifecycle example with
+`python examples/preview_workspace.py` from a source checkout.
 
 ## Engine
 

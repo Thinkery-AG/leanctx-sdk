@@ -44,16 +44,14 @@ class V1ContractTests(unittest.TestCase):
     def test_preview_namespace_is_explicit_and_aliases_are_frozen(self):
         self.assertIn("may change", (preview.__doc__ or "").lower())
         self.assertIs(preview.ContextCheckpoint, preview.ContextCheckpointV2)
-        self.assertIs(preview.ContextFork, preview.WorkspaceForkV1)
         self.assertIs(preview.ContextDelta, preview.ContextDeltaV1)
         self.assertIs(preview.ContextHandoff, preview.ContextHandoffV1)
         for name in (
             "ContextWorkspace",
             "ContextCheckpoint",
-            "ContextFork",
-            "ContextFork",
             "ContextDelta",
             "ContextHandoff",
+            "WorkspaceForkV1",
         ):
             self.assertIn(name, preview.__all__)
 

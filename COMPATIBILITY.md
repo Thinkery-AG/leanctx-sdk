@@ -5,7 +5,7 @@
 | Component | Declared scope | Release status |
 | --- | --- | --- |
 | Python | CPython 3.9–3.12 | supported after final artifact approval |
-| SDK wheel | pure Python, `py3-none-any` | candidate only |
+| SDK wheel | pure Python, `py3-none-any` | release artifact |
 | Local Engine | commit `5a90893092a7d31a8dae41ea6710b5a0c5048d15` | tested RC; public Engine release identity pending |
 | Engine protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.11, macOS arm64 | optional provider-free reference gate |
@@ -24,15 +24,14 @@ schema or transport values are rejected.
 
 ## Preview
 
-`leanctx_sdk.preview` contains the local Workspace, Checkpoint, Fork, Delta,
-and Handoff APIs from P5–P7. Preview APIs may change or be removed outside the
-stable deprecation policy. Engine-dependent package installation, seeding,
-sealing, and verification helpers remain internal until a matching supported
+`leanctx_sdk.preview` contains local Workspace, Checkpoint, Delta, Handoff, and
+fork APIs. Preview APIs may change or be removed outside the stable deprecation
+policy. Engine-dependent package installation, seeding, sealing, migration,
+and verification helpers remain Internal until a matching supported public
 Engine release exists.
 
-P8 receipt-board research, P9 governed optimization/AutoTune research, Cloud,
-streaming, model routing, and generalized framework orchestration are not
-shipped.
+Cloud Receipt Board, Governed Optimization/AutoTune, streaming, model routing,
+and generalized framework orchestration are not shipped.
 
 ## Platform limits
 

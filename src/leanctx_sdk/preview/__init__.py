@@ -50,16 +50,13 @@ from ..parallel_context import (
     WorkspaceForkV1,
     WorkspaceStateRefV1,
 )
-
 ContextCheckpoint = ContextCheckpointV2
-ContextFork = WorkspaceForkV1
 ContextDelta = ContextDeltaV1
 ContextHandoff = ContextHandoffV1
 
 __all__ = [
     "ContextCheckpointV2",
     "ContextCheckpoint",
-    "ContextFork",
     "ConflictEntryV1",
     "ConflictReportV1",
     "ContextWorkspace",

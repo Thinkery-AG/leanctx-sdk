@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provider-free two-process P5 Workspace acceptance proof."""
+"""Provider-free two-process Preview Workspace acceptance proof."""
 
 import argparse
 import json
@@ -41,11 +41,11 @@ def _anchor(project_root: Path) -> SourceAnchor:
 
 
 def _phase_a(state_root: Path, project_root: Path) -> dict:
-    workspace = ContextWorkspace.create(state_root, "P5 clean-machine gate")
+    workspace = ContextWorkspace.create(state_root, "Preview clean-machine gate")
     workspace.attach_source(_anchor(project_root))
     source = ContextSource("source.txt", project_root=str(project_root))
     attachment = workspace.start_session(
-        "P5 process A",
+        "Preview process A",
         source_id=_SOURCE_ID,
         source=source,
     )
@@ -82,7 +82,7 @@ def _phase_b(state_root: Path, project_root: Path, workspace_id: str, session_a:
         raise RuntimeError("process A lineage was not preserved")
     source = ContextSource("source.txt", project_root=str(project_root))
     attachment = workspace.start_session(
-        "P5 process B",
+        "Preview process B",
         source_id=_SOURCE_ID,
         source=source,
     )
@@ -118,7 +118,8 @@ def _clean_environment(engine: Path, shim_directory: Path) -> dict:
     for name in tuple(environment):
         upper = name.upper()
         if (
-            upper.endswith("_API_KEY")
+            name == "PYTHONPATH"
+            or upper.endswith("_API_KEY")
             or upper.endswith("_ACCESS_TOKEN")
             or upper.endswith("_CREDENTIALS")
             or upper in {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"}
@@ -168,7 +169,7 @@ def verify(engine: Path) -> dict:
         project.mkdir(mode=0o700)
         shim.mkdir(mode=0o700)
         project.joinpath("source.txt").write_text(
-            "provider-free P5 source\n", encoding="utf-8"
+            "provider-free Preview source\n", encoding="utf-8"
         )
         environment = _clean_environment(engine, shim)
         first = _run_phase(script, "a", state, project, environment)

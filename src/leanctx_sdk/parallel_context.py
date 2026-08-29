@@ -1,4 +1,4 @@
-"""Private Research contracts for P7 parallel local context.
+"""Preview contracts for parallel local context.
 
 The public SDK v1 root intentionally does not import this module.  Values here
 are immutable canonical artifacts; Workspace lifecycle integration lives in
@@ -111,7 +111,7 @@ def _canonical(value: Any) -> bytes:
     try:
         return canonical_bytes(_plain(value))
     except Exception as exc:
-        raise WorkspaceValidationError("P7 value is not canonical JSON") from exc
+        raise WorkspaceValidationError("parallel-context value is not canonical JSON") from exc
 
 
 def _digest(domain: str, value: Any) -> str:
@@ -163,13 +163,13 @@ def _reject_sensitive(value: Any) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if str(key).lower() in _FORBIDDEN_KEYS:
-                raise WorkspaceSensitiveDataError("P7 artifact")
+                raise WorkspaceSensitiveDataError("parallel-context artifact")
             _reject_sensitive(item)
     elif isinstance(value, (list, tuple)):
         for item in value:
             _reject_sensitive(item)
     elif isinstance(value, str) and _SECRET_RE.search(value):
-        raise WorkspaceSensitiveDataError("P7 artifact")
+        raise WorkspaceSensitiveDataError("parallel-context artifact")
 
 
 def _sorted_unique_text(values: Sequence[Any], name: str, maximum: int) -> Tuple[str, ...]:

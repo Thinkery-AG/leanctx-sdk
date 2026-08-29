@@ -119,7 +119,7 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
                 b"There is no Change Date",
             )
         ):
-            raise ValueError("wheel does not contain the reviewed license candidate")
+            raise ValueError("wheel does not contain the reviewed final license")
         commercial_text = contents[
             _DIST_INFO + "/licenses/COMMERCIAL-LICENSE.md"
         ]
@@ -135,11 +135,13 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
         if not all(
             marker in notices
             for marker in (
-                b"third-party notice status",
-                b"optional OpenAI Agents integration",
+                b"LeanCTX SDK v1.0.0",
+                b"Third-Party Notices",
+                b"exact 41-wheel",
+                b"openai-agents 0.8.4",
             )
         ):
-            raise ValueError("wheel does not contain the third-party notice candidate")
+            raise ValueError("wheel does not contain the final third-party notices")
         python_requires = metadata.get("Requires-Python", "")
         canonical_python_requires = ",".join(
             sorted(part.strip() for part in python_requires.split(",") if part.strip())
