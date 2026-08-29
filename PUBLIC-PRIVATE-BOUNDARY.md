@@ -3,9 +3,9 @@
 ## Public artifacts
 
 - LeanCTX Engine: Apache-2.0 open-source runtime and protocol implementation.
-- LeanCTX SDK: intended source-available `leanctx-sdk` package with Stable and
-  Preview surfaces defined by the manifest. Exact custom license text and
-  publication authority remain explicit release gates until approved.
+- LeanCTX SDK: source-available `leanctx-sdk` package with Stable and Preview
+  surfaces defined by the manifest. Exact license and artifact identities are
+  bound by the protected release gate.
 - Neutral wire schemas needed to use the public Engine/SDK boundary, when
   separately reviewed and intentionally published.
 
