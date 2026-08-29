@@ -33,8 +33,10 @@ def _validate(values: dict[str, str]) -> None:
         raise ValueError("final evidence requires SDK version 1.0.0")
     if values.get("engine_version") != "3.10.0" or values.get("engine_tag") != "v3.10.0":
         raise ValueError("final evidence requires Engine v3.10.0")
-    if values.get("pypi_project") != "leanctx-sdk":
-        raise ValueError("final evidence requires the leanctx-sdk PyPI project")
+    if values.get("pypi_project") != "thinkery-leanctx-sdk":
+        raise ValueError(
+            "final evidence requires the thinkery-leanctx-sdk PyPI project"
+        )
     if values.get("engine_release_repository") != "yvgude/lean-ctx":
         raise ValueError("final evidence requires the public Engine repository")
     expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0"

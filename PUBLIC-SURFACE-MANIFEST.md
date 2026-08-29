@@ -1,6 +1,6 @@
 # LeanCTX SDK v1 Public Surface Manifest
 
-This manifest is the allowlist for `leanctx-sdk` 1.0.0. Public import tests and
+This manifest is the allowlist for `thinkery-leanctx-sdk` 1.0.0. Public import tests and
 wheel inspection must agree with it before release. Anything not listed is
 Internal unless a later version updates this file deliberately.
 

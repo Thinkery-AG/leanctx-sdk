@@ -1,7 +1,7 @@
 # Migration to LeanCTX SDK 1.0
 
 The historical private distribution `leanctx-product-sdk-local` and import
-`leanctx_product_sdk` are replaced by `leanctx-sdk` and `leanctx_sdk`.
+`leanctx_product_sdk` are replaced by `thinkery-leanctx-sdk` and `leanctx_sdk`.
 
 ```python
 # old private preview
@@ -38,4 +38,4 @@ schemas fail closed. Preserve state directories for a compatible reader; do
 not reinterpret Workspace events as transcripts or another package format.
 
 The Rust `lean-ctx-sdk` facade remains an Apache Engine embedding mechanism and
-is not the Python `leanctx-sdk` distribution.
+is not the Python `thinkery-leanctx-sdk` distribution.

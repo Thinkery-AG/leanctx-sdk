@@ -16,10 +16,10 @@ from pathlib import Path, PurePosixPath
 from typing import Dict
 
 
-_DIST = "leanctx-sdk"
+_DIST = "thinkery-leanctx-sdk"
 _VERSION = "1.0.0"
 _PYTHON_REQUIRES = "<3.13,>=3.9"
-_DIST_INFO = "leanctx_sdk-1.0.0.dist-info"
+_DIST_INFO = "thinkery_leanctx_sdk-1.0.0.dist-info"
 _DIST_INFO_FILES = {
     "METADATA",
     "RECORD",

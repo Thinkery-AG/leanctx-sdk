@@ -175,7 +175,7 @@ def _validate_installed_provenance(
 ) -> None:
     code = (
         "from importlib.metadata import distribution; "
-        "value = distribution('leanctx-sdk').read_text('direct_url.json'); "
+        "value = distribution('thinkery-leanctx-sdk').read_text('direct_url.json'); "
         "print(value or '')"
     )
     result = subprocess.run(
