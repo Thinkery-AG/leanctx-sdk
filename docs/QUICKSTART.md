@@ -30,7 +30,7 @@ except BaseException as error:
 receipt = session.complete(result, outcome="completed")
 recovered = session.recover(view)
 assert recovered.source_digest == view.source_digest
-print(plan.plan_id, receipt.receipt_id)
+print(plan.plan_id, receipt.receipt_link.receipt_id)
 ```
 
 Replace the deterministic host step with your framework or model call. LeanCTX

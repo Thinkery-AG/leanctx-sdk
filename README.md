@@ -44,7 +44,7 @@ receipt = session.complete(host_result, outcome="completed")
 recovered = session.recover(view)
 
 assert recovered.source_digest == view.source_digest
-print(plan.plan_id, receipt.receipt_id)
+print(plan.plan_id, receipt.receipt_link.receipt_id)
 ```
 
 The host owns prompts, models, tools, retries, scheduling, and result objects.
