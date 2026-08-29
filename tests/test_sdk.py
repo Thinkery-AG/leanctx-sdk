@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from leanctx_sdk import (
@@ -398,6 +399,74 @@ class SDKTests(unittest.TestCase):
             self.assertTrue(result["receipt_verified"])
             self.assertTrue(result["recovery_exact"])
             self.assertEqual(result["receipt"]["integrity_status"], "sealed")
+
+    def test_context_reactor_fans_out_one_verified_view_and_recovers_exactly(self):
+        from examples.context_reactor import SPECIALISTS, run
+        from leanctx_sdk.protocol import RecoveredSource
+
+        text = "# Architecture\nInstall with pip install demo.\nVerify and recover safely.\n"
+
+        class ReactorFake(FakeEngine):
+            def context_view(self, plan):
+                self.context_calls += 1
+                return _fixture_view(plan.source, text)
+
+            def recover(
+                self, project_root, path, recovery_ref, source_ref, source_digest
+            ):
+                return RecoveredSource(
+                    text,
+                    source_ref,
+                    source_digest,
+                    recovery_ref,
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            source = root_path / "source.md"
+            source.write_text(text, encoding="utf-8")
+            fake = ReactorFake()
+            with patch(
+                "examples.context_reactor.SubprocessEngineClient",
+                return_value=fake,
+            ):
+                result = run(Path("/unused/engine"), root_path, "source.md")
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(fake.context_calls, 1)
+        self.assertEqual(result["context"]["sdk_prepare_calls"], 3)
+        self.assertEqual(result["context"]["materialized_views"], 1)
+        self.assertTrue(result["context"]["same_view_identity"])
+        self.assertEqual(result["context"]["parallel_specialists"], len(SPECIALISTS))
+        self.assertEqual(result["context"]["reused_prepare_calls"], 2)
+        self.assertEqual(
+            {item["context_fingerprint"] for item in result["specialists"].values()},
+            {result["context"]["fingerprint"]},
+        )
+        self.assertTrue(result["receipt"]["verified"])
+        self.assertTrue(result["recovery_exact"])
+
+    def test_context_reactor_fails_closed_on_inexact_recovery(self):
+        from examples.context_reactor import run
+
+        class InexactRecoveryFake(FakeEngine):
+            def context_view(self, plan):
+                self.context_calls += 1
+                return _fixture_view(plan.source, "shaped\n")
+
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            Path(root, "source.md").write_text("original\n", encoding="utf-8")
+            with patch(
+                "examples.context_reactor.SubprocessEngineClient",
+                return_value=InexactRecoveryFake(),
+            ), patch.object(
+                ContextSession,
+                "recover",
+                return_value=SimpleNamespace(text="not the original\n"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "exact source recovery failed"):
+                    run(Path("/unused/engine"), root_path, "source.md")
 
     def test_installed_gate_uses_native_embed_adapter_for_real_lifecycle(self):
         from leanctx_sdk.integrations import native_embed
