@@ -27,8 +27,8 @@ from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
 
 root = Path.cwd()
 engine = SubprocessEngineClient()  # uses the compatible `lean-ctx` on PATH
-session = ContextSession("inspect the configuration", project_root=root, engine=engine)
-source = ContextSource("README.md", project_root=root)
+session = ContextSession("inspect the configuration", project_root=str(root), engine=engine)
+source = ContextSource("README.md", project_root=str(root))
 
 view = session.prepare(source)
 plan = session.current_plan

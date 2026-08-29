@@ -13,10 +13,10 @@ from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
 root = Path.cwd()
 session = ContextSession(
     "inspect configuration",
-    project_root=root,
+    project_root=str(root),
     engine=SubprocessEngineClient(),  # uses the compatible `lean-ctx` on PATH
 )
-source = ContextSource("README.md", project_root=root)
+source = ContextSource("README.md", project_root=str(root))
 view = session.prepare(source)
 plan = session.current_plan
 assert plan is not None
