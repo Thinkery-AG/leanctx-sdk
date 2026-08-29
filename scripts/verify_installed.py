@@ -39,7 +39,7 @@ def verify_installed(engine: Path) -> dict:
             raise RuntimeError("installed SDK returned an invalid receipt")
 
     return {
-        "distribution": version("leanctx-sdk"),
+        "distribution": version("thinkery-leanctx-sdk"),
         "engine_interface": view.engine_interface_version,
         "integrity": receipt.integrity_status,
         "recovery_exact": True,

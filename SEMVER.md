@@ -1,6 +1,6 @@
 # Versioning Policy
 
-`leanctx-sdk` follows Semantic Versioning for the Stable public surface listed
+`thinkery-leanctx-sdk` follows Semantic Versioning for the Stable public surface listed
 in `PUBLIC-SURFACE-MANIFEST.md`.
 
 ## Stable surface

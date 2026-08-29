@@ -1,6 +1,6 @@
 # LeanCTX SDK v1 Status Map
 
-This map is normative for the `leanctx-sdk` 1.0.0 release. A symbol is
+This map is normative for the `thinkery-leanctx-sdk` 1.0.0 release. A symbol is
 Stable only when this file and `PUBLIC-SURFACE-MANIFEST.md` classify it Stable.
 
 ## Stable — v1 compatibility commitment

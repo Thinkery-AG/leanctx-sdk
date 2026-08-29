@@ -20,7 +20,7 @@
 
 ### Distribution
 
-- Distribution `leanctx-sdk`, import `leanctx_sdk`, version `1.0.0`.
+- Distribution `thinkery-leanctx-sdk`, import `leanctx_sdk`, version `1.0.0`.
 - Perpetual source-available SDK license with no automatic open-source date;
   commercial Production Use requires a Thinkery AG agreement.
 - P8 Cloud Receipt Board, P9 Governed Optimization, and private research evidence

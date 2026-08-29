@@ -17,7 +17,7 @@ from scripts.public_release_guard import PublicReleaseGuardError, check_files
 from scripts.source_secret_scan import SecretScanError, scan_files
 
 
-DIST_INFO = "leanctx_sdk-1.0.0.dist-info"
+DIST_INFO = "thinkery_leanctx_sdk-1.0.0.dist-info"
 
 
 def _record_hash(data):
@@ -27,7 +27,7 @@ def _record_hash(data):
 
 def _wheel(path, *, extra=None, python_requires=">=3.9,<3.13"):
     metadata = f"""Metadata-Version: 2.1
-Name: leanctx-sdk
+Name: thinkery-leanctx-sdk
 Version: 1.0.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
@@ -389,7 +389,10 @@ class ReleaseGateTests(unittest.TestCase):
             "\n  pull-request-validation:", 1
         )[0]
         self.assertIn("path: download", publication)
-        self.assertIn("cp download/leanctx_sdk-1.0.0-py3-none-any.whl", publication)
+        self.assertIn(
+            "cp download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl",
+            publication,
+        )
         self.assertNotIn("path: dist", publication)
 
     def test_workspace_clean_install_drops_source_pythonpath(self):
@@ -443,7 +446,7 @@ class ReleaseGateTests(unittest.TestCase):
             "signing_provenance": "GITHUB_OIDC_TRUSTED_PUBLISHING",
             "license_sha256": "5" * 64,
             "public_repository": "thinkery-ag/leanctx-sdk",
-            "pypi_project": "leanctx-sdk",
+            "pypi_project": "thinkery-leanctx-sdk",
             "publication_authorization": "APPROVED",
         }
         with tempfile.TemporaryDirectory() as root:

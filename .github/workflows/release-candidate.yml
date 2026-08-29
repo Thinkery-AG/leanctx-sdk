@@ -443,7 +443,7 @@ jobs:
       WORKFLOW_RUN_ID: ${{ github.run_id }}
       SIGNING_PROVENANCE: GITHUB_OIDC_TRUSTED_PUBLISHING
       PUBLIC_REPOSITORY: ${{ github.repository }}
-      PYPI_PROJECT: leanctx-sdk
+      PYPI_PROJECT: thinkery-leanctx-sdk
       PUBLICATION_AUTHORIZATION: ${{ vars.SDK_V1_PUBLICATION_AUTHORIZED }}
       FRAMEWORK_GATE: ${{ needs.framework-offline.result }}
       FRAMEWORK_VERSION: openai-agents==0.8.4
@@ -582,7 +582,7 @@ jobs:
           test "$SDK_WHEEL_SHA256" = "$SDK_V1_APPROVED_WHEEL_SHA256"
           test "$(sha256sum LICENSE | cut -d ' ' -f1)" = "$SDK_V1_APPROVED_LICENSE_SHA256"
           test "$GITHUB_REPOSITORY" = "$SDK_V1_APPROVED_REPOSITORY"
-          test "$SDK_V1_APPROVED_PYPI_PROJECT" = leanctx-sdk
+          test "$SDK_V1_APPROVED_PYPI_PROJECT" = thinkery-leanctx-sdk
           test "$ENGINE_COMMIT" = "$SDK_V1_APPROVED_ENGINE_COMMIT"
           test "$ENGINE_VERSION" = "$SDK_V1_APPROVED_ENGINE_VERSION"
           test "$ENGINE_TAG" = "$SDK_V1_APPROVED_ENGINE_TAG"
@@ -614,7 +614,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: pypi
-      url: https://pypi.org/project/leanctx-sdk/
+      url: https://pypi.org/project/thinkery-leanctx-sdk/
     permissions:
       contents: read
       id-token: write
@@ -628,9 +628,9 @@ jobs:
           BUILT_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
         run: |
           test "$BUILT_SHA256" = "$APPROVED_SHA256"
-          test "$(sha256sum download/leanctx_sdk-1.0.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
+          test "$(sha256sum download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
           mkdir publish
-          cp download/leanctx_sdk-1.0.0-py3-none-any.whl publish/
+          cp download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl publish/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: publish

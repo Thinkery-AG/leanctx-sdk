@@ -39,7 +39,7 @@ contract types remain available in the Preview namespace.
 
 ## Packaging identity
 
-- Distribution: `leanctx-sdk`
+- Distribution: `thinkery-leanctx-sdk`
 - Import package: `leanctx_sdk`
 - Version: `1.0.0`
 - Supported Python: 3.9–3.12

@@ -8,11 +8,11 @@ Your framework runs the agent. LeanCTX manages its context path.
 
 ## Install
 
-The final distribution is `leanctx-sdk` and the import namespace is
+The final distribution is `thinkery-leanctx-sdk` and the import namespace is
 `leanctx_sdk`:
 
 ```bash
-python -m pip install leanctx-sdk==1.0.0
+python -m pip install thinkery-leanctx-sdk==1.0.0
 ```
 
 Install the supported public Engine `v3.10.0` artifact described in

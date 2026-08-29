@@ -1,5 +1,5 @@
 {
-  "distribution": "leanctx-sdk",
+  "distribution": "thinkery-leanctx-sdk",
   "import_namespace": "leanctx_sdk",
   "lifecycle": ["Select", "Shape", "Reuse", "Recover"],
   "error_families": [
