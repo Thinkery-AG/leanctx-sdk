@@ -105,3 +105,24 @@ Create a new context after a crash or timeout. Cache state is intentionally
 process-local; `reconnect()` is explicit and does not claim to recover that
 cache. Async task cancellation terminates the process before propagating
 `CancelledError`. Durable Preview workspaces and checkpoints remain separate.
+
+## Reproduce the Agent Tools evidence
+
+Use an Engine 3.10.1 binary; both commands are provider-free and make no
+network calls:
+
+```bash
+PYTHONPATH=src:. python scripts/verify_agent_context_e2e.py \
+  --engine /path/to/lean-ctx --expected-engine-version 3.10.1
+PYTHONPATH=src:. python -m benchmarks.agent_tools.retrieval_benchmark \
+  --engine /path/to/lean-ctx
+```
+
+The end-to-end gate exercises persistent read, search, tree, compose, create,
+replace, and structured-argv execution through the real binary. The benchmark
+requires identical fact retrieval between raw full-file context and LeanCTX
+search context, then fails unless context-input savings are at least 30%.
+
+This controlled benchmark demonstrates retrieval savings for its public,
+deterministic fixture. It does not claim provider billing savings or that every
+agent workload will achieve the same ratio.

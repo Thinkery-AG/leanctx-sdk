@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import subprocess
 import tempfile
 import threading
 from types import MappingProxyType
-from typing import Callable, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from .errors import (
     AgentPermissionError,
@@ -195,7 +196,7 @@ class AgentContext:
         self._metrics = AgentMetrics()
         self._capabilities: Tuple[str, ...] = ()
         self._stderr = tempfile.TemporaryFile(mode="w+b")
-        self._policy_path = self._write_policy()
+        self._policy_path: Optional[str] = self._write_policy()
         env = {
             "LANG": "C",
             "LC_ALL": "C",
@@ -472,7 +473,10 @@ class AgentContext:
         integers = (value["original_tokens"], value["output_tokens"], value["saved_tokens"])
         if any(isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in integers):
             raise EngineProtocolError("Agent Tools token metrics are invalid")
-        if value["output_tokens"] + value["saved_tokens"] != value["original_tokens"]:
+        original_tokens = cast(int, integers[0])
+        output_tokens = cast(int, integers[1])
+        saved_tokens = cast(int, integers[2])
+        if output_tokens + saved_tokens != original_tokens:
             raise EngineProtocolError("Agent Tools token metrics are inconsistent")
         if not isinstance(value["changed"], bool) or (shell_value is not None and not isinstance(shell_value, dict)):
             raise EngineProtocolError("Agent Tools status metadata is invalid")
@@ -488,9 +492,9 @@ class AgentContext:
             tool=tool,
             text=text,
             content_blocks=content_blocks,
-            original_tokens=value["original_tokens"],
-            output_tokens=value["output_tokens"],
-            saved_tokens=value["saved_tokens"],
+            original_tokens=original_tokens,
+            output_tokens=output_tokens,
+            saved_tokens=saved_tokens,
             mode=mode,
             changed=value["changed"],
             shell=shell,
@@ -544,7 +548,15 @@ class AgentContext:
             raise AgentPermissionError("execute permission is disabled")
         if isinstance(argv, (str, bytes)) or not argv or any(not isinstance(item, str) or not item for item in argv):
             raise ValidationError("argv must be a non-empty sequence of strings")
-        executable = os.path.basename(argv[0])
+        if (
+            "/" in argv[0]
+            or "\\" in argv[0]
+            or os.path.basename(argv[0]) != argv[0]
+        ):
+            raise AgentPermissionError(
+                "executable must be a bare allowlisted name"
+            )
+        executable = argv[0]
         allowed = self.execution_policy.allowed_executables
         if allowed and executable not in allowed:
             raise AgentPermissionError("executable is not allowed: " + executable)
@@ -645,14 +657,30 @@ class AgentContext:
 class AsyncAgentContext:
     """Async facade with behavior identical to a serialized AgentContext."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        self._args = args
-        self._kwargs = kwargs
+    def __init__(
+        self,
+        project_root: Union[os.PathLike[str], str],
+        *,
+        task: str = "",
+        permissions: AgentPermissions = AgentPermissions(),
+        execution_policy: ExecutionPolicy = ExecutionPolicy(),
+        engine_binary: Union[os.PathLike[str], str] = "lean-ctx",
+        timeout: float = 30.0,
+    ) -> None:
+        self._factory: Callable[[], AgentContext] = partial(
+            AgentContext,
+            project_root,
+            task=task,
+            permissions=permissions,
+            execution_policy=execution_policy,
+            engine_binary=engine_binary,
+            timeout=timeout,
+        )
         self._context: Optional[AgentContext] = None
 
     async def open(self) -> "AsyncAgentContext":
         if self._context is None:
-            self._context = await asyncio.to_thread(AgentContext, *self._args, **self._kwargs)
+            self._context = await asyncio.to_thread(self._factory)
         return self
 
     @property
@@ -721,7 +749,7 @@ class AsyncAgentContext:
     async def reconnect(self) -> "AsyncAgentContext":
         if self._context is not None:
             await asyncio.to_thread(self._context.close)
-        self._context = await asyncio.to_thread(AgentContext, *self._args, **self._kwargs)
+        self._context = await asyncio.to_thread(self._factory)
         return self
 
     async def close(self) -> None:

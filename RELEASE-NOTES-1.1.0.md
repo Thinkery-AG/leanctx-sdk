@@ -18,6 +18,8 @@ context tools while retaining ownership of the model and agent loop.
 - Optional OpenAI Agents 0.8.4 function-tool adapter.
 - Custom-agent guide, security boundary, migration guidance, and runnable
   framework-neutral example.
+- Provider-free real-Engine verification plus a deterministic raw-vs-LeanCTX
+  retrieval benchmark with matched-answer and minimum-savings gates.
 
 ## Compatibility
 

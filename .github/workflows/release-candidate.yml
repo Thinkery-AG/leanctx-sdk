@@ -50,7 +50,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m unittest discover -s tests -v 2>&1 | tee source-contract.log
-      - run: python -m compileall -q src tests scripts examples
+      - run: python -m compileall -q src tests scripts examples benchmarks
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: source-contract-py${{ matrix.python }}-${{ github.sha }}
@@ -77,10 +77,12 @@ jobs:
           --requirement requirements/release-quality.txt
       - run: ruff --version | tee static-quality.log
       - run: mypy --version | tee -a static-quality.log
-      - run: ruff check src tests scripts examples 2>&1 | tee -a static-quality.log
+      - run: ruff check src tests scripts examples benchmarks 2>&1 | tee -a static-quality.log
       - run: >-
           MYPYPATH=src mypy --ignore-missing-imports
           src/leanctx_sdk
+          benchmarks/agent_tools
+          scripts/verify_agent_context_e2e.py
           2>&1 | tee -a static-quality.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -382,6 +384,17 @@ jobs:
           --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
           > "$RUNNER_TEMP/framework-behavior.json"
       - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python"
+          scripts/verify_agent_context_e2e.py
+          --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
+          --expected-engine-version 3.10.1
+          > "$RUNNER_TEMP/agent-context-e2e.json"
+      - run: >-
+          "$RUNNER_TEMP/framework-venv/bin/python"
+          -m benchmarks.agent_tools.retrieval_benchmark
+          --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
+          --output "$RUNNER_TEMP/agent-tools-benchmark.json"
+      - run: >-
           "$RUNNER_TEMP/framework-venv/bin/python" -m pip freeze --all
           > "$RUNNER_TEMP/framework-installed.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -389,6 +402,8 @@ jobs:
           name: framework-offline-${{ needs.sdk-artifact.outputs.sdk_commit }}
           path: |
             ${{ runner.temp }}/dependency-wheel-audit.json
+            ${{ runner.temp }}/agent-context-e2e.json
+            ${{ runner.temp }}/agent-tools-benchmark.json
             ${{ runner.temp }}/framework-behavior.json
             ${{ runner.temp }}/framework-installed.txt
           if-no-files-found: error

@@ -175,6 +175,10 @@ class AgentContextTests(unittest.TestCase):
             with self.assertRaises(AgentPermissionError):
                 context.run(("python", "-V"))
             with self.assertRaises(AgentPermissionError):
+                context.run(("/tmp/git", "status"))
+            with self.assertRaises(AgentPermissionError):
+                context.run((r"C:\\tools\\git", "status"))
+            with self.assertRaises(AgentPermissionError):
                 context.call("ctx_shell", {"command": "git status"})
             with self.assertRaises(ValidationError):
                 context.run(("git", "status"), timeout="5")
