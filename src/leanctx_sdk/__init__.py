@@ -3,16 +3,32 @@
 The five Product primitives are ContextSession, ContextSource, ContextView,
 ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 ``leanctx_sdk.preview`` and are outside the Stable compatibility guarantee.
+SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
+from .agent import (
+    AGENT_TOOLS_INTERFACE_VERSION,
+    AGENT_TOOLS_SCHEMA_VERSION,
+    AGENT_TOOLS_TRANSPORT_VERSION,
+    AgentContext,
+    AgentMetrics,
+    AgentPermissions,
+    AsyncAgentContext,
+    ExecutionPolicy,
+    ReadMode,
+    SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
+    ToolResult,
+)
 from .engine import EngineClient, SubprocessEngineClient
 from .errors import (
+    AgentPermissionError,
     ArtifactIntegrityError,
     CompatibilityError,
     ConfigurationError,
     EngineError,
+    EngineCrashed,
     EngineExecutionError,
     EngineProtocolError,
     EngineRejected,
@@ -26,6 +42,7 @@ from .errors import (
     SessionStateError,
     SourceUnavailableError,
     UnsupportedEngineError,
+    UnsupportedCapabilityError,
     ValidationError,
 )
 from .protocol import (
@@ -51,6 +68,14 @@ from .session import ContextSession
 
 __all__ = [
     "__version__",
+    "AGENT_TOOLS_INTERFACE_VERSION",
+    "AGENT_TOOLS_SCHEMA_VERSION",
+    "AGENT_TOOLS_TRANSPORT_VERSION",
+    "AgentContext",
+    "AgentMetrics",
+    "AgentPermissionError",
+    "AgentPermissions",
+    "AsyncAgentContext",
     "ArtifactIntegrityError",
     "CompatibilityError",
     "ConfigurationError",
@@ -64,6 +89,7 @@ __all__ = [
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
     "EngineClient",
+    "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
     "EngineProtocolError",
@@ -71,6 +97,7 @@ __all__ = [
     "EngineStatus",
     "EngineTimeout",
     "EngineUnavailable",
+    "ExecutionPolicy",
     "FailureCode",
     "Freshness",
     "FrameworkCompatibilityError",
@@ -79,14 +106,18 @@ __all__ = [
     "Integrity",
     "PolicyAdmissionError",
     "RecoveredSource",
+    "ReadMode",
     "RecoveryUnavailableError",
     "SCHEMA_VERSION",
     "SDKError",
     "SessionState",
     "SessionStateError",
     "SourceUnavailableError",
+    "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
     "SubprocessEngineClient",
+    "ToolResult",
     "TRANSPORT_VERSION",
     "UnsupportedEngineError",
+    "UnsupportedCapabilityError",
     "ValidationError",
 ]

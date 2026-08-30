@@ -140,6 +140,29 @@ class EngineTimeout(EngineError):
     abort_required = False
 
 
+class EngineCrashed(EngineError):
+    """The persistent Agent Tools Engine process exited unexpectedly."""
+
+    code = "engine_crashed"
+    guidance = "create a new AgentContext; mutation and execution calls are never retried"
+
+
+class AgentPermissionError(EngineError):
+    """The immutable AgentContext policy rejected a tool call."""
+
+    code = "agent_permission_denied"
+    guidance = "create a new AgentContext with the required explicit permission"
+    configuration_fix = True
+
+
+class UnsupportedCapabilityError(EngineError):
+    """The connected Engine did not negotiate the requested capability."""
+
+    code = "unsupported_capability"
+    guidance = "install a compatible Engine or choose a negotiated capability"
+    version_change = True
+
+
 class EngineProtocolError(EngineError):
     """The Engine response or process boundary violated the wire contract."""
 

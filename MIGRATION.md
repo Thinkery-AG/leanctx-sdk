@@ -1,5 +1,23 @@
 # Migration to LeanCTX SDK 1.0
 
+## Add Agent Tools with SDK 1.1
+
+Existing 1.0 lifecycle code remains valid. Use `AgentContext` only when the
+host needs reusable coding-agent tools:
+
+```python
+from leanctx_sdk import AgentContext
+
+with AgentContext(".", task="inspect the project") as tools:
+    result = tools.read("README.md", mode="signatures")
+```
+
+Do not translate an existing `ContextSession` into `AgentContext`: they solve
+different problems and can coexist. The former owns Select → Shape → Reuse →
+Recover evidence; the latter owns a project-jailed read/search/edit/execute
+tool session. Model choice, planning, retries, and the agent loop stay with the
+host.
+
 The historical private distribution `leanctx-product-sdk-local` and import
 `leanctx_product_sdk` are replaced by `thinkery-leanctx-sdk` and `leanctx_sdk`.
 

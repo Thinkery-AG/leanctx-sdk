@@ -31,7 +31,7 @@ class V1ContractTests(unittest.TestCase):
         self.contract = json.loads(path.read_text(encoding="utf-8"))
 
     def test_exact_product_primitives_exist_and_post_v1_is_absent(self):
-        self.assertEqual(sdk.__version__, "1.0.0")
+        self.assertEqual(sdk.__version__, "1.1.0")
         self.assertEqual(
             self.contract["primitives"],
             ["ContextSession", "ContextSource", "ContextView", "ContextPlan", "ContextReceipt"],
