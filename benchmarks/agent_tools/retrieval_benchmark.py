@@ -10,7 +10,8 @@ from pathlib import Path
 import socket
 from statistics import median
 import tempfile
-from typing import Iterable
+from typing import Iterable, cast
+from unittest.mock import patch
 
 from leanctx_sdk import AgentContext
 
@@ -163,21 +164,18 @@ def _run_once(engine: Path) -> dict[str, object]:
 def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
     if type(repeats) is not int or not 2 <= repeats <= 10:
         raise ValueError("repeats must be between 2 and 10")
-    original_connect = socket.socket.connect
-
     def deny_network(*_args, **_kwargs):
         raise RuntimeError("network access is forbidden during the benchmark")
 
-    socket.socket.connect = deny_network
-    try:
+    with patch.object(socket.socket, "connect", deny_network):
         reports = [_run_once(engine) for _ in range(repeats)]
-    finally:
-        socket.socket.connect = original_connect
     canonical = [json.dumps(report, sort_keys=True, separators=(",", ":")) for report in reports]
     if len(set(canonical)) != 1:
         raise ValueError("benchmark results are not deterministic")
     report = reports[0]
-    median_savings = round(median(item["savings_percent"] for item in reports), 6)
+    median_savings = round(
+        median(cast(float, item["savings_percent"]) for item in reports), 6
+    )
     report.update(
         {
             "benchmark": "leanctx.agent-tools-retrieval/v1",
