@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - v1.0.0
+      - v1.1.0
 
 permissions:
   contents: read
@@ -437,7 +437,7 @@ jobs:
     timeout-minutes: 5
     env:
       SDK_COMMIT: ${{ needs.sdk-artifact.outputs.sdk_commit }}
-      SDK_VERSION: 1.0.0
+      SDK_VERSION: 1.1.0
       SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
       ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
       ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
@@ -588,12 +588,12 @@ jobs:
         with:
           persist-credentials: false
       - if: startsWith(github.ref, 'refs/tags/')
-        run: test "$GITHUB_REF" = refs/tags/v1.0.0
+        run: test "$GITHUB_REF" = refs/tags/v1.1.0
       - if: github.event_name != 'pull_request'
         run: |
           test "$SDK_V1_PUBLICATION_AUTHORIZED" = APPROVED
           test "$GITHUB_SHA" = "$SDK_V1_APPROVED_SDK_COMMIT"
-          test "$SDK_V1_APPROVED_VERSION" = 1.0.0
+          test "$SDK_V1_APPROVED_VERSION" = 1.1.0
           test "$SDK_WHEEL_SHA256" = "$SDK_V1_APPROVED_WHEEL_SHA256"
           test "$(sha256sum LICENSE | cut -d ' ' -f1)" = "$SDK_V1_APPROVED_LICENSE_SHA256"
           test "$GITHUB_REPOSITORY" = "$SDK_V1_APPROVED_REPOSITORY"
@@ -643,9 +643,9 @@ jobs:
           BUILT_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
         run: |
           test "$BUILT_SHA256" = "$APPROVED_SHA256"
-          test "$(sha256sum download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
+          test "$(sha256sum download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
           mkdir publish
-          cp download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl publish/
+          cp download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl publish/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: publish
