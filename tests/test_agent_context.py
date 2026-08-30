@@ -219,17 +219,12 @@ class AgentContextTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX process-tree behavior")
     @mock.patch("leanctx_sdk.agent.os.killpg")
     @mock.patch("leanctx_sdk.agent.os.kill")
-    @mock.patch("leanctx_sdk.agent.subprocess.run")
     def test_cancel_tree_stops_engine_and_kills_descendants(
-        self, run, kill, killpg
+        self, kill, killpg
     ):
-        run.return_value = mock.Mock(stdout="20 10\n30 20\n")
         AgentContext._kill_posix_tree(10)
         kill.assert_any_call(10, signal.SIGSTOP)
-        kill.assert_any_call(30, signal.SIGKILL)
-        kill.assert_any_call(20, signal.SIGKILL)
-        kill.assert_any_call(10, signal.SIGKILL)
-        killpg.assert_any_call(20, signal.SIGKILL)
+        killpg.assert_called_once_with(10, signal.SIGKILL)
 
     def test_capability_injection_is_rejected(self):
         with AgentContext(self.root.name) as context:

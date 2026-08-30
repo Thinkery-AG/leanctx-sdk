@@ -396,7 +396,7 @@ class ReleaseGateTests(unittest.TestCase):
         )[0]
         self.assertIn("path: download", publication)
         self.assertIn(
-            "cp download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl",
+            "cp download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl",
             publication,
         )
         self.assertNotIn("path: dist", publication)

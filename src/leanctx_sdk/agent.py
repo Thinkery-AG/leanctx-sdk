@@ -204,6 +204,9 @@ class AgentContext:
             "TZ": "UTC",
             "PYTHONHASHSEED": "0",
         }
+        for name in ("SYSTEMROOT", "WINDIR"):
+            if name in os.environ:
+                env[name] = os.environ[name]
         if permissions.execute:
             for name in ("PATH", "TMPDIR", "TEMP", "TMP"):
                 if name in os.environ:
@@ -225,6 +228,12 @@ class AgentContext:
                 stdout=subprocess.PIPE,
                 stderr=self._stderr,
                 shell=False,
+                start_new_session=os.name != "nt",
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if os.name == "nt"
+                    else 0
+                ),
             )
             self._responses: "queue.Queue[bytes]" = queue.Queue()
             self._reader = threading.Thread(
@@ -653,40 +662,13 @@ class AgentContext:
             os.kill(pid, signal.SIGSTOP)
         except ProcessLookupError:
             return
-        descendants: dict[int, list[int]] = {}
-        ps = "/bin/ps" if Path("/bin/ps").is_file() else "/usr/bin/ps"
         try:
-            result = subprocess.run(
-                (ps, "-axo", "pid=,ppid="),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            for line in result.stdout.splitlines():
-                child, parent = (int(value) for value in line.split())
-                descendants.setdefault(parent, []).append(child)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            descendants = {}
-
-        pending = list(descendants.get(pid, ()))
-        ordered = []
-        while pending:
-            child = pending.pop()
-            ordered.append(child)
-            pending.extend(descendants.get(child, ()))
-        for child in reversed(ordered):
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
             try:
-                os.killpg(child, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            try:
-                os.kill(child, signal.SIGKILL)
+                os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
     def _crash_message(self) -> str:
         if self._stderr.closed:
