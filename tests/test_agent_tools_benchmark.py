@@ -42,6 +42,14 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
         report = evaluate((self.row("a", 1000, 800),))
         self.assertEqual(report["status"], "FAIL")
 
+    def test_rejects_any_task_below_the_savings_floor(self):
+        report = evaluate(
+            (self.row("a", 10_000, 100), self.row("b", 100, 80))
+        )
+        self.assertGreater(report["savings_percent"], 30.0)
+        self.assertEqual(report["minimum_task_savings_percent"], 20.0)
+        self.assertEqual(report["status"], "FAIL")
+
     def test_report_is_canonical_json_compatible(self):
         report = evaluate((self.row("a", 1000, 100),))
         first = json.dumps(report, sort_keys=True, separators=(",", ":"))

@@ -87,11 +87,15 @@ with AgentContext(".", permissions=permissions, execution_policy=commands) as ct
         raise RuntimeError(result.text)
 ```
 
+Executable policy entries are bare names. The Engine resolves each name to an
+absolute executable outside the project and launches structured argv directly;
+repository-local executable shadowing and shell-string interpolation are denied.
+
 Write and execute rights cannot be added to an existing context. Create a new
 context after an explicit host authorization decision. Execute permission
 requires a non-empty executable allowlist. Environment variables are rejected
 unless named in `allowed_env`; the Engine validates argv, executable, env, and
-timeout again before constructing its internal shell command.
+timeout again before starting the native process.
 
 ## Failure behavior
 
@@ -122,7 +126,8 @@ The end-to-end gate exercises persistent read, search, tree, compose, create,
 replace, and structured-argv execution through the real binary. The benchmark
 requires exact-answer parity between direct full-file context and LeanCTX search
 context, denies Python-side network access, repeats the run three times, and
-fails unless deterministic median context-input savings are at least 30%.
+fails unless deterministic median and every per-task context-input saving are
+at least 30%.
 
 The raw baseline uses direct file content and the Engine's original-token count;
 the LeanCTX lane uses returned search context. This controlled three-task

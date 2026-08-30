@@ -117,10 +117,23 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
         for row, (raw, leanctx) in zip(ordered, lanes)
     )
     savings = 100.0 * (raw_tokens - lean_tokens) / raw_tokens
-    passed = quality_match and savings >= MINIMUM_SAVINGS_PERCENT
+    task_savings = [
+        100.0 * (raw["context_input_tokens"] - leanctx["context_input_tokens"])
+        / raw["context_input_tokens"]
+        for raw, leanctx in lanes
+        if raw["context_input_tokens"] > 0
+    ]
+    minimum_task_savings = min(task_savings, default=float("-inf"))
+    passed = (
+        quality_match
+        and savings >= MINIMUM_SAVINGS_PERCENT
+        and minimum_task_savings >= MINIMUM_SAVINGS_PERCENT
+        and len(task_savings) == len(lanes)
+    )
     return {
         "context_input_tokens": {"leanctx": lean_tokens, "raw": raw_tokens},
         "minimum_savings_percent": MINIMUM_SAVINGS_PERCENT,
+        "minimum_task_savings_percent": round(minimum_task_savings, 6),
         "quality_match": quality_match,
         "savings_percent": round(savings, 6),
         "status": "PASS" if passed else "FAIL",
