@@ -17,7 +17,7 @@ from scripts.public_release_guard import PublicReleaseGuardError, check_files
 from scripts.source_secret_scan import SecretScanError, scan_files
 
 
-DIST_INFO = "thinkery_leanctx_sdk-1.0.0.dist-info"
+DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
 
 
 def _record_hash(data):
@@ -28,9 +28,15 @@ def _record_hash(data):
 def _wheel(path, *, extra=None, python_requires=">=3.9,<3.13"):
     metadata = f"""Metadata-Version: 2.1
 Name: thinkery-leanctx-sdk
-Version: 1.0.0
+Version: 1.1.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
+Provides-Extra: agent
+Requires-Dist: thinkery-leanctx-engine (==3.11.0) ; extra == 'agent'
+Provides-Extra: agent-cuda
+Requires-Dist: thinkery-leanctx-engine-cuda (==3.11.0) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
+Provides-Extra: agent-windows-gnu
+Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.11.0) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
 Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
@@ -52,7 +58,7 @@ Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'open
             b"Terms require an executed agreement with Thinkery AG.\n"
         ),
         f"{DIST_INFO}/licenses/THIRD_PARTY_NOTICES": (
-            "LeanCTX SDK v1.0.0 — Third-Party Notices\n"
+            "LeanCTX SDK v1.1.0 — Third-Party Notices\n"
             "The exact 41-wheel audit includes openai-agents 0.8.4 — MIT.\n"
         ).encode(
             "utf-8"

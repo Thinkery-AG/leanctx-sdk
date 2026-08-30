@@ -17,9 +17,9 @@ from typing import Dict
 
 
 _DIST = "thinkery-leanctx-sdk"
-_VERSION = "1.0.0"
+_VERSION = "1.1.0"
 _PYTHON_REQUIRES = "<3.13,>=3.9"
-_DIST_INFO = "thinkery_leanctx_sdk-1.0.0.dist-info"
+_DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
 _DIST_INFO_FILES = {
     "METADATA",
     "RECORD",
@@ -135,7 +135,7 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
         if not all(
             marker in notices
             for marker in (
-                b"LeanCTX SDK v1.0.0",
+                b"LeanCTX SDK v1.1.0",
                 b"Third-Party Notices",
                 b"exact 41-wheel",
                 b"openai-agents 0.8.4",
@@ -155,6 +155,9 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
         expected_requirements = sorted(
             _canonical_requirement(value)
             for value in [
+                'thinkery-leanctx-engine (==3.11.0) ; extra == \'agent\'',
+                'thinkery-leanctx-engine-cuda (==3.11.0) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == \'agent-cuda\'',
+                'thinkery-leanctx-engine-windows-gnu (==3.11.0) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == \'agent-windows-gnu\'',
                 'openai (==2.19.0) ; (python_version >= "3.10") and extra == \'openai-agents\'',
                 'openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == \'openai-agents\'',
                 'pydantic (==2.12.3) ; (python_version >= "3.10") and extra == \'openai-agents\'',
