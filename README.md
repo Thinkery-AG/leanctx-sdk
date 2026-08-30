@@ -23,14 +23,14 @@ your model / agent loop
           ↓
 AgentContext or AsyncAgentContext
           ↓  versioned local Agent Tools Interface
-LeanCTX Engine 3.11
+LeanCTX Engine 3.10.1
           ↓
 project-jailed files, cache, search, patches, approved commands
 ```
 
 ## Install
 
-The 1.1 source tree is a release candidate until the exact Engine 3.11
+The 1.1 source tree is a release candidate until the exact Engine 3.10.1
 companion wheels are published. The release gate must not publish the SDK first.
 After both artifacts are available, the one-command install is:
 
@@ -105,7 +105,7 @@ the Engine's raw-output baseline; they are not a promise for every workload.
 The five SDK 1.0 lifecycle primitives remain available unchanged:
 `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
 `ContextReceipt`. `AgentContext` requires Agent Tools Interface v1 from Engine
-3.11; the older context-view/recover Engine Interface v1 remains unchanged.
+3.10.1; the older context-view/recover Engine Interface v1 remains unchanged.
 
 See:
 

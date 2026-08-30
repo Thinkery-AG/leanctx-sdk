@@ -22,9 +22,9 @@ context tools while retaining ownership of the model and agent loop.
 ## Compatibility
 
 The five SDK 1.0 lifecycle primitives and Engine Interface v1 are unchanged.
-Agent Tools requires LeanCTX Engine 3.11 with interface `1.0.0`, schema `1`,
+Agent Tools requires LeanCTX Engine 3.10.1 with interface `1.0.0`, schema `1`,
 and transport `1`.
 
-The Engine 3.11 artifacts and companion Python packages must be published
+The Engine 3.10.1 artifacts and companion Python packages must be published
 before the `[agent]` installation extra is generally available. Until then,
 use a source-built compatible Engine through `engine_binary=`.

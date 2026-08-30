@@ -32,11 +32,11 @@ Version: 1.1.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
 Provides-Extra: agent
-Requires-Dist: thinkery-leanctx-engine (==3.11.0) ; extra == 'agent'
+Requires-Dist: thinkery-leanctx-engine (==3.10.1) ; extra == 'agent'
 Provides-Extra: agent-cuda
-Requires-Dist: thinkery-leanctx-engine-cuda (==3.11.0) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
+Requires-Dist: thinkery-leanctx-engine-cuda (==3.10.1) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
 Provides-Extra: agent-windows-gnu
-Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.11.0) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
+Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.10.1) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
 Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
