@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import queue
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -622,7 +623,20 @@ class AgentContext:
     def _terminate(self) -> None:
         process = getattr(self, "_process", None)
         if process is not None and process.poll() is None:
-            process.terminate()
+            pid = getattr(process, "pid", None)
+            if isinstance(pid, int) and pid > 0:
+                if os.name == "nt":
+                    subprocess.run(
+                        ("taskkill", "/F", "/T", "/PID", str(pid)),
+                        check=False,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                else:
+                    self._kill_posix_tree(pid)
+            else:
+                process.terminate()
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
@@ -632,6 +646,47 @@ class AgentContext:
         if stderr is not None and not stderr.closed:
             stderr.close()
         self._remove_policy()
+
+    @staticmethod
+    def _kill_posix_tree(pid: int) -> None:
+        try:
+            os.kill(pid, signal.SIGSTOP)
+        except ProcessLookupError:
+            return
+        descendants: dict[int, list[int]] = {}
+        ps = "/bin/ps" if Path("/bin/ps").is_file() else "/usr/bin/ps"
+        try:
+            result = subprocess.run(
+                (ps, "-axo", "pid=,ppid="),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            for line in result.stdout.splitlines():
+                child, parent = (int(value) for value in line.split())
+                descendants.setdefault(parent, []).append(child)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            descendants = {}
+
+        pending = list(descendants.get(pid, ()))
+        ordered = []
+        while pending:
+            child = pending.pop()
+            ordered.append(child)
+            pending.extend(descendants.get(child, ()))
+        for child in reversed(ordered):
+            try:
+                os.killpg(child, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                os.kill(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     def _crash_message(self) -> str:
         if self._stderr.closed:

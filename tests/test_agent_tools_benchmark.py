@@ -38,6 +38,13 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertFalse(report["quality_match"])
 
+    def test_rejects_inconsistent_answer_match_field(self):
+        row = self.row("a", 1000, 10)
+        row["leanctx"]["answer_match"] = False
+        report = evaluate((row,))
+        self.assertEqual(report["status"], "FAIL")
+        self.assertFalse(report["quality_match"])
+
     def test_rejects_insufficient_savings(self):
         report = evaluate((self.row("a", 1000, 800),))
         self.assertEqual(report["status"], "FAIL")

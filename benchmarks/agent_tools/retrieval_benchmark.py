@@ -114,6 +114,8 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
         raw["answer"] == row["expected"]
         and leanctx["answer"] == row["expected"]
         and raw["answer"] == leanctx["answer"]
+        and raw["answer_match"] is True
+        and leanctx["answer_match"] is True
         for row, (raw, leanctx) in zip(ordered, lanes)
     )
     savings = 100.0 * (raw_tokens - lean_tokens) / raw_tokens
