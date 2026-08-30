@@ -120,9 +120,11 @@ PYTHONPATH=src:. python -m benchmarks.agent_tools.retrieval_benchmark \
 
 The end-to-end gate exercises persistent read, search, tree, compose, create,
 replace, and structured-argv execution through the real binary. The benchmark
-requires identical fact retrieval between raw full-file context and LeanCTX
-search context, then fails unless context-input savings are at least 30%.
+requires exact-answer parity between direct full-file context and LeanCTX search
+context, denies Python-side network access, repeats the run three times, and
+fails unless deterministic median context-input savings are at least 30%.
 
-This controlled benchmark demonstrates retrieval savings for its public,
-deterministic fixture. It does not claim provider billing savings or that every
-agent workload will achieve the same ratio.
+The raw baseline uses direct file content and the Engine's original-token count;
+the LeanCTX lane uses returned search context. This controlled three-task
+fixture does not claim provider billing savings, production-workload coverage,
+or that every agent workload will achieve the same ratio.

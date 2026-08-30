@@ -7,6 +7,8 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import socket
+from statistics import median
 import tempfile
 from typing import Iterable
 
@@ -14,6 +16,7 @@ from leanctx_sdk import AgentContext
 
 
 MINIMUM_SAVINGS_PERCENT = 30.0
+DEFAULT_REPEATS = 3
 
 
 @dataclass(frozen=True)
@@ -60,10 +63,12 @@ def _raw_lane(root: Path, engine: Path, task: Task) -> dict[str, object]:
     with AgentContext(root, task=task.query, engine_binary=engine) as context:
         for path in sorted(root.glob("*.txt")):
             result = context.read(path.name, "full", fresh=True)
-            context_tokens += result.output_tokens
-            combined.append(result.text)
+            context_tokens += result.original_tokens
+            combined.append(path.read_text(encoding="utf-8"))
+    answer = task.expected if task.expected in "\n".join(combined) else None
     return {
-        "answer_match": task.expected in "\n".join(combined),
+        "answer": answer,
+        "answer_match": answer == task.expected,
         "context_input_tokens": context_tokens,
         "tool_calls": len(combined),
     }
@@ -72,8 +77,10 @@ def _raw_lane(root: Path, engine: Path, task: Task) -> dict[str, object]:
 def _lean_lane(root: Path, engine: Path, task: Task) -> dict[str, object]:
     with AgentContext(root, task=task.query, engine_binary=engine) as context:
         result = context.search(task.query, path=".", max_results=20)
+    answer = task.expected if task.expected in result.text else None
     return {
-        "answer_match": task.expected in result.text,
+        "answer": answer,
+        "answer_match": answer == task.expected,
         "context_input_tokens": result.output_tokens,
         "tool_calls": 1,
     }
@@ -96,14 +103,18 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
                 value = lane.get(field)
                 if type(value) is not int or value < 0:
                     raise ValueError(f"{label} {field} must be a non-negative integer")
+            if lane.get("answer") is not None and not isinstance(lane.get("answer"), str):
+                raise ValueError(f"{label} answer must be a string or null")
         lanes.append((raw, leanctx))
     raw_tokens = sum(raw["context_input_tokens"] for raw, _ in lanes)
     lean_tokens = sum(leanctx["context_input_tokens"] for _, leanctx in lanes)
     if raw_tokens <= 0 or lean_tokens < 0:
         raise ValueError("invalid benchmark token totals")
     quality_match = all(
-        raw["answer_match"] and leanctx["answer_match"]
-        for raw, leanctx in lanes
+        raw["answer"] == row["expected"]
+        and leanctx["answer"] == row["expected"]
+        and raw["answer"] == leanctx["answer"]
+        for row, (raw, leanctx) in zip(ordered, lanes)
     )
     savings = 100.0 * (raw_tokens - lean_tokens) / raw_tokens
     passed = quality_match and savings >= MINIMUM_SAVINGS_PERCENT
@@ -117,7 +128,7 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def run(engine: Path) -> dict[str, object]:
+def _run_once(engine: Path) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="leanctx-agent-benchmark-") as directory:
         root = Path(directory)
         create_fixture(root)
@@ -131,24 +142,59 @@ def run(engine: Path) -> dict[str, object]:
                     "task_id": task.task_id,
                 }
             )
-        report = evaluate(rows)
-        report.update(
-            {
-                "benchmark": "leanctx.agent-tools-retrieval/v1",
-                "engine_version": "3.10.1",
-                "scope": "context retrieval only; no provider billing claim",
-                "sdk_version": "1.1.0",
-            }
-        )
-        return report
+        return evaluate(rows)
+
+
+def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
+    if type(repeats) is not int or not 2 <= repeats <= 10:
+        raise ValueError("repeats must be between 2 and 10")
+    original_connect = socket.socket.connect
+
+    def deny_network(*_args, **_kwargs):
+        raise RuntimeError("network access is forbidden during the benchmark")
+
+    socket.socket.connect = deny_network
+    try:
+        reports = [_run_once(engine) for _ in range(repeats)]
+    finally:
+        socket.socket.connect = original_connect
+    canonical = [json.dumps(report, sort_keys=True, separators=(",", ":")) for report in reports]
+    if len(set(canonical)) != 1:
+        raise ValueError("benchmark results are not deterministic")
+    report = reports[0]
+    median_savings = round(median(item["savings_percent"] for item in reports), 6)
+    report.update(
+        {
+            "benchmark": "leanctx.agent-tools-retrieval/v1",
+            "engine_version": "3.10.1",
+            "median_savings_percent": median_savings,
+            "network_access": "denied",
+            "repeats": repeats,
+            "scope": "controlled context retrieval only; no provider billing claim",
+            "sdk_version": "1.1.0",
+            "status": "PASS"
+            if all(item["status"] == "PASS" for item in reports)
+            and median_savings >= MINIMUM_SAVINGS_PERCENT
+            else "FAIL",
+        }
+    )
+    return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", required=True, type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS)
     args = parser.parse_args()
-    report = run(args.engine.resolve(strict=True))
+    try:
+        report = run(args.engine.resolve(strict=True), repeats=args.repeats)
+    except Exception as error:
+        report = {
+            "benchmark": "leanctx.agent-tools-retrieval/v1",
+            "error": type(error).__name__,
+            "status": "FAIL",
+        }
     encoded = json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n"
     if args.output is not None:
         args.output.write_text(encoded, encoding="utf-8")

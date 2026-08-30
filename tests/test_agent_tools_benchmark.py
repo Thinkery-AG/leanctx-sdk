@@ -1,6 +1,9 @@
 import json
+from pathlib import Path
 import unittest
+from unittest import mock
 
+from benchmarks.agent_tools import retrieval_benchmark
 from benchmarks.agent_tools.retrieval_benchmark import evaluate
 
 
@@ -10,11 +13,13 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
             "task_id": task_id,
             "expected": "fact",
             "raw": {
+                "answer": "fact" if raw_match else None,
                 "answer_match": raw_match,
                 "context_input_tokens": raw_tokens,
                 "tool_calls": 9,
             },
             "leanctx": {
+                "answer": "fact" if lean_match else None,
                 "answer_match": lean_match,
                 "context_input_tokens": lean_tokens,
                 "tool_calls": 1,
@@ -56,11 +61,33 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
             ("raw", "context_input_tokens", "1000"),
             ("leanctx", "context_input_tokens", True),
             ("raw", "tool_calls", -1),
+            ("leanctx", "answer", True),
         ):
             row = self.row("a", 1000, 100)
             row[lane][field] = value
             with self.subTest(lane=lane, field=field, value=value), self.assertRaises(ValueError):
                 evaluate((row,))
+
+    def test_run_requires_three_identical_provider_free_repeats(self):
+        single = evaluate((self.row("a", 1000, 100),))
+        with mock.patch.object(
+            retrieval_benchmark, "_run_once", return_value=single
+        ) as run_once:
+            report = retrieval_benchmark.run(Path("engine"))
+        self.assertEqual(run_once.call_count, 3)
+        self.assertEqual(report["median_savings_percent"], 90.0)
+        self.assertEqual(report["network_access"], "denied")
+        self.assertEqual(report["status"], "PASS")
+
+    def test_run_rejects_nondeterministic_repeats(self):
+        first = evaluate((self.row("a", 1000, 100),))
+        second = evaluate((self.row("a", 1000, 200),))
+        with mock.patch.object(
+            retrieval_benchmark,
+            "_run_once",
+            side_effect=(first, second, first),
+        ), self.assertRaises(ValueError):
+            retrieval_benchmark.run(Path("engine"))
 
 
 if __name__ == "__main__":
