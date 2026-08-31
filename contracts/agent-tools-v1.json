@@ -1,0 +1,52 @@
+{
+  "contract": "leanctx-agent-tools",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "transport_version": 1,
+  "engine_version": "3.10.1",
+  "transport": {
+    "encoding": "UTF-8 JSONL",
+    "session": "persistent child process",
+    "request_keys": ["schema_version", "transport_version", "id", "op"],
+    "response_keys": ["id", "ok", "result", "error"],
+    "unknown_fields": "reject",
+    "duplicate_fields": "reject",
+    "unexpected_or_duplicate_id": "terminate session and reject all pending calls"
+  },
+  "read_tools": ["ctx_compose", "ctx_glob", "ctx_read", "ctx_search", "ctx_symbol", "ctx_tree"],
+  "write_tools": ["ctx_edit", "ctx_fill", "ctx_patch"],
+  "execute_tools": ["ctx_shell"],
+  "permissions": {
+    "default": { "write": false, "execute": false },
+    "negotiation": "hello capabilities and allow flags must exactly equal local policy",
+    "write_required": ["ctx_edit", "ctx_fill", "ctx_patch"],
+    "execute_required": ["ctx_shell"]
+  },
+  "execution": {
+    "shell": false,
+    "argv": true,
+    "timeout_seconds": [0.1, 120],
+    "executable": "basename allowlist match; no path separators",
+    "environment": "explicit allowlist; dangerous loader/runtime variables forbidden"
+  },
+  "tool_result": {
+    "keys": ["text", "content_blocks", "original_tokens", "output_tokens", "saved_tokens", "mode", "changed", "shell"],
+    "token_values": "non-negative safe integers",
+    "saved_tokens": "max(0, original_tokens - output_tokens)",
+    "changed": "boolean",
+    "shell": "null or object"
+  },
+  "lifecycle": {
+    "open": ["create 0600 policy", "spawn without shell", "hello", "verify exact capability policy", "remove policy"],
+    "startup_failure": ["terminate process group", "reap child", "remove policy and temporary directory"],
+    "protocol_failure": ["terminate process group", "reject all pending calls", "session becomes closed"],
+    "close": ["send close", "terminate if needed", "reap child", "remove temporary state"],
+    "cancel": ["terminate process group", "reap child", "reject pending calls"]
+  },
+  "limits": {
+    "request_bytes": 65536,
+    "response_line_bytes": 16777216,
+    "stderr_bytes": 65536,
+    "timeout_seconds": [0.1, 120]
+  }
+}

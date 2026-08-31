@@ -1,0 +1,14 @@
+{
+  "contract": "leanctx-sdk-public-surface",
+  "version": "1.1.0",
+  "product_primitives": ["ContextPlan", "ContextReceipt", "ContextSession", "ContextSource", "ContextView"],
+  "agent_tools": ["AgentContext", "AgentMetrics", "AgentPermissions", "AsyncAgentContext", "ExecutionPolicy", "ReadMode", "ToolResult"],
+  "engine_adapters": ["EngineClient", "SubprocessEngineClient"],
+  "protocol_values": ["ContextFailure", "ContextMeasurement", "ContextReceiptLink", "EngineStatus", "FailureCode", "Freshness", "HostOutcome", "Integrity", "RecoveredSource", "SessionState"],
+  "version_constants": ["AGENT_TOOLS_INTERFACE_VERSION", "AGENT_TOOLS_SCHEMA_VERSION", "AGENT_TOOLS_TRANSPORT_VERSION", "ENGINE_INTERFACE_VERSION", "SCHEMA_VERSION", "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION", "TRANSPORT_VERSION", "__version__"],
+  "errors": ["AgentPermissionError", "ArtifactIntegrityError", "CompatibilityError", "ConfigurationError", "EngineCrashed", "EngineError", "EngineExecutionError", "EngineProtocolError", "EngineRejected", "EngineTimeout", "EngineUnavailable", "FrameworkCompatibilityError", "FrameworkIntegrationError", "PolicyAdmissionError", "RecoveryUnavailableError", "SDKError", "SessionStateError", "SourceUnavailableError", "UnsupportedCapabilityError", "UnsupportedEngineError", "ValidationError"],
+  "root_exports": "exact union of the value lists above; EngineClient is type-only in TypeScript",
+  "internal": ["canonicalization helpers", "parsers", "path helpers", "limits", "error aliases"],
+  "compatibility": "SemVer",
+  "conformance": ["fixtures/sdk-v1/contract.json", "fixtures/sdk-v1/serialization-sha256.json", "fixtures/engine-interface-v1/r1-success.json"]
+}
