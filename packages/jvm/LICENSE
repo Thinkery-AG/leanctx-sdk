@@ -1,0 +1,121 @@
+LeanCTX SDK Source License 1.0
+
+Copyright (c) 2026 Thinkery AG. All rights reserved.
+
+This license applies to the LeanCTX SDK source code and documentation
+distributed with this file (the "Software"). It does not apply to LeanCTX
+Engine or third-party components, which are governed by their own licenses.
+
+1. Definitions
+
+"Permitted Non-Production Use" means viewing, copying, studying, modifying,
+testing, continuous integration, staging, evaluation, proof-of-concept use,
+benchmarking, and good-faith security research that does not operate a live
+business, customer-facing, commercial, or service-provider workload.
+
+"Production Use" means use of the Software or a derivative in a live internal
+business or customer-facing workload, commercial SaaS, production agent or
+automation, managed service, OEM product, commercial product, or commercial
+redistribution.
+
+"Affiliate" means an entity controlling, controlled by, or under common
+control with you. "Contractor" means a third party acting solely on your
+behalf under written confidentiality and use restrictions at least as
+protective as this license.
+
+2. Non-Production license grant
+
+Subject to this license, Thinkery AG grants you a worldwide, non-exclusive,
+non-transferable, non-sublicensable, royalty-free license to use, reproduce,
+inspect, modify, and create derivative works of the Software solely for
+Permitted Non-Production Use. You may make the Software available to your
+Affiliates and Contractors solely for that purpose and remain responsible for
+their compliance.
+
+3. Rights not granted
+
+This license does not grant Production Use, OEM embedding, commercial
+redistribution, sublicensing, hosted resale, managed-service use, or provision
+of a commercial product or service incorporating the Software. Those rights
+require a separate written agreement signed by Thinkery AG. Public
+redistribution of the Software or a derivative is not permitted under this
+license.
+
+4. Conditions
+
+Every permitted copy or derivative must retain this license, copyright,
+attribution, and third-party notices. Modified files must identify material
+changes. You may not represent the Software as open source or imply endorsement
+by Thinkery AG. Security research must follow the published security policy
+and must not intentionally harm systems, violate privacy, or access data
+without authorization.
+
+5. Ownership and derivatives
+
+Thinkery AG and its licensors retain all rights in the Software. You retain
+rights in independently authored modifications, but use of a derivative that
+contains the Software remains subject to this license unless a signed
+commercial agreement expressly provides otherwise.
+
+6. Patent grant and termination
+
+Thinkery AG grants a limited patent license only to the extent necessary to
+exercise the rights expressly granted in section 2. If you initiate patent
+litigation alleging that the Software infringes a patent, that patent license
+terminates immediately.
+
+7. Trademarks
+
+No trademark, trade-name, logo, publicity, or endorsement rights are granted.
+
+8. Third-party components
+
+Third-party components are governed by their own terms. The applicable notices
+are provided in THIRD_PARTY_NOTICES. LeanCTX Engine is separately licensed
+under Apache-2.0.
+
+9. Commercial agreement override
+
+A written commercial agreement signed by Thinkery AG may grant additional
+Production, OEM, redistribution, support, service-level, indemnity, or other
+rights. It overrides this license only to the extent it expressly states.
+
+10. Termination
+
+This license terminates upon material breach. Except for deliberate
+unauthorized Production Use or redistribution, you may cure a remediable
+breach within 30 days after written notice. On termination you must stop all
+use and distribution of the Software and delete copies, except where retention
+is required by law.
+
+11. Disclaimer of warranty
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS"
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT.
+
+12. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THINKERY AG AND ITS LICENSORS WILL NOT
+BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR
+PUNITIVE DAMAGES, OR FOR LOSS OF DATA, PROFITS, REVENUE, OR BUSINESS, ARISING
+FROM OR RELATED TO THE SOFTWARE. THINKERY AG'S TOTAL LIABILITY UNDER THIS
+LICENSE WILL NOT EXCEED CHF 100. MANDATORY LIABILITY THAT CANNOT LAWFULLY BE
+EXCLUDED OR LIMITED REMAINS UNAFFECTED.
+
+13. No automatic relicensing
+
+There is no Change Date, automatic Change License, automatic conversion to
+Apache-2.0 or another OSI-approved license, or fixed future open-source date.
+This released version remains under this license unless Thinkery AG expressly
+relicenses it in writing.
+
+14. General
+
+This license is governed by Swiss law, excluding conflict-of-law rules and the
+United Nations Convention on Contracts for the International Sale of Goods.
+The courts at Thinkery AG's registered seat have exclusive jurisdiction,
+subject to mandatory law. If any provision is unenforceable, the remaining
+provisions remain effective. Failure to enforce a provision is not a waiver.
+You may not assign this license without Thinkery AG's written consent.
