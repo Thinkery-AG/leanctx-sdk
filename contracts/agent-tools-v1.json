@@ -44,7 +44,7 @@
     "cancel": ["terminate process group", "reap child", "reject pending calls"]
   },
   "limits": {
-    "request_bytes": 65536,
+    "request_bytes": 1048576,
     "response_line_bytes": 16777216,
     "stderr_bytes": 65536,
     "timeout_seconds": [0.1, 120]

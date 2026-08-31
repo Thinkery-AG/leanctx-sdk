@@ -165,8 +165,11 @@ export class AgentContext {
 
   constructor(projectRoot: string, options: AgentContextOptions = {}) {
     if (typeof projectRoot !== "string" || !projectRoot || projectRoot.includes("\0")) throw new ConfigurationError("project_root must be a directory");
-    const root = resolve(projectRoot);
-    try { if (!statSync(root).isDirectory()) throw new Error(); } catch { throw new ConfigurationError("project_root must be a directory"); }
+    let root: string;
+    try {
+      root = realpathSync(resolve(projectRoot));
+      if (!statSync(root).isDirectory()) throw new Error();
+    } catch { throw new ConfigurationError("project_root must be a directory"); }
     const task = options.task ?? "";
     if (typeof task !== "string" || Buffer.byteLength(task) > 16 * 1024 || task.includes("\0")) throw new ValidationError("task must be a bounded string");
     const permissions = options.permissions instanceof AgentPermissions ? options.permissions : new AgentPermissions(options.permissions);
@@ -430,7 +433,7 @@ export class AsyncAgentContext {
   async replaceUnique(path: string, oldText: string, newText: string): Promise<ToolResult> { return this.current.replaceUnique(path, oldText, newText); }
   async create_file(path: string, text: string): Promise<ToolResult> { return this.current.createFile(path, text); }
   async replace_unique(path: string, oldText: string, newText: string): Promise<ToolResult> { return this.current.replaceUnique(path, oldText, newText); }
-  async run(argv: readonly string[], options?: { cwd?: string; env?: Record<string, string>; timeout?: number }): Promise<ToolResult> { return this.current.run(argv, options); }
+  async run(argv: readonly string[], options?: { cwd?: string; env?: Record<string, string>; timeout?: number; signal?: AbortSignal }): Promise<ToolResult> { return this.current.run(argv, options); }
   async cancel(): Promise<void> { if (this.context) await this.context.cancel(); }
   async reconnect(): Promise<this> { if (this.context) this.context = await this.context.reconnect(); else await this.open(); return this; }
   async close(): Promise<void> { if (this.context) await this.context.close(); }

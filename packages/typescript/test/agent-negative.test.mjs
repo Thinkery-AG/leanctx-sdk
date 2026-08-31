@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   AgentContext,
+  AsyncAgentContext,
   AgentPermissionError,
   EngineCrashed,
   EngineProtocolError,
@@ -56,6 +57,18 @@ test("missing binary cleans policy directory transactionally", () => {
   const { root, dirs } = project();
   assert.throws(() => new AgentContext(root, { engineBinary: join(root, "missing-engine") }));
   assert.deepEqual(dirs(), []);
+});
+
+test("project root is canonicalized through symlinks", async () => {
+  const { root } = project();
+  const target = join(root, "target");
+  const alias = join(root, "alias");
+  mkdirSync(target);
+  symlinkSync(target, alias, "dir");
+  const context = await AgentContext.open(alias, { engineBinary: engine(target, helloAndLoop()), timeout: 1 });
+  assert.equal(context.projectRoot, realpathSync(target));
+  await context.close();
+  assert.deepEqual(readdirSync(target).filter((entry) => entry.startsWith(".leanctx-agent-")), []);
 });
 
 for (const [name, source] of [
@@ -145,6 +158,25 @@ test("AbortSignal cancellation terminates a pending request", async () => {
   const context = await AgentContext.open(root, { engineBinary: engine(root, source), timeout: 2 });
   const controller = new AbortController();
   const pending = context.read("README.md", ReadMode.AUTO, false, controller.signal);
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(pending, /aborted|terminated/i);
+  await context.close();
+  assert.deepEqual(dirs(), []);
+});
+
+test("AsyncAgentContext forwards AbortSignal cancellation", async () => {
+  const { root, dirs } = project();
+  const source = helloAndLoop({ capabilities: EXEC_CAPABILITIES, allowExec: true, body: "if (request.op === 'call') { /* intentionally no response */ }" });
+  const context = new AsyncAgentContext(root, {
+    engineBinary: engine(root, source),
+    timeout: 2,
+    permissions: { execute: true },
+    executionPolicy: new ExecutionPolicy({ maxTimeout: 1, allowedExecutables: ["git"] }),
+  });
+  await context.open();
+  const controller = new AbortController();
+  const pending = context.run(["git", "status"], { timeout: 1, signal: controller.signal });
   await new Promise((resolve) => setImmediate(resolve));
   controller.abort();
   await assert.rejects(pending, /aborted|terminated/i);

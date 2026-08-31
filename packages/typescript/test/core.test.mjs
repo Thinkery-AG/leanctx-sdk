@@ -48,6 +48,12 @@ test("root exports equal the 1.1 Stable allowlist", async () => {
   assert.deepEqual(Object.keys(module).sort(), expected);
 });
 
+test("language-neutral Agent Tools contract freezes the 1 MiB request bound", () => {
+  const contractPath = fileURLToPath(new URL("../../../contracts/agent-tools-v1.json", import.meta.url));
+  const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+  assert.equal(contract.limits.request_bytes, 1024 * 1024);
+});
+
 function serializationFixtureView(source) {
   const text = "fresh synthetic view\n";
   const sourceText = "fresh synthetic source\n";
