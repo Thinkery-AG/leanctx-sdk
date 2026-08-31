@@ -1,0 +1,8 @@
+LeanCTX SDK .NET 1.1.0 — Third-Party Notices
+
+The published .NET package has no mandatory third-party runtime dependency;
+it uses only the .NET 8 Base Class Library. LeanCTX Engine is a separate
+Apache-2.0 work and is not embedded or relicensed by the SDK.
+
+The .NET SDK and test project use only framework-provided libraries. Their
+own distributions and license files govern their use.

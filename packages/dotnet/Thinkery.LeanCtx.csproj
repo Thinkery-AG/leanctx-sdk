@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Thinkery.LeanCtx</AssemblyName>
+    <RootNamespace>Thinkery.LeanCtx</RootNamespace>
+    <PackageId>Thinkery.LeanCtx</PackageId>
+    <Version>1.1.0</Version>
+    <Authors>Thinkery AG</Authors>
+    <Company>Thinkery AG</Company>
+    <Description>Source-available .NET 8 SDK for LeanCTX Product evidence, Engine v1, and Agent Tools 1.1.</Description>
+    <PackageTags>leanctx;context;agent;engine;sdk</PackageTags>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <RepositoryUrl>https://github.com/Thinkery-AG/leanctx-sdk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>SDK 1.1.0. Requires LeanCTX Engine 3.10.1 or compatible. Engine-dependent production publication is intentionally gated until Engine 3.10.1 release evidence is available.</PackageReleaseNotes>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <None Include="LICENSE" Pack="true" PackagePath="" />
+    <None Include="COMMERCIAL-LICENSE.md" Pack="true" PackagePath="" />
+    <None Include="THIRD_PARTY_NOTICES" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
