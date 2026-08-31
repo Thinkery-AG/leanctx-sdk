@@ -4,6 +4,7 @@
 mod agent;
 mod engine;
 mod errors;
+mod process;
 mod protocol;
 mod receipt;
 mod session;

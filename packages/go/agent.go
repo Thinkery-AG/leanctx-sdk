@@ -941,8 +941,24 @@ func (a *AgentContext) RunContext(ctx context.Context, argv []string, options ..
 			option.CWD = "."
 		}
 	}
-	absoluteCWD, err := filepath.Abs(filepath.Join(a.ProjectRoot, option.CWD))
-	if err != nil || !containedPath(absoluteCWD, a.ProjectRoot) {
+	realRoot, err := filepath.EvalSymlinks(a.ProjectRoot)
+	if err != nil {
+		return nil, NewAgentPermissionError("project root is unavailable")
+	}
+	candidate := option.CWD
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(realRoot, candidate)
+	}
+	realCWD, err := filepath.EvalSymlinks(candidate)
+	if err != nil || !containedPath(realCWD, realRoot) {
+		return nil, NewAgentPermissionError("cwd escapes project root")
+	}
+	info, err := os.Stat(realCWD)
+	if err != nil || !info.IsDir() {
+		return nil, NewAgentPermissionError("cwd is not an existing directory")
+	}
+	relativeCWD, err := filepath.Rel(realRoot, realCWD)
+	if err != nil || relativeCWD == ".." || strings.HasPrefix(relativeCWD, ".."+string(filepath.Separator)) {
 		return nil, NewAgentPermissionError("cwd escapes project root")
 	}
 	for key, value := range option.Env {
@@ -964,7 +980,7 @@ func (a *AgentContext) RunContext(ctx context.Context, argv []string, options ..
 	for key, value := range option.Env {
 		environment[key] = value
 	}
-	request := map[string]any{"argv": append([]string(nil), argv...), "cwd": filepath.ToSlash(option.CWD), "env": environment, "timeout_ms": int64(timeout / time.Millisecond)}
+	request := map[string]any{"argv": append([]string(nil), argv...), "cwd": filepath.ToSlash(relativeCWD), "env": environment, "timeout_ms": int64(timeout / time.Millisecond)}
 	return a.callToolContext(ctx, "ctx_shell", request, maxDuration(a.Timeout, timeout+2*time.Second))
 }
 

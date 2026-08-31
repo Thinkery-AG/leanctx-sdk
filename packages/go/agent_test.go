@@ -5,6 +5,7 @@ package leanctx
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,6 +119,13 @@ func TestAgentContextWriteAndStructuredExecuteAreExplicit(t *testing.T) {
 	}
 	if _, err := client.Run([]string{"echo"}, RunOptions{CWD: "../escape"}); err == nil {
 		t.Fatal("cwd escape unexpectedly accepted")
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape-link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Run([]string{"echo"}, RunOptions{CWD: "escape-link"}); err == nil {
+		t.Fatal("cwd symlink escape unexpectedly accepted")
 	}
 	if _, err := client.Run([]string{"echo"}, RunOptions{Env: map[string]string{"PATH": "/tmp"}}); err == nil {
 		t.Fatal("forbidden environment unexpectedly accepted")

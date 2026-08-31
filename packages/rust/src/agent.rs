@@ -14,9 +14,10 @@ use crate::errors::{
     EngineProtocolError, EngineTimeout, EngineUnavailable, SdkResult, UnsupportedCapabilityError,
     ValidationError,
 };
+use crate::process::terminate_process_tree;
 use crate::protocol::{
-    canonical_bytes, contained, existing_directory, json_integer, normalize_path,
-    strict_json_loads, MAX_PATH_BYTES, MAX_RESPONSE_BYTES, MAX_TEXT_BYTES,
+    canonical_bytes, contained, existing_directory, json_integer, strict_json_loads,
+    MAX_PATH_BYTES, MAX_RESPONSE_BYTES, MAX_TEXT_BYTES,
 };
 
 pub const AGENT_TOOLS_INTERFACE_VERSION: &str = "1.0.0";
@@ -422,14 +423,14 @@ impl AgentContext {
         let hello = match hello {
             Ok(value) => value,
             Err(error) => {
-                context.terminate();
+                context.terminate()?;
                 return Err(error);
             }
         };
         let capabilities = match context.accept_hello(&hello) {
             Ok(value) => value,
             Err(error) => {
-                context.terminate();
+                context.terminate()?;
                 return Err(error);
             }
         };
@@ -724,17 +725,14 @@ impl AgentContext {
 
     pub fn close(&self) -> SdkResult<()> {
         if self.state.closed.load(Ordering::Acquire) {
-            self.terminate();
-            return Ok(());
+            return self.terminate();
         }
         let _ = self.exchange(close_request(), self.timeout, true);
-        self.terminate();
-        Ok(())
+        self.terminate()
     }
 
     pub fn cancel(&self) -> SdkResult<()> {
-        self.terminate();
-        Ok(())
+        self.terminate()
     }
 
     pub fn reconnect(&self) -> SdkResult<Self> {
@@ -830,7 +828,7 @@ impl AgentContext {
             stdin.write_all(&encoded).and_then(|_| stdin.flush())
         };
         if write_result.is_err() {
-            self.terminate();
+            self.terminate()?;
             return Err(boxed(EngineCrashed::new(self.crash_message())));
         }
         let message = self
@@ -855,7 +853,7 @@ impl AgentContext {
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 drop(exchange);
-                self.terminate();
+                self.terminate()?;
                 return Err(boxed(EngineTimeout::new(
                     "Agent Tools response exceeded its deadline",
                 )));
@@ -1023,24 +1021,35 @@ impl AgentContext {
         }
     }
 
-    fn terminate(&self) {
+    fn terminate(&self) -> SdkResult<()> {
         if self.state.closed.swap(true, Ordering::AcqRel) {
             self.remove_policy();
-            return;
+            return Ok(());
         }
-        if let Ok(mut stdin) = self.state.stdin.lock() {
+        let result = (|| {
+            let mut stdin = self.state.stdin.lock().map_err(|_| {
+                boxed(EngineExecutionError::new(
+                    "AgentContext stdin could not be closed",
+                ))
+            })?;
             stdin.take();
-        }
-        if let Ok(mut process) = self.state.process.lock() {
+            drop(stdin);
+            let mut process = self.state.process.lock().map_err(|_| {
+                boxed(EngineExecutionError::new(
+                    "AgentContext process could not be terminated",
+                ))
+            })?;
             if let Some(mut child) = process.take() {
-                kill_process_tree(&mut child);
+                kill_process_tree(&mut child)?;
             }
-        }
+            Ok(())
+        })();
         self.remove_policy();
+        result
     }
 
     fn protocol_failure(&self, message: &str) -> SdkResult<()> {
-        self.terminate();
+        self.terminate()?;
         Err(boxed(EngineProtocolError::new(message)))
     }
 
@@ -1064,7 +1073,7 @@ impl AgentContext {
 
 impl Drop for AgentContext {
     fn drop(&mut self) {
-        self.terminate();
+        let _ = self.terminate();
     }
 }
 
@@ -1489,19 +1498,20 @@ fn safe_cwd(root: &Path, cwd: &Path) -> SdkResult<String> {
     {
         return Err(boxed(ValidationError::new("cwd violates the path bound")));
     }
-    let absolute = normalize_path(
-        if cwd.is_absolute() {
-            cwd.to_owned()
-        } else {
-            root.join(cwd)
-        }
-        .as_path(),
-    );
-    if !contained(&absolute, root) {
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|_| boxed(AgentPermissionError::new("project root is unavailable")))?;
+    let candidate = if cwd.is_absolute() {
+        cwd.to_owned()
+    } else {
+        canonical_root.join(cwd)
+    };
+    let absolute = fs::canonicalize(candidate)
+        .map_err(|_| boxed(AgentPermissionError::new("cwd is unavailable")))?;
+    if !absolute.is_dir() || !contained(&absolute, &canonical_root) {
         return Err(boxed(AgentPermissionError::new("cwd escapes project root")));
     }
     let relative = absolute
-        .strip_prefix(root)
+        .strip_prefix(&canonical_root)
         .map_err(|_| boxed(AgentPermissionError::new("cwd escapes project root")))?;
     if relative.as_os_str().is_empty() {
         Ok(".".to_owned())
@@ -1526,33 +1536,8 @@ fn set_private_file(options: &mut OpenOptions) {
     }
 }
 
-fn kill_process_tree(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        if let Some(pid) = NonZeroPid::from_child(child) {
-            let _ = Command::new("/bin/kill")
-                .arg("-KILL")
-                .arg(format!("-{pid}"))
-                .status();
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-struct NonZeroPid(u32);
-
-impl NonZeroPid {
-    fn from_child(child: &Child) -> Option<Self> {
-        let pid = child.id();
-        (pid > 0).then_some(Self(pid))
-    }
-}
-
-impl std::fmt::Display for NonZeroPid {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
-    }
+fn kill_process_tree(child: &mut Child) -> SdkResult<()> {
+    terminate_process_tree(child)
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -1566,5 +1551,37 @@ fn is_executable(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         path.is_file()
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::safe_cwd;
+    use crate::errors::AgentPermissionError;
+
+    static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn safe_cwd_rejects_symlink_escape() {
+        let base = std::env::temp_dir().join(format!(
+            "leanctx-rust-cwd-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let root = base.join("root");
+        let outside = base.join("outside");
+        fs::create_dir_all(&root).expect("create root");
+        fs::create_dir_all(&outside).expect("create outside");
+        symlink(&outside, root.join("escape-link")).expect("create symlink");
+
+        let error = safe_cwd(&root, std::path::Path::new("escape-link"))
+            .expect_err("symlink escape must fail closed");
+        assert!(error.downcast_ref::<AgentPermissionError>().is_some());
+
+        fs::remove_dir_all(base).expect("remove fixture");
     }
 }

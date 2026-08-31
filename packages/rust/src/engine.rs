@@ -15,6 +15,7 @@ use crate::errors::{
     EngineRejected, EngineTimeout, EngineUnavailable, PolicyAdmissionError, SdkResult,
     SourceUnavailableError, UnsupportedEngineError, ValidationError,
 };
+use crate::process::terminate_process_tree;
 use crate::protocol::{
     canonical_bytes, exact_keys, existing_directory, json_integer, json_string, normalize_path,
     sha256_digest, strict_json_loads, validate_digest, validate_output_ref, validate_ref,
@@ -184,7 +185,7 @@ impl SubprocessEngineClient {
         let deadline = Instant::now() + self.timeout;
         let status = loop {
             if overflow.load(Ordering::Acquire) {
-                kill_and_reap(&mut child);
+                kill_and_reap(&mut child)?;
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
                 return Err(boxed(EngineProtocolError::new(
@@ -194,7 +195,7 @@ impl SubprocessEngineClient {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
                 Ok(None) if Instant::now() >= deadline => {
-                    kill_and_reap(&mut child);
+                    kill_and_reap(&mut child)?;
                     let _ = stdout_reader.join();
                     let _ = stderr_reader.join();
                     return Err(boxed(EngineTimeout::new(
@@ -203,7 +204,7 @@ impl SubprocessEngineClient {
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(2)),
                 Err(_) => {
-                    kill_and_reap(&mut child);
+                    kill_and_reap(&mut child)?;
                     let _ = stdout_reader.join();
                     let _ = stderr_reader.join();
                     return Err(boxed(EngineExecutionError::new(
@@ -1275,17 +1276,8 @@ fn read_limited<R: Read>(
     }
 }
 
-fn kill_and_reap(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        let process_group = format!("-{}", child.id());
-        let _ = Command::new("/bin/kill")
-            .arg("-KILL")
-            .arg(process_group)
-            .status();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
+fn kill_and_reap(child: &mut Child) -> SdkResult<()> {
+    terminate_process_tree(child)
 }
 
 fn map_process_failure(stderr: &[u8]) -> Box<dyn std::error::Error + Send + Sync> {
