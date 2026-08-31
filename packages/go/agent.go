@@ -486,87 +486,109 @@ func (a *AgentContext) exchange(ctx context.Context, request map[string]any, tim
 	select {
 	case <-ctx.Done():
 		a.closed = true
-		terminateProcess(a.command)
+		cleanupErr := a.terminateLocked()
 		<-readResult
+		if cleanupErr != nil {
+			return nil, cleanupErr
+		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, NewEngineTimeout("Agent Tools response exceeded its deadline")
 		}
 		return nil, ctx.Err()
 	case <-deadline.C:
 		a.closed = true
-		terminateProcess(a.command)
+		cleanupErr := a.terminateLocked()
 		<-readResult
+		if cleanupErr != nil {
+			return nil, cleanupErr
+		}
 		return nil, NewEngineTimeout("Agent Tools response exceeded its deadline")
 	case result := <-readResult:
 		if result.err != nil {
 			a.closed = true
 			if errors.Is(result.err, bufio.ErrBufferFull) {
-				return nil, NewEngineProtocolError("Agent Tools response exceeds its bound")
+				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response exceeds its bound"))
 			}
-			return nil, NewEngineCrashed(a.crashMessageLocked())
+			return nil, a.terminalErrorLocked(NewEngineCrashed(a.crashMessageLocked()))
 		}
 		if len(result.line) == 0 || result.line[len(result.line)-1] != '\n' {
 			a.closed = true
-			return nil, NewEngineProtocolError("Agent Tools response is not newline terminated")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response is not newline terminated"))
 		}
 		decoded, err := strictJSONLoads(bytes.TrimSuffix(result.line, []byte{'\n'}), "Agent Tools response")
 		if err != nil {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools response is invalid JSON")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response is invalid JSON"))
 		}
 		response, ok := decoded.(map[string]any)
 		if !ok {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools response envelope is invalid")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope is invalid"))
 		}
 		id, ok := response["id"].(string)
 		if !ok || id != requestID {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools response id is unexpected")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response id is unexpected"))
 		}
 		okValue, ok := response["ok"].(bool)
 		if !okValue && !ok {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools response envelope is invalid")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope is invalid"))
 		}
 		if okValue {
 			if len(response) != 3 {
 				a.closed = true
-				terminateProcess(a.command)
-				return nil, NewEngineProtocolError("Agent Tools response envelope fields are invalid")
+				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope fields are invalid"))
 			}
 			result, ok := response["result"].(map[string]any)
 			if !ok {
 				a.closed = true
-				terminateProcess(a.command)
-				return nil, NewEngineProtocolError("Agent Tools response omitted result")
+				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response omitted result"))
 			}
 			return result, nil
 		}
 		if len(response) != 3 {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools error envelope fields are invalid")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope fields are invalid"))
 		}
 		errorValue, ok := response["error"].(map[string]any)
 		if !ok || len(errorValue) != 2 {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools error envelope is invalid")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope is invalid"))
 		}
 		code, codeOK := errorValue["code"].(string)
 		message, messageOK := errorValue["message"].(string)
 		if !codeOK || !messageOK {
 			a.closed = true
-			terminateProcess(a.command)
-			return nil, NewEngineProtocolError("Agent Tools error envelope is invalid")
+			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope is invalid"))
 		}
 		return nil, agentErrorFromWire(code, message)
 	}
+}
+
+func (a *AgentContext) terminateLocked() error {
+	command := a.command
+	a.command = nil
+	if command == nil {
+		return nil
+	}
+	killErr := terminateProcess(command)
+	waitErr := command.Wait()
+	if killErr != nil {
+		return NewEngineExecutionError("Agent Tools process tree could not be terminated", nil, nil)
+	}
+	var exitErr *exec.ExitError
+	if waitErr != nil && !errors.As(waitErr, &exitErr) {
+		return NewEngineExecutionError("Agent Tools process could not be reaped", nil, nil)
+	}
+	return nil
+}
+
+func (a *AgentContext) terminalErrorLocked(protocolErr error) error {
+	if cleanupErr := a.terminateLocked(); cleanupErr != nil {
+		return cleanupErr
+	}
+	return protocolErr
 }
 
 func agentErrorFromWire(code, message string) error {
@@ -749,9 +771,11 @@ func (a *AgentContext) terminalProtocol(err error) {
 	a.mu.Lock()
 	a.closed = true
 	command := a.command
+	a.command = nil
 	a.mu.Unlock()
 	if command != nil {
-		terminateProcess(command)
+		_ = terminateProcess(command)
+		_ = command.Wait()
 	}
 }
 
@@ -1008,31 +1032,34 @@ func (a *AgentContext) Close() error {
 	closed := a.closed
 	a.mu.Unlock()
 	if closed {
-		a.terminate()
-		return nil
+		return a.terminate()
 	}
 	_, err := a.exchange(context.Background(), map[string]any{"op": "close"}, a.Timeout)
-	a.terminate()
-	return err
+	terminateErr := a.terminate()
+	if err != nil {
+		return err
+	}
+	return terminateErr
 }
 
-func (a *AgentContext) Cancel() {
-	a.terminate()
+func (a *AgentContext) Cancel() error {
+	return a.terminate()
 }
 
-func (a *AgentContext) terminate() {
+func (a *AgentContext) terminate() error {
 	a.mu.Lock()
 	if a.closed && a.command == nil {
 		a.mu.Unlock()
-		return
+		return nil
 	}
 	a.closed = true
 	command := a.command
 	policyDir := a.policyDir
 	a.command = nil
 	a.mu.Unlock()
+	var terminateErr error
 	if command != nil {
-		terminateProcess(command)
+		terminateErr = terminateProcess(command)
 		_ = command.Wait()
 	}
 	if a.stderrDone != nil {
@@ -1045,12 +1072,18 @@ func (a *AgentContext) terminate() {
 		_ = os.Remove(filepath.Join(policyDir, "policy.json"))
 		_ = os.Remove(policyDir)
 	}
+	if terminateErr != nil {
+		return NewEngineExecutionError("Agent Tools process tree could not be terminated", nil, nil)
+	}
+	return nil
 }
 
 // Reconnect always creates a fresh process and reuses the original policy
 // snapshot. A closed context cannot be made live again.
 func (a *AgentContext) Reconnect(ctx context.Context) (*AgentContext, error) {
-	a.Cancel()
+	if err := a.Cancel(); err != nil {
+		return nil, err
+	}
 	return OpenAgentContext(ctx, a.ProjectRoot, AgentContextOptions{Task: a.Task, Permissions: a.Permissions, ExecutionPolicy: a.ExecutionPolicy, EngineBinary: a.EngineBinary, Timeout: a.Timeout})
 }
 

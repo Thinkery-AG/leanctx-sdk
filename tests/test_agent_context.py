@@ -179,6 +179,12 @@ class AgentContextTests(unittest.TestCase):
                 context.run(("/tmp/git", "status"))
             with self.assertRaises(AgentPermissionError):
                 context.run((r"C:\\tools\\git", "status"))
+            if os.name != "nt":
+                outside = tempfile.TemporaryDirectory()
+                self.addCleanup(outside.cleanup)
+                os.symlink(outside.name, os.path.join(self.root.name, "escape-link"))
+                with self.assertRaises(AgentPermissionError):
+                    context.run(("git", "status"), cwd="escape-link")
             with self.assertRaises(AgentPermissionError):
                 context.call("ctx_shell", {"command": "git status"})
             with self.assertRaises(ValidationError):
@@ -225,6 +231,14 @@ class AgentContextTests(unittest.TestCase):
         AgentContext._kill_posix_tree(10)
         kill.assert_any_call(10, signal.SIGSTOP)
         killpg.assert_called_once_with(10, signal.SIGKILL)
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-tree behavior")
+    @mock.patch("leanctx_sdk.agent.os.killpg", side_effect=PermissionError("denied"))
+    @mock.patch("leanctx_sdk.agent.os.kill")
+    def test_cancel_tree_reports_group_kill_failure(self, kill, _killpg):
+        error = AgentContext._kill_posix_tree(10)
+        self.assertIsInstance(error, PermissionError)
+        kill.assert_any_call(10, signal.SIGKILL)
 
     def test_capability_injection_is_rejected(self):
         with AgentContext(self.root.name) as context:

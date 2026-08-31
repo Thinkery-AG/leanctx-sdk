@@ -1,7 +1,8 @@
 # LeanCTX SDK
 
-Build Python coding agents that read, search, edit, and run approved commands
-without sending raw repository output to the model every time.
+Build Python, TypeScript, Go, Rust, JVM, and .NET coding agents that read,
+search, edit, and run approved commands without sending raw repository output
+to the model every time.
 
 Your framework owns the model and agent loop. LeanCTX owns the local context
 tools, compression, cache, permissions, token measurements, and recovery path.
@@ -11,12 +12,12 @@ tools, compression, cache, permissions, token measurements, and recovery path.
 | You want to… | Use |
 | --- | --- |
 | improve an existing coding agent through CLI/MCP | LeanCTX Engine |
-| build your own Python agent with LeanCTX tools | LeanCTX SDK + Engine |
+| build your own agent with LeanCTX tools | LeanCTX SDK + Engine |
 | keep your own model/framework but add governed context | `AgentContext` |
 
 The SDK does not contain a second implementation of the Engine. It starts one
 verified local Engine process and exposes its negotiated capabilities as stable
-Python methods.
+language-native methods.
 
 ```text
 your model / agent loop
@@ -48,6 +49,25 @@ python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.0"
 
 CUDA and Windows-GNU builds use the documented `agent-cuda` and
 `agent-windows-gnu` extras. The core SDK remains pure Python.
+
+## Language SDKs
+
+All SDK 1.1 previews implement the five stable Product primitives, Engine
+Interface v1, and PR #8 Agent Tools 1.1 contract. They live in this repository
+and remain publication-locked until verified Engine 3.10.1 artifacts exist.
+
+| Runtime | Package source | Package identity |
+| --- | --- | --- |
+| Python 3.10+ | repository root | `thinkery-leanctx-sdk` |
+| Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery-ag/leanctx-sdk` |
+| Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk-go` |
+| Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
+| Java 17+ / Kotlin | `packages/jvm` | `ch.thinkery:leanctx-sdk` |
+| .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
+
+Each package includes language-native tests, frozen serialization fingerprints,
+strict protocol validation, explicit execution policy, and source-available
+license notices. The Engine remains a separate local binary.
 
 ## Five-minute custom agent
 

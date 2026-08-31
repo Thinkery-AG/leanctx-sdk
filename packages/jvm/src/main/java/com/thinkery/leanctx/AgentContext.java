@@ -738,6 +738,7 @@ public final class AgentContext implements AutoCloseable {
         if (child != null && child.isAlive()) {
             killProcessTree(child);
         }
+        reapReader();
         removePolicy();
     }
 
@@ -752,15 +753,33 @@ public final class AgentContext implements AutoCloseable {
     }
 
     private static void killProcessTree(Process child) {
+        List<ProcessHandle> descendants = List.of();
         try {
             ProcessHandle handle = child.toHandle();
-            List<ProcessHandle> descendants = handle.descendants().toList();
+            descendants = handle.descendants().toList();
             for (int i = descendants.size() - 1; i >= 0; i--) {
                 descendants.get(i).destroyForcibly();
             }
             handle.destroyForcibly();
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException exception) {
             child.destroyForcibly();
+        }
+        try {
+            if (!child.waitFor(2, TimeUnit.SECONDS)) {
+                throw new EngineExecutionError("Agent Tools process could not be reaped");
+            }
+            for (ProcessHandle descendant : descendants) {
+                if (descendant.isAlive()) {
+                    descendant.onExit().get(2, TimeUnit.SECONDS);
+                }
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new EngineExecutionError("Agent Tools process reaping was interrupted",
+                    null, null, exception);
+        } catch (ExecutionException | java.util.concurrent.TimeoutException exception) {
+            throw new EngineExecutionError("Agent Tools process tree could not be reaped",
+                    null, null, exception);
         }
     }
 
@@ -930,7 +949,8 @@ public final class AgentContext implements AutoCloseable {
             if (!Protocol.contained(real, projectRoot)) {
                 throw new AgentPermissionError("cwd escapes project root");
             }
-            return value;
+            Path relative = projectRoot.relativize(real);
+            return relative.getNameCount() == 0 ? "." : relative.toString().replace('\\', '/');
         } catch (InvalidPathException | IOException exception) {
             throw new AgentPermissionError("cwd escapes project root", exception);
         }

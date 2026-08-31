@@ -995,19 +995,28 @@ func (c *SubprocessEngineClient) run(parent context.Context, operation, root, re
 	var waitErr error
 	select {
 	case <-ctx.Done():
-		terminateProcess(command)
+		terminateErr := terminateProcess(command)
 		waitErr = <-wait
+		if terminateErr != nil {
+			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
+		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, NewEngineTimeout("Engine process exceeded its deadline")
 		}
 		return nil, ctx.Err()
 	case <-deadline.C:
-		terminateProcess(command)
+		terminateErr := terminateProcess(command)
 		waitErr = <-wait
+		if terminateErr != nil {
+			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
+		}
 		return nil, NewEngineTimeout("Engine process exceeded its deadline")
 	case <-overflow:
-		terminateProcess(command)
+		terminateErr := terminateProcess(command)
 		waitErr = <-wait
+		if terminateErr != nil {
+			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
+		}
 		_ = waitErr
 		return nil, NewEngineProtocolError("Engine process output exceeds its bound")
 	case waitErr = <-wait:

@@ -17,6 +17,7 @@ internal static class Program
         Run("agent-permission-negative", AgentPermissionNegative);
         Run("agent-protocol-negative", AgentProtocolNegative);
         Run("agent-timeout-negative", AgentTimeoutNegative);
+        Run("engine-v1-fixture", EngineV1Fixture);
         Run("engine-v1-optional", EngineV1Optional);
         if (failures != 0)
             throw new Exception($"{failures} test group(s) failed");
@@ -159,6 +160,8 @@ internal static class Program
         Throws<EngineProtocolError>(() => AgentContext.Open(root.Path, engineBinary: fake));
         if (Directory.EnumerateDirectories(root.Path, ".leanctx-agent-*", SearchOption.TopDirectoryOnly).Any())
             throw new Exception("startup failure left policy state");
+        var oversized = FakeAgent(root.Path, "oversized");
+        Throws<EngineProtocolError>(() => AgentContext.Open(root.Path, engineBinary: oversized));
     }
 
     private static void AgentTimeoutNegative()
@@ -170,7 +173,7 @@ internal static class Program
         Throws<EngineCrashed>(() => context.Read("README.md"));
     }
 
-    private static void EngineV1Optional()
+    private static void EngineV1Fixture()
     {
         if (!File.Exists("/usr/bin/python3"))
         {
@@ -189,11 +192,36 @@ internal static class Program
         Equal("engine fixture\n", recovered.Text);
     }
 
+    private static void EngineV1Optional()
+    {
+        var binary = Environment.GetEnvironmentVariable("LEANCTX_ENGINE_BIN");
+        if (string.IsNullOrEmpty(binary) || !File.Exists(binary))
+        {
+            Console.WriteLine("SKIP engine-v1-optional (LEANCTX_ENGINE_BIN unavailable)");
+            return;
+        }
+        using var root = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(root.Path, "source.txt"), "real engine fixture\n");
+        var source = new ContextSource("source.txt", root.Path);
+        var client = new SubprocessEngineClient(binary, timeout: 30);
+        var view = client.ContextView(new ContextPlan("real-engine", "real-task", "inspect", source));
+        True(view.Status is EngineStatus.Succeeded or EngineStatus.Degraded);
+        True(view.Verify());
+    }
+
     private static string FakeAgent(string root, string behavior)
     {
         var path = Path.Combine(root, "fake-agent.sh");
         string script;
-        if (behavior == "bad-hello")
+        if (behavior == "oversized")
+        {
+            script = """
+#!/bin/sh
+IFS= read -r line
+/usr/bin/head -c 16777217 /dev/zero | /usr/bin/tr '\000' x
+""";
+        }
+        else if (behavior == "bad-hello")
         {
             script = """
 #!/bin/sh

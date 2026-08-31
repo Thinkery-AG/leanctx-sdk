@@ -353,15 +353,7 @@ public sealed class SubprocessEngineClient : EngineClient
 
     private static void KillAndReap(Process process)
     {
-        try
-        {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception) { }
-        try { process.WaitForExit(2000); }
-        catch (InvalidOperationException) { }
+        ProcessTree.KillAndReap(process, "Engine");
     }
 
     private string ResolveBinary()

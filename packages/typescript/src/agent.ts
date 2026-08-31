@@ -2,7 +2,7 @@
 
 import { closeSync, constants, fchmodSync, fsyncSync, mkdtempSync, openSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { delimiter, isAbsolute, resolve, sep } from "node:path";
+import { delimiter, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   AgentPermissionError,
   ConfigurationError,
@@ -197,17 +197,17 @@ export class AgentContext {
       child.once("error", (error) => {
         const failure = this.helloAccepted ? new EngineCrashed("Agent Tools Engine exited", { cause: error }) : new EngineUnavailable("Agent Tools Engine could not be started", { cause: error });
         this.failPending(failure);
-        void this.terminate();
+        void this.terminate().catch(() => {});
       });
       child.once("close", () => { if (!this.closed) this.failPending(new EngineCrashed(this.crashMessage())); });
     } catch (error) {
       this.removePolicy();
-      void this.terminate();
+      void this.terminate().catch(() => {});
       throw error;
     }
     this.readyPromise = this.start().catch((error) => {
       this.failPending(error instanceof Error ? error : new EngineProtocolError("Agent Tools startup failed"));
-      void this.terminate();
+      void this.terminate().catch(() => {});
       throw error;
     });
     void this.readyPromise.catch(() => undefined);
@@ -296,8 +296,8 @@ export class AgentContext {
     const encoded = Buffer.from(`${JSON.stringify(envelope)}\n`);
     if (encoded.byteLength > MAX_REQUEST_BYTES) return Promise.reject(new EngineProtocolError("Agent Tools request exceeds its bound"));
     return new Promise((resolvePromise, rejectPromise) => {
-      const timer = setTimeout(() => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate(); rejectPromise(new EngineTimeout("Agent Tools response exceeded its deadline")); }, responseTimeout * 1000);
-      const onAbort = () => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate(); rejectPromise(abortError()); };
+      const timer = setTimeout(() => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate().catch(() => {}); rejectPromise(new EngineTimeout("Agent Tools response exceeded its deadline")); }, responseTimeout * 1000);
+      const onAbort = () => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate().catch(() => {}); rejectPromise(abortError()); };
       signal?.addEventListener("abort", onAbort, { once: true });
       const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
       this.pending.set(id, { resolve: (value) => { cleanup(); resolvePromise(value); }, reject: (error) => { cleanup(); rejectPromise(error); } });
@@ -324,7 +324,7 @@ export class AgentContext {
   }
   private failPending(error: Error): void { for (const pending of this.pending.values()) pending.reject(error); this.pending.clear(); }
   /** Protocol violations are terminal: never continue on ambiguous state. */
-  private protocolViolation(error: EngineProtocolError): void { this.failPending(error); void this.terminate(); }
+  private protocolViolation(error: EngineProtocolError): void { this.failPending(error); void this.terminate().catch(() => {}); }
   private crashMessage(): string { const detail = Buffer.concat(this.stderrChunks).toString("utf8").trim(); return detail ? `Agent Tools Engine exited: ${detail.slice(0, 4096)}` : "Agent Tools Engine exited"; }
   private removePolicy(): void { if (this.policyPath) { try { unlinkSync(this.policyPath); } catch { /* best effort */ } try { rmdirSync(resolve(this.policyPath, "..")); } catch { /* best effort */ } this.policyPath = null; } }
   private terminate(): Promise<void> {
@@ -332,19 +332,29 @@ export class AgentContext {
     this.closed = true;
     this.failPending(new EngineCrashed("AgentContext terminated"));
     const child = this.process;
-    this.reapPromise = new Promise((resolvePromise) => {
+    this.reapPromise = new Promise((resolvePromise, rejectPromise) => {
       if (child === null || child.exitCode !== null || child.signalCode !== null) {
         this.removePolicy();
         resolvePromise();
         return;
       }
-      child.once("close", () => { this.removePolicy(); resolvePromise(); });
+      let cleanupError: EngineExecutionError | null = null;
+      child.once("close", () => {
+        this.removePolicy();
+        if (cleanupError) rejectPromise(cleanupError); else resolvePromise();
+      });
       const pid = child.pid;
       try {
-        if (pid && process.platform !== "win32") process.kill(-pid, "SIGKILL");
-        else child.kill("SIGKILL");
+        const signalled = pid && process.platform !== "win32" ? process.kill(-pid, "SIGKILL") : child.kill("SIGKILL");
+        if (!signalled) cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
       } catch {
-        try { child.kill("SIGKILL"); } catch { /* already exited */ }
+        cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
+        try {
+          if (!child.kill("SIGKILL") && child.exitCode === null && child.signalCode === null) throw cleanupError;
+        } catch {
+          this.removePolicy();
+          rejectPromise(cleanupError);
+        }
       }
     });
     return this.reapPromise;
@@ -405,9 +415,15 @@ export class AgentContext {
     if (!Array.isArray(argv) || argv.length === 0 || argv.some((item) => typeof item !== "string" || !item)) return Promise.reject(new ValidationError("argv must be a non-empty sequence of strings"));
     const executable = argv[0]; if (executable.includes("/") || executable.includes("\\") || !this.executionPolicy.allowedExecutables.includes(executable)) return Promise.reject(new AgentPermissionError("executable is not allowed: " + executable));
     const timeout = options.timeout ?? this.executionPolicy.maxTimeout; if (typeof timeout !== "number" || !Number.isFinite(timeout)) return Promise.reject(new ValidationError("timeout must be numeric")); if (timeout < 0.1 || timeout > this.executionPolicy.maxTimeout) return Promise.reject(new ValidationError("timeout exceeds ExecutionPolicy"));
-    const cwd = options.cwd ?? "."; const absoluteCwd = resolve(this.projectRoot, cwd); if (absoluteCwd !== this.projectRoot && !absoluteCwd.startsWith(`${this.projectRoot}${sep}`)) return Promise.reject(new AgentPermissionError("cwd escapes project root"));
+    const cwd = options.cwd ?? ".";
+    let checkedCwd: string;
+    try {
+      const realCwd = realpathSync(resolve(this.projectRoot, cwd));
+      if (!statSync(realCwd).isDirectory() || (realCwd !== this.projectRoot && !realCwd.startsWith(`${this.projectRoot}${sep}`))) return Promise.reject(new AgentPermissionError("cwd escapes project root"));
+      checkedCwd = relative(this.projectRoot, realCwd).split(sep).join("/") || ".";
+    } catch { return Promise.reject(new AgentPermissionError("cwd escapes project root")); }
     const environment = options.env ?? {}; for (const [key, value] of Object.entries(environment)) { if (typeof value !== "string") return Promise.reject(new ValidationError("env must be a string mapping")); if (!this.executionPolicy.allowedEnv.includes(key)) return Promise.reject(new AgentPermissionError("environment variable is not allowed: " + key)); }
-    return this.callTool("ctx_shell", { argv: [...argv], cwd, env: { ...environment }, timeout_ms: Math.trunc(timeout * 1000) }, Math.max(this.timeout, timeout + 2), options.signal);
+    return this.callTool("ctx_shell", { argv: [...argv], cwd: checkedCwd, env: { ...environment }, timeout_ms: Math.trunc(timeout * 1000) }, Math.max(this.timeout, timeout + 2), options.signal);
   }
   async close(): Promise<void> { if (this.closed) { await this.reap(); return; } try { await this.exchangeRaw({ op: "close" }); } catch { /* terminal close remains best effort */ } await this.terminate(); }
   async cancel(): Promise<void> { await this.terminate(); }

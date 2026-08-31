@@ -211,21 +211,13 @@ public sealed class ContextSession : IDisposable
             (sourceView.RecoveryRef != view.RecoveryRef || sourceView.SourceRef != view.SourceRef ||
              sourceView.SourceDigest != view.SourceDigest))
             throw new RecoveryUnavailableError("recovery view is not bound to this session", selected);
-        try
-        {
-            return await Engine.RecoverAsync(
-                plan.Source.ProjectRoot,
-                selected.Source.RelativePath,
-                selected.RecoveryRef,
-                selected.SourceRef,
-                selected.SourceDigest,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (RecoveryUnavailableError) { throw; }
-        catch (EngineError error)
-        {
-            throw new RecoveryUnavailableError("source recovery is unavailable", selected, error);
-        }
+        return await Engine.RecoverAsync(
+            plan.Source.ProjectRoot,
+            selected.Source.RelativePath,
+            selected.RecoveryRef,
+            selected.SourceRef,
+            selected.SourceDigest,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public void Close()

@@ -587,11 +587,23 @@ class AgentContext:
             raise AgentPermissionError(
                 "environment variable is not allowed: " + sorted(unexpected_env)[0]
             )
+        try:
+            real_root = os.path.realpath(self.project_root)
+            candidate = cwd if os.path.isabs(cwd) else os.path.join(real_root, cwd)
+            real_cwd = os.path.realpath(candidate)
+            if (
+                os.path.commonpath((real_root, real_cwd)) != real_root
+                or not os.path.isdir(real_cwd)
+            ):
+                raise AgentPermissionError("cwd escapes project root")
+            checked_cwd = os.path.relpath(real_cwd, real_root).replace(os.sep, "/")
+        except (OSError, ValueError) as error:
+            raise AgentPermissionError("cwd escapes project root") from error
         return self._call_tool(
             "ctx_shell",
             {
                 "argv": list(argv),
-                "cwd": cwd,
+                "cwd": checked_cwd,
                 "env": environment,
                 "timeout_ms": int(selected_timeout * 1000),
             },
@@ -630,20 +642,23 @@ class AgentContext:
         )
 
     def _terminate(self) -> None:
+        cleanup_error: Optional[BaseException] = None
         process = getattr(self, "_process", None)
         if process is not None and process.poll() is None:
             pid = getattr(process, "pid", None)
             if isinstance(pid, int) and pid > 0:
                 if os.name == "nt":
-                    subprocess.run(
+                    result = subprocess.run(
                         ("taskkill", "/F", "/T", "/PID", str(pid)),
                         check=False,
                         stdin=subprocess.DEVNULL,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
+                    if result.returncode != 0 and process.poll() is None:
+                        cleanup_error = OSError("taskkill failed")
                 else:
-                    self._kill_posix_tree(pid)
+                    cleanup_error = self._kill_posix_tree(pid)
             else:
                 process.terminate()
             try:
@@ -655,20 +670,30 @@ class AgentContext:
         if stderr is not None and not stderr.closed:
             stderr.close()
         self._remove_policy()
+        if cleanup_error is not None:
+            raise EngineExecutionError(
+                "Agent Tools process tree could not be terminated"
+            ) from cleanup_error
 
     @staticmethod
-    def _kill_posix_tree(pid: int) -> None:
+    def _kill_posix_tree(pid: int) -> Optional[BaseException]:
         try:
             os.kill(pid, signal.SIGSTOP)
         except ProcessLookupError:
-            return
+            return None
+        except PermissionError as error:
+            return error
         try:
             os.killpg(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+            return None
+        except ProcessLookupError:
+            return None
+        except PermissionError as error:
             try:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            return error
 
     def _crash_message(self) -> str:
         if self._stderr.closed:

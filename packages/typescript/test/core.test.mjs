@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -278,6 +278,7 @@ test("path containment and receipt verification fail closed", () => {
 
 test("Agent Tools negotiates policy, records metrics, and gates mutation", async () => {
   const root = mkdtempSync(join(tmpdir(), "leanctx-ts-agent-test-"));
+  const outside = mkdtempSync(join(tmpdir(), "leanctx-ts-agent-outside-"));
   try {
     const engineBinary = fakeAgentEngine(root);
     const readonly = await AgentContext.open(root, { engineBinary, task: "inspect" });
@@ -296,10 +297,13 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
     });
     assert.equal((await executing.run(["git", "status"], { env: { SAFE: "1" } })).text, "ctx_shell:ok");
     await assert.rejects(executing.run(["sh", "-c", "true"]), AgentPermissionError);
+    symlinkSync(outside, join(root, "escape-link"), "dir");
+    await assert.rejects(executing.run(["git", "status"], { cwd: "escape-link" }), AgentPermissionError);
     await executing.close();
     assert.deepEqual(readdirSync(root).filter((name) => name.startsWith(".leanctx-agent-")), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });
 

@@ -148,6 +148,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     private readonly SemaphoreSlim writeLock = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, object?>>> pending = new();
     private readonly Process process;
+    private readonly Task stdoutTask;
     private readonly Task readyTask;
     private readonly Task stderrTask;
     private readonly List<byte> stderr = new();
@@ -158,6 +159,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     private AgentMetrics metricsValue = new();
     private int terminal;
     private int helloAccepted;
+    private EngineError? cleanupError;
 
     public AgentContext(
         string projectRoot,
@@ -198,7 +200,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
             SetFileMode(policyPath);
             process = StartProcess(ResolveBinary());
             stderrTask = ReadStdErrAsync(process.StandardError.BaseStream);
-            _ = ReadLoopAsync();
+            stdoutTask = ReadLoopAsync();
             readyTask = StartAsync();
         }
         catch
@@ -427,6 +429,9 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         if (Volatile.Read(ref terminal) != 0)
         {
             await ReapAsync().ConfigureAwait(false);
+            await stdoutTask.ConfigureAwait(false);
+            if (cleanupError is not null)
+                throw cleanupError;
             return;
         }
         try
@@ -436,11 +441,20 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         }
         catch (EngineError) { }
         await TerminateAsync(null).ConfigureAwait(false);
+        await stdoutTask.ConfigureAwait(false);
+        if (cleanupError is not null)
+            throw cleanupError;
     }
 
     public void Close() => CloseAsync().GetAwaiter().GetResult();
 
-    public Task CancelAsync() => TerminateAsync(new EngineCrashed("AgentContext cancelled"));
+    public async Task CancelAsync()
+    {
+        await TerminateAsync(new EngineCrashed("AgentContext cancelled")).ConfigureAwait(false);
+        await stdoutTask.ConfigureAwait(false);
+        if (cleanupError is not null)
+            throw cleanupError;
+    }
     public void Cancel() => CancelAsync().GetAwaiter().GetResult();
 
     public async Task<AgentContext> ReconnectAsync()
@@ -483,20 +497,17 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     {
         try
         {
-            using var reader = new StreamReader(process.StandardOutput.BaseStream,
-                new UTF8Encoding(false, true), false, 8192, leaveOpen: true);
+            var reader = new BoundedLineReader(process.StandardOutput.BaseStream);
             while (Volatile.Read(ref terminal) == 0)
             {
-                var line = await reader.ReadLineAsync().ConfigureAwait(false);
+                var line = await reader.ReadLineAsync(WireJson.MaxResponseBytes).ConfigureAwait(false);
                 if (line is null)
                     break;
-                if (WireJson.Utf8(line, "Agent Tools response").Length > WireJson.MaxResponseBytes)
-                    throw new EngineProtocolError("Agent Tools response exceeds its bound");
                 Dictionary<string, object?> response;
                 try
                 {
-                    response = WireJson.ParseObject(WireJson.Utf8(line, "Agent Tools response"),
-                        "Agent Tools response", WireJson.MaxResponseBytes);
+                    response = WireJson.ParseObject(line, "Agent Tools response",
+                        WireJson.MaxResponseBytes);
                 }
                 catch (EngineProtocolError) { throw; }
                 Dispatch(response);
@@ -509,17 +520,34 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         }
         catch (EngineProtocolError error)
         {
-            await TerminateAsync(error).ConfigureAwait(false);
+            await TerminateFromReaderAsync(error).ConfigureAwait(false);
         }
         catch (ValidationError error)
         {
-            await TerminateAsync(new EngineProtocolError(
+            await TerminateFromReaderAsync(new EngineProtocolError(
                 "Agent Tools response is invalid", error)).ConfigureAwait(false);
         }
         catch (Exception error) when (error is IOException or DecoderFallbackException)
         {
-            await TerminateAsync(new EngineCrashed("Agent Tools Engine exited", error))
+            await TerminateFromReaderAsync(new EngineCrashed("Agent Tools Engine exited", error))
                 .ConfigureAwait(false);
+        }
+    }
+
+    private async Task TerminateFromReaderAsync(EngineError error)
+    {
+        try
+        {
+            await TerminateAsync(error).ConfigureAwait(false);
+        }
+        catch (EngineError cleanup)
+        {
+            cleanupError = cleanup;
+            foreach (var pair in pending)
+            {
+                if (pending.TryRemove(pair.Key, out var waiter))
+                    waiter.TrySetException(cleanup);
+            }
         }
     }
 
@@ -551,6 +579,44 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
                 throw violation;
             }
             waiter.TrySetException(ErrorFromWire(code, message));
+        }
+    }
+
+    private sealed class BoundedLineReader
+    {
+        private readonly Stream stream;
+        private readonly byte[] buffer = new byte[8192];
+        private int offset;
+        private int count;
+
+        internal BoundedLineReader(Stream stream) => this.stream = stream;
+
+        internal async Task<byte[]?> ReadLineAsync(int maximum)
+        {
+            using var output = new MemoryStream();
+            while (true)
+            {
+                if (offset == count)
+                {
+                    count = await stream.ReadAsync(buffer.AsMemory()).ConfigureAwait(false);
+                    offset = 0;
+                    if (count == 0)
+                        return output.Length == 0 ? null : output.ToArray();
+                }
+                var newline = Array.IndexOf(buffer, (byte)'\n', offset, count - offset);
+                var length = newline < 0 ? count - offset : newline - offset;
+                if (output.Length + length > maximum)
+                    throw new EngineProtocolError("Agent Tools response exceeds its bound");
+                output.Write(buffer, offset, length);
+                offset += length;
+                if (newline < 0)
+                    continue;
+                offset++;
+                var line = output.ToArray();
+                if (line.Length > 0 && line[^1] == (byte)'\r')
+                    Array.Resize(ref line, line.Length - 1);
+                return line;
+            }
         }
     }
 
@@ -919,16 +985,8 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
 
     private static void KillAndReap(Process child)
     {
-        try
-        {
-            if (!child.HasExited)
-                child.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception) { }
-        try { child.WaitForExit(2000); }
-        catch (InvalidOperationException) { }
-        child.Dispose();
+        try { ProcessTree.KillAndReap(child, "Agent Tools"); }
+        finally { child.Dispose(); }
     }
 
     private void RemovePolicy()

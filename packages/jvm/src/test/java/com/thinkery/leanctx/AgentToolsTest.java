@@ -49,6 +49,14 @@ class AgentToolsTest {
             assertEquals(12, context.metrics().savedTokens());
             assertThrows(AgentPermissionError.class,
                     () -> context.run(List.of("sh"), ".", Map.of(), 0.5));
+            Path outside = Files.createTempDirectory("leanctx-agent-outside-");
+            try {
+                Files.createSymbolicLink(root.resolve("escape-link"), outside);
+                assertThrows(AgentPermissionError.class,
+                        () -> context.run(List.of("printf"), "escape-link", Map.of(), 0.5));
+            } finally {
+                deleteTree(outside);
+            }
         } finally {
             context.close();
         }

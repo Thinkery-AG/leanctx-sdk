@@ -4,6 +4,8 @@ use crate::errors::{boxed, EngineExecutionError, SdkResult};
 
 pub(crate) fn terminate_process_tree(child: &mut Child) -> SdkResult<()> {
     #[cfg(unix)]
+    let mut group_error = None;
+    #[cfg(unix)]
     {
         use nix::errno::Errno;
         use nix::sys::signal::{killpg, Signal};
@@ -22,24 +24,32 @@ pub(crate) fn terminate_process_tree(child: &mut Child) -> SdkResult<()> {
         match killpg(Pid::from_raw(pid), Signal::SIGKILL) {
             Ok(()) | Err(Errno::ESRCH) => {}
             Err(_) => {
-                return Err(boxed(EngineExecutionError::new(
+                group_error = Some(boxed(EngineExecutionError::new(
                     "Engine process group could not be terminated",
-                )))
+                )));
+                let _ = child.kill();
             }
         }
     }
     #[cfg(not(unix))]
-    {
-        if child.kill().is_err() && child.try_wait().ok().flatten().is_none() {
-            return Err(boxed(EngineExecutionError::new(
-                "Engine process could not be terminated",
-            )));
-        }
-    }
-    child.wait().map_err(|_| {
+    let kill_error = child.kill().err();
+    let wait_result = child.wait().map_err(|_| {
         boxed(EngineExecutionError::new(
             "Engine process could not be reaped",
         ))
-    })?;
+    });
+    #[cfg(unix)]
+    if let Some(error) = group_error {
+        wait_result?;
+        return Err(error);
+    }
+    #[cfg(not(unix))]
+    if kill_error.is_some() {
+        wait_result?;
+        return Err(boxed(EngineExecutionError::new(
+            "Engine process could not be terminated",
+        )));
+    }
+    wait_result?;
     Ok(())
 }
