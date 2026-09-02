@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from leanctx_sdk import ContextSource
+from leanctx_sdk import ContextSession, ContextSource
 from leanctx_sdk.preview import (
     ContextDeltaV1,
     ContextHandoffV1,
@@ -133,6 +133,54 @@ class ParallelContextTests(unittest.TestCase):
             reopened = ContextWorkspace.open(state, child.workspace_id)
             with self.assertRaises(WorkspaceConflictError):
                 reopened.bind_source("source-1", source)
+
+    def test_attach_revalidates_rebound_source_and_latest_anchor(self):
+        from tests.test_sdk import FakeEngine
+
+        with tempfile.TemporaryDirectory() as root:
+            state, source, parent, checkpoint = _base(root)
+            child = parent.fork("builder", from_checkpoint=checkpoint)
+            reopened = ContextWorkspace.open(state, child.workspace_id)
+            reopened.bind_source("source-1", source)
+
+            session = ContextSession(
+                "build",
+                project_root=source.project_root,
+                engine=FakeEngine(),
+            )
+            session.plan(source)
+            source_path = Path(root, "project", "source.txt")
+            source_path.write_text("changed after bind\n", encoding="utf-8")
+            with self.assertRaises(WorkspaceConflictError):
+                reopened.attach_session(session, source_ids=["source-1"])
+
+            source_path.write_text("source truth\n", encoding="utf-8")
+            updated_child = parent.fork("updated", from_checkpoint=checkpoint)
+            updated = ContextWorkspace.open(state, updated_child.workspace_id)
+            updated.bind_source("source-1", source)
+            source_path.write_text("new durable revision\n", encoding="utf-8")
+            digest = "sha256:" + hashlib.sha256(source_path.read_bytes()).hexdigest()
+            updated.update_source(
+                replace(
+                    updated._read_state().sources["source-1"],
+                    revision=SourceRevision("filesystem", digest),
+                )
+            )
+            updated_session = ContextSession(
+                "continue",
+                project_root=source.project_root,
+                engine=FakeEngine(),
+            )
+            updated_session.plan(source)
+            with self.assertRaises(WorkspaceConflictError):
+                updated.attach_session(updated_session, source_ids=["source-1"])
+
+            updated.bind_source("source-1", source)
+            attachment = updated.attach_session(
+                updated_session,
+                source_ids=["source-1"],
+            )
+            self.assertIs(attachment.session, updated_session)
 
     def test_fork_policy_floor_rejects_relaxation_before_child_publication(self):
         with tempfile.TemporaryDirectory() as root:
