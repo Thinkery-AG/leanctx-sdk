@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Thinkery.LeanCtx;
 
 internal static class Program
@@ -103,11 +104,10 @@ internal static class Program
                 ("session_id", session.SessionId), ("task_id", session.TaskId),
                 ("task", session.Task), ("state", "created"))),
         };
-        Equal("814ab90ae5f1ab6e93d1f447c703572c04174f7c0dccdd8939daeb304828ee9f", actual["ContextSource"]);
-        Equal("a948177b44cfd1fd22b5aa59bd4d0210510675eb0742d219ac2ac36ed09a6d75", actual["ContextPlan"]);
-        Equal("b80a6a0055e6ff06724f99990d59f03bbd4cf407d0143085a858cd1949b18918", actual["ContextView"]);
-        Equal("0edf6bdc1afd5eb605a01900a99ff1d18579d98ba09719c4397d7366bfeca963", actual["ContextReceipt"]);
-        Equal("219d600e70f8421386b034395f7db4e8d6494cb14d57cd34e63058e51834735c", actual["ContextSession"]);
+        using var fixture = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "fixtures", "serialization-sha256.json")));
+        foreach (var (name, fingerprint) in actual)
+            Equal(fixture.RootElement.GetProperty(name).GetString()!, fingerprint);
         Equal("plan:sha256:25f29db61cbb19986896152ecf2c8b1b60a1187c83a8e4ceefb0b7203542296e",
             new ContextPlan("fixture-session-r1", "fixture-task-r1", "inspect the synthetic fixture", source).PlanId);
     }

@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  AGENT_TOOLS_ENGINE_VERSION: 3.10.1
   ENGINE_COMMIT: 5b6920216177b01f48694efff1d6be9505665263
   ENGINE_VERSION: 3.10.0
   ENGINE_TAG: v3.10.0
@@ -117,6 +118,161 @@ jobs:
             public-release-guard.json
           if-no-files-found: error
           retention-days: 14
+
+  typescript-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/typescript
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/typescript/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test 2>&1 | tee ../../typescript-sdk.log
+      - run: npm run pack:dry-run 2>&1 | tee -a ../../typescript-sdk.log
+      - run: test -f dist/index.js && test -f dist/index.d.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: typescript-sdk-${{ github.sha }}
+          path: typescript-sdk.log
+          if-no-files-found: error
+          retention-days: 14
+
+  go-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/go
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: packages/go/go.mod
+          cache: false
+      - run: go test ./... 2>&1 | tee ../../go-sdk.log
+      - run: go vet ./... 2>&1 | tee -a ../../go-sdk.log
+      - run: go list -deps ./... > ../../go-dependencies.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: go-sdk-${{ github.sha }}
+          path: |
+            go-sdk.log
+            go-dependencies.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  rust-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.76.0", "stable"]
+    defaults:
+      run:
+        working-directory: packages/rust
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install ${{ matrix.rust }} --profile minimal --component clippy,rustfmt
+      - run: cargo +${{ matrix.rust }} fmt --check
+      - run: cargo +${{ matrix.rust }} test --locked 2>&1 | tee ../../rust-sdk-${{ matrix.rust }}.log
+      - run: cargo +${{ matrix.rust }} clippy --locked --all-targets --all-features -- -D warnings
+      - if: matrix.rust == 'stable'
+        run: cargo +stable package --locked --allow-dirty
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-sdk-${{ matrix.rust }}-${{ github.sha }}
+          path: rust-sdk-${{ matrix.rust }}.log
+          if-no-files-found: error
+          retention-days: 14
+
+  jvm-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/jvm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: packages/jvm/pom.xml
+      - run: mvn --batch-mode --no-transfer-progress verify 2>&1 | tee ../../jvm-sdk.log
+      - run: jar tf target/leanctx-sdk-1.1.0.jar | sort > ../../jvm-package-contents.txt
+      - run: grep -Fx META-INF/LICENSE ../../jvm-package-contents.txt
+      - run: grep -Fx com/thinkery/leanctx/AgentContext.class ../../jvm-package-contents.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jvm-sdk-${{ github.sha }}
+          path: |
+            jvm-sdk.log
+            jvm-package-contents.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  dotnet-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/dotnet
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --locked-mode
+      - run: dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-restore
+      - run: dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-build 2>&1 | tee ../../dotnet-sdk.log
+      - run: dotnet pack Thinkery.LeanCtx.csproj --configuration Release --no-build --output "$RUNNER_TEMP/nuget"
+      - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.1.0.nupkg | tee ../../dotnet-package-contents.txt
+      - run: grep -F LICENSE ../../dotnet-package-contents.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dotnet-sdk-${{ github.sha }}
+          path: |
+            dotnet-sdk.log
+            dotnet-package-contents.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  cross-sdk-proof:
+    if: always()
+    needs: [typescript-sdk, go-sdk, rust-sdk, jvm-sdk, dotnet-sdk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          TYPESCRIPT_RESULT: ${{ needs.typescript-sdk.result }}
+          GO_RESULT: ${{ needs.go-sdk.result }}
+          RUST_RESULT: ${{ needs.rust-sdk.result }}
+          JVM_RESULT: ${{ needs.jvm-sdk.result }}
+          DOTNET_RESULT: ${{ needs.dotnet-sdk.result }}
+        run: |
+          test "$TYPESCRIPT_RESULT" = success
+          test "$GO_RESULT" = success
+          test "$RUST_RESULT" = success
+          test "$JVM_RESULT" = success
+          test "$DOTNET_RESULT" = success
 
   engine-artifact:
     runs-on: ubuntu-latest
@@ -426,6 +582,7 @@ jobs:
       needs.sdk-artifact.result == 'success' &&
       needs.installed-engine-contract.result == 'success' &&
       needs.dependency-audit.result == 'success' &&
+      needs.cross-sdk-proof.result == 'success' &&
       needs.publication-guard.result == 'success' &&
       needs.framework-offline.result == 'success' }}
     needs:
@@ -437,6 +594,7 @@ jobs:
       - sdk-artifact
       - installed-engine-contract
       - dependency-audit
+      - cross-sdk-proof
       - framework-offline
       - publication-guard
     runs-on: ubuntu-latest
@@ -545,7 +703,7 @@ jobs:
           'framework_version': os.environ['FRAMEWORK_VERSION'],
           'framework_gate': os.environ['FRAMEWORK_GATE'],
           'gates': ['source-contract', 'static-quality', 'source-secret-scan', 'engine-artifact',
-          'sdk-artifact', 'installed-engine-contract', 'dependency-audit',
+          'sdk-artifact', 'installed-engine-contract', 'dependency-audit', 'cross-sdk-proof',
           'framework-offline', 'publication-guard'],
           'sdk_commit': os.environ['SDK_COMMIT'],
           'sdk_version': os.environ['SDK_VERSION'],
@@ -622,6 +780,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
+      - run: test "$ENGINE_VERSION" = "$AGENT_TOOLS_ENGINE_VERSION"
       - run: echo "SDK v1 technical release gates passed."
 
   publish-pypi:
@@ -667,6 +826,7 @@ jobs:
       - sdk-artifact
       - installed-engine-contract
       - dependency-audit
+      - cross-sdk-proof
       - publication-guard
     runs-on: ubuntu-latest
     timeout-minutes: 2

@@ -29,11 +29,16 @@ of the model and agent loop.
   closed.
 - Release quality now enforces Ruff lint/format plus complementary ty and mypy
   checks; mypy remains until ty covers the optional integration surface.
+- Required CI now builds, tests, and inspects the TypeScript, Go, Rust, JVM,
+  and .NET packages; all six SDKs consume one canonical serialization
+  fingerprint fixture and feed a fail-closed cross-SDK release gate.
 
 ## Compatibility
 
 - CPython 3.9 through 3.14 is covered by source and installed-wheel contract
   matrices.
+- Node.js 22, Go 1.24, Rust 1.76 and stable, Java 21/Kotlin 2.1, and .NET 8
+  are covered by required language-native build and test jobs.
 
 The five SDK 1.0 lifecycle primitives and Engine Interface v1 are unchanged.
 Agent Tools requires LeanCTX Engine 3.10.1 with interface `1.0.0`, schema `1`,

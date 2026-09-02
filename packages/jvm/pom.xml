@@ -67,6 +67,13 @@
       <testResource>
         <directory>src/test/resources</directory>
       </testResource>
+      <testResource>
+        <directory>${project.basedir}/../../fixtures/sdk-v1</directory>
+        <targetPath>sdk-v1</targetPath>
+        <includes>
+          <include>serialization-sha256.json</include>
+        </includes>
+      </testResource>
     </testResources>
     <plugins>
       <plugin>
