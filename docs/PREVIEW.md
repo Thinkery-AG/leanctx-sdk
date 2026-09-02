@@ -51,9 +51,10 @@ attachment = workspace.start_session(
 ```
 
 Hosts that already own a prepared `ContextSession` may instead call
-`attach_session` after the same explicit rebind. The rebind verifies the
-inherited source digest and fails closed if content changed before the new
-process established its binding.
+`attach_session` after the same explicit rebind. Attachment rechecks both the
+source digest and the latest durable anchor, so content changed after binding
+or a stale binding after `update_source` fails closed. Rebind explicitly after
+an accepted source revision update.
 
 A Workspace is durable context state, not an agent task queue: completion and
 abort are terminal, and states such as input-required, cancellation, retries,

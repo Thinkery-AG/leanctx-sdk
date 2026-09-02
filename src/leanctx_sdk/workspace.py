@@ -4321,20 +4321,35 @@ class ContextWorkspace:
                 durable_anchor = state.sources[source_id]
             except KeyError as exc:
                 raise WorkspaceValidationError("source_id is not attached") from exc
-            anchors.append(self._runtime_source_bindings.get(source_id, durable_anchor))
+            anchor = durable_anchor
+            if durable_anchor.engine_binding is None:
+                anchor = self._runtime_source_bindings.get(source_id, durable_anchor)
+            anchors.append((durable_anchor, anchor))
         with _SESSION_BINDINGS_LOCK:
             bound = _SESSION_BINDINGS.get(session)
             if bound is not None and bound != self._session_binding_key():
                 raise WorkspaceConflictError()
         matching_anchors = [
-            anchor
-            for anchor in anchors
+            (durable_anchor, anchor)
+            for durable_anchor, anchor in anchors
             if anchor.engine_binding is not None
             and _plain(anchor.engine_binding) == _plain(plan.source.to_dict())
         ]
         if len(matching_anchors) != 1:
             raise WorkspaceConflictError()
-        _validate_anchor_binding(matching_anchors[0], plan.source)
+        durable_anchor, matching_anchor = matching_anchors[0]
+        if durable_anchor.engine_binding is None:
+            portable_runtime = _plain(matching_anchor.to_dict())
+            portable_runtime["engine_binding"] = None
+            if _canonical(portable_runtime) != _canonical(durable_anchor.to_dict()):
+                raise WorkspaceConflictError()
+            current_binding = _bind_portable_anchor(durable_anchor, plan.source)
+            if _canonical(current_binding.to_dict()) != _canonical(
+                matching_anchor.to_dict()
+            ):
+                raise WorkspaceConflictError()
+            matching_anchor = current_binding
+        _validate_anchor_binding(matching_anchor, plan.source)
         with _pin_source(plan.source) as pin:
             _revalidate_source_pin(plan.source, pin)
         existing = next(
