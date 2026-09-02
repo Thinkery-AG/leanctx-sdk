@@ -17,7 +17,12 @@ from agents import (
     Usage,
     set_tracing_disabled,
 )
-from leanctx_sdk import AgentContext, ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import (
+    AgentContext,
+    ContextSession,
+    ContextSource,
+    SubprocessEngineClient,
+)
 from leanctx_sdk.integrations.openai_agents import OpenAIAgentsAdapter, openai_tools
 from openai.types.responses import ResponseOutputMessage, ResponseOutputText
 
@@ -95,7 +100,9 @@ def verify(engine: Path) -> dict[str, object]:
             failure.run_sync("caller-input")
         except RuntimeError as caught:
             if caught is not error:
-                raise AssertionError("real Runner exception identity changed") from caught
+                raise AssertionError(
+                    "real Runner exception identity changed"
+                ) from caught
         else:
             raise AssertionError("real Runner failure did not propagate")
         if failure.receipt is None or failure.receipt.exception is not error:

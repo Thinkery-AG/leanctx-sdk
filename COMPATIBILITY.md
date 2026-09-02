@@ -8,7 +8,7 @@ contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 
 | Component | Declared scope | Release status |
 | --- | --- | --- |
-| Python | CPython 3.9–3.12 | supported |
+| Python | CPython 3.9–3.14 | supported |
 | SDK wheel | pure Python, `py3-none-any` | release candidate |
 | Agent Tools Engine | `v3.10.1` | required for `AgentContext`; not yet published |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
@@ -24,7 +24,7 @@ No compatibility is inferred from a newer Engine or an executable found on
 
 | Component | Declared scope | Release status |
 | --- | --- | --- |
-| Python | CPython 3.9–3.12 | supported |
+| Python | CPython 3.9–3.14 | supported |
 | SDK wheel | pure Python, `py3-none-any` | release artifact |
 | Local Engine | `v3.10.0`, commit `5b6920216177b01f48694efff1d6be9505665263` | supported public release |
 | Engine protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |

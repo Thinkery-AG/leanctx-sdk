@@ -167,10 +167,22 @@ if loaded:
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_no_private_research_names_are_exported(self):
-        exported = {name.casefold() for name in (*leanctx_sdk.__all__, *preview.__all__)}
-        forbidden_fragments = ("cloud", "receiptboard", "governed", "optimization", "autotune")
+        exported = {
+            name.casefold() for name in (*leanctx_sdk.__all__, *preview.__all__)
+        }
+        forbidden_fragments = (
+            "cloud",
+            "receiptboard",
+            "governed",
+            "optimization",
+            "autotune",
+        )
         self.assertFalse(
-            {name for name in exported if any(part in name for part in forbidden_fragments)}
+            {
+                name
+                for name in exported
+                if any(part in name for part in forbidden_fragments)
+            }
         )
 
     def test_preview_workspace_example_runs_provider_free(self):

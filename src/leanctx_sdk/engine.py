@@ -59,8 +59,7 @@ from .protocol import (
 class EngineClient(Protocol):
     """The only injected transport seam owned by the Product SDK."""
 
-    def context_view(self, plan: ContextPlan) -> ContextView:
-        ...
+    def context_view(self, plan: ContextPlan) -> ContextView: ...
 
     def recover(
         self,
@@ -69,8 +68,7 @@ class EngineClient(Protocol):
         recovery_ref: str,
         source_ref: str,
         source_digest: str,
-    ) -> RecoveredSource:
-        ...
+    ) -> RecoveredSource: ...
 
 
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -192,7 +190,9 @@ def _required_ref(value: Any, field_name: str) -> str:
         raise _protocol(str(exc)) from exc
 
 
-def _validate_pair(output_ref: Optional[str], output_digest: Optional[str], label: str) -> None:
+def _validate_pair(
+    output_ref: Optional[str], output_digest: Optional[str], label: str
+) -> None:
     # Recovery v1 intentionally permits a null output_ref while retaining the
     # source-bound output_digest. A materialized context view requires both.
     if output_ref is not None and output_digest is None:
@@ -241,7 +241,9 @@ def _parse_receipt_link(value: Any, invocation_id: str) -> Optional[ContextRecei
     if not isinstance(value, Mapping):
         raise _protocol("receipt_link must be an object or null")
     _exact_keys(value, _RECEIPT_LINK_KEYS, "receipt_link")
-    receipt_digest = _optional_digest(value["receipt_digest"], "receipt_link.receipt_digest")
+    receipt_digest = _optional_digest(
+        value["receipt_digest"], "receipt_link.receipt_digest"
+    )
     receipt_ref = _required_ref(value["receipt_ref"], "receipt_link.receipt_ref")
     if receipt_digest is None:
         raise _protocol("receipt_link.receipt_digest is required")
@@ -268,25 +270,40 @@ def _parse_invocation(value: Any) -> Mapping[str, object]:
     engine = value["engine"]
     operation = value["operation"]
     policy = value["policy_admission"]
-    if not isinstance(engine, Mapping) or not isinstance(operation, Mapping) or not isinstance(policy, Mapping):
+    if (
+        not isinstance(engine, Mapping)
+        or not isinstance(operation, Mapping)
+        or not isinstance(policy, Mapping)
+    ):
         raise _protocol("invocation nested records must be objects")
     _exact_keys(engine, _ENGINE_KEYS, "invocation.engine")
     _exact_keys(operation, _OPERATION_KEYS, "invocation.operation")
     _exact_keys(policy, _POLICY_KEYS, "invocation.policy_admission")
     engine_id = _string(engine["engine_id"], "invocation.engine.engine_id")
-    engine_version = _string(engine["engine_version"], "invocation.engine.engine_version")
+    engine_version = _string(
+        engine["engine_version"], "invocation.engine.engine_version"
+    )
     if engine_id != "lean-ctx-local" or not _SEMVER_RE.fullmatch(engine_version):
         raise _unsupported_engine("unsupported Engine identity")
     if int(engine_version.split(".", 1)[0]) != 3:
         raise _unsupported_engine("unsupported Engine major version")
-    capability_id = _string(operation["capability_id"], "invocation.operation.capability_id")
-    capability_version = _string(operation["capability_version"], "invocation.operation.capability_version")
-    if capability_id != "capability://leanctx/context-optimization" or capability_version != "1.0.0":
+    capability_id = _string(
+        operation["capability_id"], "invocation.operation.capability_id"
+    )
+    capability_version = _string(
+        operation["capability_version"], "invocation.operation.capability_version"
+    )
+    if (
+        capability_id != "capability://leanctx/context-optimization"
+        or capability_version != "1.0.0"
+    ):
         raise _unsupported_engine("unsupported Engine capability")
     decision = policy["decision"]
     if decision not in {"admitted", "rejected"}:
         raise _protocol("unknown policy decision")
-    policy_ref = _required_ref(policy["policy_ref"], "invocation.policy_admission.policy_ref")
+    policy_ref = _required_ref(
+        policy["policy_ref"], "invocation.policy_admission.policy_ref"
+    )
     invocation_id = _string(value["invocation_id"], "invocation.invocation_id")
     if _int(value["schema_version"], "invocation.schema_version") != SCHEMA_VERSION:
         raise _protocol("unsupported invocation schema version")
@@ -295,9 +312,14 @@ def _parse_invocation(value: Any) -> Mapping[str, object]:
     if input_digest is None:
         raise _protocol("invocation.input_digest is required")
     source_refs_value = value["source_refs"]
-    if not isinstance(source_refs_value, list) or not 0 < len(source_refs_value) <= MAX_REFS:
+    if (
+        not isinstance(source_refs_value, list)
+        or not 0 < len(source_refs_value) <= MAX_REFS
+    ):
         raise _protocol("invocation.source_refs exceeds its bound")
-    source_refs = tuple(_required_ref(item, "invocation.source_refs") for item in source_refs_value)
+    source_refs = tuple(
+        _required_ref(item, "invocation.source_refs") for item in source_refs_value
+    )
     if len(set(source_refs)) != len(source_refs):
         raise _protocol("invocation.source_refs contains duplicates")
     if input_ref not in source_refs:
@@ -306,7 +328,10 @@ def _parse_invocation(value: Any) -> Mapping[str, object]:
         "schema_version": SCHEMA_VERSION,
         "invocation_id": invocation_id,
         "engine": {"engine_id": engine_id, "engine_version": engine_version},
-        "operation": {"capability_id": capability_id, "capability_version": capability_version},
+        "operation": {
+            "capability_id": capability_id,
+            "capability_version": capability_version,
+        },
         "input_ref": input_ref,
         "input_digest": input_digest,
         "source_refs": source_refs,
@@ -319,7 +344,9 @@ def _parse_observation(value: Any, invocation_id: str) -> Mapping[str, object]:
         raise _protocol("observation must be an object or null")
     if set(value) - _OBSERVATION_KEYS or not _OBSERVATION_REQUIRED_KEYS.issubset(value):
         raise _protocol("observation fields do not match the v1 contract")
-    observed_invocation_id = _string(value["invocation_id"], "observation.invocation_id")
+    observed_invocation_id = _string(
+        value["invocation_id"], "observation.invocation_id"
+    )
     if observed_invocation_id != invocation_id:
         raise _protocol("observation invocation binding mismatch")
     if _int(value["schema_version"], "observation.schema_version") != SCHEMA_VERSION:
@@ -328,16 +355,23 @@ def _parse_observation(value: Any, invocation_id: str) -> Mapping[str, object]:
     if status not in {item.value for item in EngineStatus}:
         raise _protocol("unknown observation status")
     output_ref = _optional_output_ref(value.get("output_ref"), "observation.output_ref")
-    output_digest = _optional_digest(value.get("output_digest"), "observation.output_digest")
+    output_digest = _optional_digest(
+        value.get("output_digest"), "observation.output_digest"
+    )
     _validate_pair(output_ref, output_digest, "observation")
     lineage_value = value["source_lineage"]
     if not isinstance(lineage_value, list) or not 0 < len(lineage_value) <= MAX_REFS:
         raise _protocol("observation.source_lineage exceeds its bound")
-    lineage = tuple(_required_ref(item, "observation.source_lineage") for item in lineage_value)
+    lineage = tuple(
+        _required_ref(item, "observation.source_lineage") for item in lineage_value
+    )
     if len(set(lineage)) != len(lineage):
         raise _protocol("observation.source_lineage contains duplicates")
     measurements_value = value["measurements"]
-    if not isinstance(measurements_value, list) or len(measurements_value) > MAX_MEASUREMENTS:
+    if (
+        not isinstance(measurements_value, list)
+        or len(measurements_value) > MAX_MEASUREMENTS
+    ):
         raise _protocol("observation.measurements exceeds its bound")
     measurements = tuple(_parse_measurement(item) for item in measurements_value)
     failure = _parse_failure(value.get("failure"))
@@ -369,7 +403,10 @@ def _parse_view(value: Any) -> Mapping[str, object]:
     output_ref = _optional_output_ref(value["output_ref"], "view.output_ref")
     output_digest = _optional_digest(value["output_digest"], "view.output_digest")
     _validate_pair(output_ref, output_digest, "view")
-    if output_digest is not None and sha256_digest(text.encode("utf-8")) != output_digest:
+    if (
+        output_digest is not None
+        and sha256_digest(text.encode("utf-8")) != output_digest
+    ):
         raise _protocol("view output digest mismatch")
     return {"text": text, "output_ref": output_ref, "output_digest": output_digest}
 
@@ -388,7 +425,9 @@ def _parse_recovery(value: Any) -> Mapping[str, str]:
     }
 
 
-def _parse_response(raw: bytes) -> Tuple[Mapping[str, object], Mapping[str, object], Mapping[str, object]]:
+def _parse_response(
+    raw: bytes,
+) -> Tuple[Mapping[str, object], Mapping[str, object], Mapping[str, object]]:
     if len(raw) > MAX_RESPONSE_BYTES:
         raise _protocol("Engine response exceeds the bound")
     try:
@@ -423,7 +462,10 @@ def _parse_response(raw: bytes) -> Tuple[Mapping[str, object], Mapping[str, obje
         cast(Sequence[object], invocation["source_refs"])
     ):
         raise _protocol("observation source lineage does not match invocation")
-    if observation["output_ref"] != view["output_ref"] or observation["output_digest"] != view["output_digest"]:
+    if (
+        observation["output_ref"] != view["output_ref"]
+        or observation["output_digest"] != view["output_digest"]
+    ):
         raise _protocol("view and observation output binding mismatch")
     return view, {"invocation": invocation, "observation": observation}, recovery
 
@@ -459,9 +501,15 @@ class SubprocessEngineClient:
         *,
         timeout: float = 30.0,
     ):
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0.1 <= timeout <= 120.0:
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not 0.1 <= timeout <= 120.0
+        ):
             raise ConfigurationError("timeout must be between 0.1 and 120 seconds")
-        self.engine_binary = os.fspath(engine_binary) if engine_binary is not None else "lean-ctx"
+        self.engine_binary = (
+            os.fspath(engine_binary) if engine_binary is not None else "lean-ctx"
+        )
         self.timeout = float(timeout)
 
     def context_view(self, plan: ContextPlan) -> ContextView:
@@ -478,15 +526,23 @@ class SubprocessEngineClient:
         project_root = source.project_root
         if project_root is None:
             raise SourceUnavailableError("source project_root is unavailable")
-        view_data, records, recovery = self._invoke("context-view", project_root, request)
+        view_data, records, recovery = self._invoke(
+            "context-view", project_root, request
+        )
         if not records:
             raise _protocol("context-view response omitted invocation/observation")
         invocation = records["invocation"]
         if recovery["source_ref"] not in invocation["source_refs"]:
             raise _protocol("recovery source_ref is not admitted by invocation")
-        if source.source_ref is not None and source.source_ref != recovery["source_ref"]:
+        if (
+            source.source_ref is not None
+            and source.source_ref != recovery["source_ref"]
+        ):
             raise _protocol("Engine source_ref differs from requested binding")
-        if source.source_digest is not None and source.source_digest != recovery["source_digest"]:
+        if (
+            source.source_digest is not None
+            and source.source_digest != recovery["source_digest"]
+        ):
             raise _protocol("Engine source_digest differs from requested binding")
         result = self._build_view(source, view_data, records, recovery)
         status = result.status
@@ -565,7 +621,9 @@ class SubprocessEngineClient:
                 "recover output reference does not match source digest"
             )
         try:
-            return RecoveredSource(view_data["text"], source_ref, source_digest, recovery_ref)
+            return RecoveredSource(
+                view_data["text"], source_ref, source_digest, recovery_ref
+            )
         except ValidationError as exc:
             raise _protocol(str(exc)) from exc
 
@@ -596,7 +654,9 @@ class SubprocessEngineClient:
             raise EngineProtocolError("Engine request exceeds the bound")
         request_path = None
         try:
-            fd, request_path = tempfile.mkstemp(prefix=".leanctx-sdk-", suffix=".json", dir=root)
+            fd, request_path = tempfile.mkstemp(
+                prefix=".leanctx-sdk-", suffix=".json", dir=root
+            )
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "wb") as handle:
                 handle.write(payload)
@@ -662,18 +722,24 @@ class SubprocessEngineClient:
                     raise EngineTimeout("Engine process exceeded its deadline")
                 for key, _ in events:
                     fileobj = key.fileobj
-                    descriptor = fileobj if isinstance(fileobj, int) else fileobj.fileno()
+                    descriptor = (
+                        fileobj if isinstance(fileobj, int) else fileobj.fileno()
+                    )
                     chunk = os.read(descriptor, 65536)
                     if not chunk:
                         selector.unregister(key.fileobj)
                         continue
                     target = stdout if key.data == "stdout" else stderr
-                    maximum = MAX_RESPONSE_BYTES if key.data == "stdout" else MAX_STDERR_BYTES
+                    maximum = (
+                        MAX_RESPONSE_BYTES if key.data == "stdout" else MAX_STDERR_BYTES
+                    )
                     target.extend(chunk)
                     if len(target) > maximum:
                         process.kill()
                         process.wait()
-                        raise EngineProtocolError("Engine process output exceeds its bound")
+                        raise EngineProtocolError(
+                            "Engine process output exceeds its bound"
+                        )
             return_code = process.wait()
         except (EngineTimeout, EngineProtocolError):
             if process.poll() is None:
@@ -699,7 +765,9 @@ class SubprocessEngineClient:
                 raise SourceUnavailableError("Engine source is unavailable")
             if code == "unsupported_mode":
                 raise UnsupportedEngineError("Engine operation is unsupported")
-            raise EngineExecutionError(f"Engine process failed: {code or 'nonzero_exit'}")
+            raise EngineExecutionError(
+                f"Engine process failed: {code or 'nonzero_exit'}"
+            )
         if not stdout:
             raise EngineProtocolError("Engine returned empty stdout")
         try:

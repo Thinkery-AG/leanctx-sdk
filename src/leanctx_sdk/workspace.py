@@ -21,7 +21,18 @@ import uuid
 import weakref
 from dataclasses import dataclass, field
 from types import MappingProxyType, ModuleType
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from .errors import (
     WorkspaceAlreadyExistsError,
@@ -37,7 +48,12 @@ from .errors import (
     WorkspaceSensitiveDataError,
     WorkspaceValidationError,
 )
-from .protocol import ContextReceiptLink, ContextSource, canonical_bytes, strict_json_loads
+from .protocol import (
+    ContextReceiptLink,
+    ContextSource,
+    canonical_bytes,
+    strict_json_loads,
+)
 from .receipt import ContextReceipt
 from .session import ContextSession
 
@@ -61,9 +77,7 @@ _PACKAGE_PIN_SCHEMA = "leanctx.package-pin/v1"
 _LOGICAL_STATE_SCHEMA = "leanctx.workspace.state/v1"
 _SDK_P6_CONTRACT = "leanctx-product-sdk-research/p6"
 _ZERO_DIGEST = "0" * 64
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _TIMESTAMP_RE = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{1,6})?Z$"
@@ -145,9 +159,10 @@ def _canonical(value: Any) -> bytes:
 
 
 def _domain_digest(domain: str, value: Any) -> str:
-    return "sha256:" + hashlib.sha256(
-        domain.encode("utf-8") + b"\n" + _canonical(value)
-    ).hexdigest()
+    return (
+        "sha256:"
+        + hashlib.sha256(domain.encode("utf-8") + b"\n" + _canonical(value)).hexdigest()
+    )
 
 
 def _digest(value: Any) -> str:
@@ -177,13 +192,21 @@ def _optional_text(value: Any, field_name: str, maximum: int) -> Optional[str]:
 
 
 def _uuid(value: Any, field_name: str) -> str:
-    if not isinstance(value, str) or not _UUID_RE.fullmatch(value) or value.lower() != value:
-        raise WorkspaceValidationError(f"{field_name} must be a canonical lowercase UUID")
+    if (
+        not isinstance(value, str)
+        or not _UUID_RE.fullmatch(value)
+        or value.lower() != value
+    ):
+        raise WorkspaceValidationError(
+            f"{field_name} must be a canonical lowercase UUID"
+        )
     try:
         if str(uuid.UUID(value)) != value:
             raise ValueError
     except (ValueError, AttributeError) as exc:
-        raise WorkspaceValidationError(f"{field_name} must be a canonical lowercase UUID") from exc
+        raise WorkspaceValidationError(
+            f"{field_name} must be a canonical lowercase UUID"
+        ) from exc
     return value
 
 
@@ -195,7 +218,7 @@ def _digest_value(value: Any, field_name: str) -> str:
 
 def _ref(value: Any, field_name: str, maximum: int = 512) -> str:
     value = _text(value, field_name, maximum)
-    if any(ord(char) < 0x20 or ord(char) > 0x7e for char in value):
+    if any(ord(char) < 0x20 or ord(char) > 0x7E for char in value):
         raise WorkspaceValidationError(f"{field_name} must be printable")
     return value
 
@@ -232,7 +255,9 @@ def _parse_timestamp(value: Any, field_name: str) -> _datetime.datetime:
         else:
             parsed = _datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
     except ValueError as exc:
-        raise WorkspaceValidationError(f"{field_name} must be an RFC3339 UTC timestamp") from exc
+        raise WorkspaceValidationError(
+            f"{field_name} must be an RFC3339 UTC timestamp"
+        ) from exc
     if parsed.tzinfo is not None:
         parsed = parsed.replace(tzinfo=None)
     return parsed
@@ -341,10 +366,16 @@ class SourceFreshness:
         observed = _timestamp(self.observed_at, "freshness.observed_at")
         if self.status not in _FRESHNESS:
             raise WorkspaceValidationError("freshness.status is invalid")
-        valid_dt = None if self.valid_until is None else _parse_timestamp(
-            self.valid_until, "freshness.valid_until"
+        valid_dt = (
+            None
+            if self.valid_until is None
+            else _parse_timestamp(self.valid_until, "freshness.valid_until")
         )
-        valid = None if valid_dt is None else _timestamp(self.valid_until, "freshness.valid_until")
+        valid = (
+            None
+            if valid_dt is None
+            else _timestamp(self.valid_until, "freshness.valid_until")
+        )
         if valid_dt is not None and valid_dt < observed_dt:
             raise WorkspaceValidationError("freshness.valid_until precedes observed_at")
         object.__setattr__(self, "observed_at", observed)
@@ -410,21 +441,29 @@ class SourceRecovery:
 class SourceTrust:
     level: str
     evidence_refs: Tuple[str, ...] = ()
-    _construction_token: object = field(default=None, init=False, repr=False, compare=False)
+    _construction_token: object = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if self.level not in _TRUST:
             raise WorkspaceValidationError("trust.level is invalid")
         refs = _refs(self.evidence_refs, "trust.evidence_refs", 32)
         if self.level == "verified":
-            if self._construction_token is not _TRUST_CONSTRUCTION_TOKEN or not refs or any(
-                not _P4_RECEIPT_REF_RE.fullmatch(ref) for ref in refs
+            if (
+                self._construction_token is not _TRUST_CONSTRUCTION_TOKEN
+                or not refs
+                or any(not _P4_RECEIPT_REF_RE.fullmatch(ref) for ref in refs)
             ):
-                raise WorkspaceValidationError("verified trust requires receipt-bound evidence")
+                raise WorkspaceValidationError(
+                    "verified trust requires receipt-bound evidence"
+                )
         object.__setattr__(self, "evidence_refs", refs)
 
     def to_dict(self) -> Mapping[str, object]:
-        return _mapping({"level": self.level, "evidence_refs": list(self.evidence_refs)})
+        return _mapping(
+            {"level": self.level, "evidence_refs": list(self.evidence_refs)}
+        )
 
     @classmethod
     def from_dict(cls, value: Any) -> "SourceTrust":
@@ -513,12 +552,16 @@ class SourceAnchor:
             if isinstance(scope, Mapping):
                 scope = SourceScope.from_dict(scope)
         except WorkspaceError as exc:
-            raise WorkspaceValidationError("source anchor contains an invalid value") from exc
+            raise WorkspaceValidationError(
+                "source anchor contains an invalid value"
+            ) from exc
         if self.revision is not None:
             if not isinstance(revision, SourceRevision):
                 raise WorkspaceValidationError("revision must be SourceRevision")
             if revision.kind != self.kind:
-                raise WorkspaceValidationError("revision kind does not match source kind")
+                raise WorkspaceValidationError(
+                    "revision kind does not match source kind"
+                )
         if not isinstance(freshness, SourceFreshness):
             raise WorkspaceValidationError("freshness must be SourceFreshness")
         if recovery is not None and not isinstance(recovery, SourceRecovery):
@@ -532,16 +575,33 @@ class SourceAnchor:
             binding = binding.to_dict()
         if binding is not None:
             if self.kind != "filesystem":
-                raise WorkspaceValidationError("engine_binding requires a filesystem source")
+                raise WorkspaceValidationError(
+                    "engine_binding requires a filesystem source"
+                )
             if not isinstance(binding, Mapping):
                 raise WorkspaceValidationError("engine_binding must be a mapping")
-            allowed = {"path", "project_root", "media_type", "source_ref", "source_digest"}
-            if set(binding) - allowed or "path" not in binding or "project_root" not in binding or "media_type" not in binding:
-                raise WorkspaceValidationError("engine_binding fields do not match ContextSource")
+            allowed = {
+                "path",
+                "project_root",
+                "media_type",
+                "source_ref",
+                "source_digest",
+            }
+            if (
+                set(binding) - allowed
+                or "path" not in binding
+                or "project_root" not in binding
+                or "media_type" not in binding
+            ):
+                raise WorkspaceValidationError(
+                    "engine_binding fields do not match ContextSource"
+                )
             try:
                 source = _source_from_binding(binding)
             except Exception as exc:
-                raise WorkspaceValidationError("engine_binding is not a valid ContextSource") from exc
+                raise WorkspaceValidationError(
+                    "engine_binding is not a valid ContextSource"
+                ) from exc
             normalized = _plain(source.to_dict())
             if _plain(binding) != normalized:
                 raise WorkspaceValidationError("engine_binding is not canonical")
@@ -555,7 +615,9 @@ class SourceAnchor:
         object.__setattr__(self, "recovery", recovery)
         object.__setattr__(self, "trust", trust)
         object.__setattr__(self, "scope", scope)
-        object.__setattr__(self, "engine_binding", _freeze(binding) if binding is not None else None)
+        object.__setattr__(
+            self, "engine_binding", _freeze(binding) if binding is not None else None
+        )
 
     @property
     def schema_version(self) -> str:
@@ -576,7 +638,9 @@ class SourceAnchor:
                 "recovery": _plain(self.recovery.to_dict()) if self.recovery else None,
                 "trust": _plain(self.trust.to_dict()),
                 "scope": _plain(self.scope.to_dict()),
-                "engine_binding": _plain(self.engine_binding) if self.engine_binding else None,
+                "engine_binding": _plain(self.engine_binding)
+                if self.engine_binding
+                else None,
             }
         )
 
@@ -587,20 +651,20 @@ class SourceAnchor:
 
 def _source_anchor_from_dict(value: Any, *, allow_verified: bool) -> SourceAnchor:
     _exact(
-            value,
-            {
-                "schema_version",
-                "source_id",
-                "kind",
-                "canonical_id",
-                "revision",
-                "freshness",
-                "recovery",
-                "trust",
-                "scope",
-                "engine_binding",
-            },
-            "source anchor",
+        value,
+        {
+            "schema_version",
+            "source_id",
+            "kind",
+            "canonical_id",
+            "revision",
+            "freshness",
+            "recovery",
+            "trust",
+            "scope",
+            "engine_binding",
+        },
+        "source anchor",
     )
     if value["schema_version"] != _ANCHOR_SCHEMA:
         raise WorkspaceIncompatibleError("unknown source anchor schema")
@@ -609,9 +673,13 @@ def _source_anchor_from_dict(value: Any, *, allow_verified: bool) -> SourceAncho
             value["source_id"],
             value["kind"],
             value["canonical_id"],
-            SourceRevision.from_dict(value["revision"]) if value["revision"] is not None else None,
+            SourceRevision.from_dict(value["revision"])
+            if value["revision"] is not None
+            else None,
             SourceFreshness.from_dict(value["freshness"]),
-            SourceRecovery.from_dict(value["recovery"]) if value["recovery"] is not None else None,
+            SourceRecovery.from_dict(value["recovery"])
+            if value["recovery"] is not None
+            else None,
             _source_trust_from_dict(value["trust"], allow_verified=allow_verified),
             SourceScope.from_dict(value["scope"]),
             value["engine_binding"],
@@ -664,7 +732,11 @@ class WorkspaceIdentity:
 
     @classmethod
     def from_dict(cls, value: Any) -> "WorkspaceIdentity":
-        _exact(value, {"schema_version", "workspace_id", "name", "created_at", "state_id"}, "identity")
+        _exact(
+            value,
+            {"schema_version", "workspace_id", "name", "created_at", "state_id"},
+            "identity",
+        )
         if value["schema_version"] != _IDENTITY_SCHEMA:
             raise WorkspaceIncompatibleError("unknown workspace identity schema")
         try:
@@ -774,7 +846,9 @@ class ProjectContext:
         for field_name in ("filtered_count", "omitted_by_bounds"):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise WorkspaceValidationError(f"{field_name} must be a non-negative integer")
+                raise WorkspaceValidationError(
+                    f"{field_name} must be a non-negative integer"
+                )
         object.__setattr__(self, "entries", entries)
 
     @property
@@ -815,9 +889,13 @@ class WorkspacePolicy:
         try:
             categories = tuple(sorted(set(self.allowed_categories)))
         except (TypeError, ValueError) as exc:
-            raise WorkspaceValidationError("allowed_categories must be a collection") from exc
+            raise WorkspaceValidationError(
+                "allowed_categories must be a collection"
+            ) from exc
         if any(category not in _CATEGORIES for category in categories):
-            raise WorkspaceValidationError("allowed_categories contains an invalid category")
+            raise WorkspaceValidationError(
+                "allowed_categories contains an invalid category"
+            )
         for field_name in (
             "max_events",
             "max_context_entries",
@@ -917,7 +995,11 @@ class WorkspaceReceipt:
     def __post_init__(self) -> None:
         _uuid(self.workspace_id, "workspace_id")
         _digest_value(self.state_id, "state_id")
-        if isinstance(self.sequence, bool) or not isinstance(self.sequence, int) or self.sequence <= 0:
+        if (
+            isinstance(self.sequence, bool)
+            or not isinstance(self.sequence, int)
+            or self.sequence <= 0
+        ):
             raise WorkspaceValidationError("sequence must be positive")
         _uuid(self.event_id, "event_id")
         if self.event_kind not in _EVENT_KINDS:
@@ -926,7 +1008,9 @@ class WorkspaceReceipt:
         _digest_value(self.state_digest, "state_digest")
         source_ids = _ids(self.source_ids, "source_ids", _MAX_RECEIPT_IDS)
         session_id = _optional_text(self.session_id, "session_id", 512)
-        engine_refs = _refs(self.engine_receipt_refs, "engine_receipt_refs", _MAX_RECEIPT_REFS)
+        engine_refs = _refs(
+            self.engine_receipt_refs, "engine_receipt_refs", _MAX_RECEIPT_REFS
+        )
         recovery_refs = _refs(self.recovery_refs, "recovery_refs", _MAX_RECEIPT_REFS)
         object.__setattr__(self, "source_ids", source_ids)
         object.__setattr__(self, "session_id", session_id)
@@ -973,7 +1057,12 @@ class WorkspaceStatus:
             raise WorkspaceValidationError("lifecycle is invalid")
         if self.health not in _HEALTH:
             raise WorkspaceValidationError("health is invalid")
-        for field_name in ("event_count", "source_count", "session_count", "context_entry_count"):
+        for field_name in (
+            "event_count",
+            "source_count",
+            "session_count",
+            "context_entry_count",
+        ):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise WorkspaceValidationError(f"{field_name} must be non-negative")
@@ -1043,7 +1132,9 @@ class PackagePin:
             if (
                 not isinstance(self.signer_public_key, str)
                 or len(self.signer_public_key) != 64
-                or not all(char in "0123456789abcdef" for char in self.signer_public_key)
+                or not all(
+                    char in "0123456789abcdef" for char in self.signer_public_key
+                )
             ):
                 raise WorkspaceValidationError("package pin signer key is invalid")
         elif self.signer_public_key is not None:
@@ -1140,7 +1231,9 @@ class ContextCheckpointV2:
             raise WorkspaceIncompatibleError("SDK checkpoint contract is unsupported")
         _ref(self.workspace_state_ref, "workspace_state_ref")
         if not self.workspace_state_ref.startswith("event:sha256:"):
-            raise WorkspaceValidationError("workspace_state_ref must bind an event digest")
+            raise WorkspaceValidationError(
+                "workspace_state_ref must bind an event digest"
+            )
         logical_state = _plain(self.logical_state)
         anchors = [_plain(anchor) for anchor in self.source_anchors]
         package_pins = [_plain(pin) for pin in self.package_pins]
@@ -1162,7 +1255,8 @@ class ContextCheckpointV2:
         )
         if (
             lineage["kind"] != "workspace"
-            or _uuid(lineage["workspace_id"], "lineage.workspace_id") != self.workspace_id
+            or _uuid(lineage["workspace_id"], "lineage.workspace_id")
+            != self.workspace_id
         ):
             raise WorkspaceConflictError()
         _ref(lineage["state_id"], "lineage.state_id")
@@ -1176,13 +1270,19 @@ class ContextCheckpointV2:
             "schema_version": 1,
             "transport_version": 1,
         }:
-            raise WorkspaceIncompatibleError("Engine checkpoint identity is unsupported")
+            raise WorkspaceIncompatibleError(
+                "Engine checkpoint identity is unsupported"
+            )
         _reject_sensitive(logical_state, "logical_state")
         _reject_sensitive(package_pins, "package_pins")
         object.__setattr__(self, "logical_state", _freeze(logical_state))
-        object.__setattr__(self, "source_anchors", tuple(_freeze(anchor) for anchor in anchors))
+        object.__setattr__(
+            self, "source_anchors", tuple(_freeze(anchor) for anchor in anchors)
+        )
         object.__setattr__(self, "recovery_refs", tuple(self.recovery_refs))
-        object.__setattr__(self, "package_pins", tuple(_freeze(pin) for pin in package_pins))
+        object.__setattr__(
+            self, "package_pins", tuple(_freeze(pin) for pin in package_pins)
+        )
         object.__setattr__(self, "lineage", _freeze(lineage))
         object.__setattr__(self, "engine_identity", _freeze(engine_identity))
         expected_state = _domain_digest("leanctx.workspace.state.v1", logical_state)
@@ -1214,7 +1314,9 @@ class ContextCheckpointV2:
         }
 
     def to_dict(self) -> Mapping[str, object]:
-        return _mapping(dict(self._unsigned_dict(), envelope_digest=self.envelope_digest))
+        return _mapping(
+            dict(self._unsigned_dict(), envelope_digest=self.envelope_digest)
+        )
 
     @classmethod
     def from_dict(cls, value: Any) -> "ContextCheckpointV2":
@@ -1351,11 +1453,16 @@ class _WorkspaceState:
             {
                 "identity": _plain(self.identity.to_dict()),
                 "latest_sources_sorted_by_id": [
-                    _plain(self.sources[source_id].to_dict()) for source_id in sorted(self.sources)
+                    _plain(self.sources[source_id].to_dict())
+                    for source_id in sorted(self.sources)
                 ],
                 "policy": _plain(self.policy.to_dict()),
-                "sessions_in_event_order": [_plain(session) for session in self.sessions],
-                "entries_in_event_order": [_plain(entry.to_dict()) for entry in self.entries],
+                "sessions_in_event_order": [
+                    _plain(session) for session in self.sessions
+                ],
+                "entries_in_event_order": [
+                    _plain(entry.to_dict()) for entry in self.entries
+                ],
                 "fork_lineage": _plain(self.fork_lineage),
                 "applied_handoffs": [
                     _plain(self.applied_handoffs[key])
@@ -1376,7 +1483,9 @@ class _WorkspaceState:
             len(self.sessions),
             len(self.entries),
             self.policy,
-            self.digest() if self.identity is not None and self.policy is not None else None,
+            self.digest()
+            if self.identity is not None and self.policy is not None
+            else None,
         )
 
 
@@ -1413,7 +1522,10 @@ def _package_lock(pins: Sequence[PackagePin]) -> Optional[str]:
         return None
     return _domain_digest(
         "leanctx.package.lock.v1",
-        [pin.to_dict() for pin in sorted(pins, key=lambda item: (item.name, item.version))],
+        [
+            pin.to_dict()
+            for pin in sorted(pins, key=lambda item: (item.name, item.version))
+        ],
     )
 
 
@@ -1445,7 +1557,9 @@ def _logical_state_components(
         raise WorkspaceIncompatibleError("logical state schema is unsupported")
     if value["workspace_id"] != workspace_id:
         raise WorkspaceConflictError()
-    if not all(isinstance(value[name], list) for name in ("sources", "entries", "package_pins")):
+    if not all(
+        isinstance(value[name], list) for name in ("sources", "entries", "package_pins")
+    ):
         raise WorkspaceIncompatibleError("logical state arrays are required")
     if (
         len(value["sources"]) > _MAX_SOURCES
@@ -1492,9 +1606,11 @@ def _logical_state_components(
 
 def _validate_checkpoint_projections(checkpoint: ContextCheckpointV2) -> None:
     logical_state = _plain(checkpoint.logical_state)
-    policy, sources, entries, package_pins, package_lock_digest = _logical_state_components(
-        logical_state,
-        checkpoint.workspace_id,
+    policy, sources, entries, package_pins, package_lock_digest = (
+        _logical_state_components(
+            logical_state,
+            checkpoint.workspace_id,
+        )
     )
     expected_anchors = [
         _plain(sources[source_id].to_dict()) for source_id in sorted(sources)
@@ -1515,11 +1631,9 @@ def _validate_checkpoint_projections(checkpoint: ContextCheckpointV2) -> None:
         [entry.to_dict() for entry in entries],
     )
     if (
-        [_plain(anchor) for anchor in checkpoint.source_anchors]
-        != expected_anchors
+        [_plain(anchor) for anchor in checkpoint.source_anchors] != expected_anchors
         or checkpoint.recovery_refs != expected_recovery_refs
-        or [_plain(pin) for pin in checkpoint.package_pins]
-        != expected_package_pins
+        or [_plain(pin) for pin in checkpoint.package_pins] != expected_package_pins
         or checkpoint.package_lock_digest != expected_package_lock_digest
         or checkpoint.policy_digest != expected_policy_digest
         or checkpoint.project_context_digest != expected_project_context_digest
@@ -1538,7 +1652,9 @@ def _verify_checkpoint_trust(
         if trust.level != "verified":
             continue
         if anchor.engine_binding is None:
-            raise WorkspaceIncompatibleError("verified checkpoint source lacks Engine binding")
+            raise WorkspaceIncompatibleError(
+                "verified checkpoint source lacks Engine binding"
+            )
         trusted_seed = False
         for event in state.events:
             if event.get("kind") != "workspace_seeded":
@@ -1598,13 +1714,19 @@ def _source_from_binding(binding: Mapping[str, object]) -> ContextSource:
         source_ref = binding.get("source_ref")
         source_digest = binding.get("source_digest")
         if not isinstance(path, str) or not isinstance(media_type, str):
-            raise WorkspaceValidationError("engine_binding path/media_type must be strings")
+            raise WorkspaceValidationError(
+                "engine_binding path/media_type must be strings"
+            )
         if project_root is not None and not isinstance(project_root, str):
-            raise WorkspaceValidationError("engine_binding project_root must be a string")
+            raise WorkspaceValidationError(
+                "engine_binding project_root must be a string"
+            )
         if source_ref is not None and not isinstance(source_ref, str):
             raise WorkspaceValidationError("engine_binding source_ref must be a string")
         if source_digest is not None and not isinstance(source_digest, str):
-            raise WorkspaceValidationError("engine_binding source_digest must be a string")
+            raise WorkspaceValidationError(
+                "engine_binding source_digest must be a string"
+            )
         return ContextSource(
             path,
             project_root=project_root,
@@ -1613,7 +1735,9 @@ def _source_from_binding(binding: Mapping[str, object]) -> ContextSource:
             source_digest=source_digest,
         )
     except Exception as exc:
-        raise WorkspaceValidationError("engine_binding cannot be reconstructed") from exc
+        raise WorkspaceValidationError(
+            "engine_binding cannot be reconstructed"
+        ) from exc
 
 
 def _verify_directory_nofollow(path: str) -> None:
@@ -1660,9 +1784,7 @@ def _open_relative_nofollow(directory_fd: int, relative_path: str) -> int:
             )
             os.close(current_fd)
             current_fd = child
-        return os.open(
-            components[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=current_fd
-        )
+        return os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=current_fd)
     finally:
         os.close(current_fd)
 
@@ -1687,7 +1809,9 @@ def _pin_source(source: ContextSource) -> Iterator[_SourcePin]:
         if root is None:
             raise WorkspaceValidationError("source project_root is unavailable")
         root_stat_path = os.lstat(root)
-        if stat.S_ISLNK(root_stat_path.st_mode) or not stat.S_ISDIR(root_stat_path.st_mode):
+        if stat.S_ISLNK(root_stat_path.st_mode) or not stat.S_ISDIR(
+            root_stat_path.st_mode
+        ):
             raise WorkspaceValidationError("source project_root is not a directory")
         root_fd, root_stat = _open_directory_ancestry(os.path.realpath(root))
         relative_path = source.relative_path
@@ -1776,7 +1900,10 @@ def _verify_checkpoint_sources(checkpoint: ContextCheckpointV2) -> None:
                     "st_mtime_ns",
                     "st_ctime_ns",
                 )
-                if any(getattr(before, name) != getattr(after, name) for name in stable_fields):
+                if any(
+                    getattr(before, name) != getattr(after, name)
+                    for name in stable_fields
+                ):
                     raise WorkspaceConflictError()
                 digests.append("sha256:" + digest.hexdigest())
             if digests[0] != digests[1]:
@@ -1792,7 +1919,9 @@ def _verify_checkpoint_sources(checkpoint: ContextCheckpointV2) -> None:
 
 def _validate_anchor_binding(anchor: SourceAnchor, source: ContextSource) -> None:
     if anchor.kind != "filesystem" or anchor.engine_binding is None:
-        raise WorkspaceValidationError("source is not eligible for a local Engine session")
+        raise WorkspaceValidationError(
+            "source is not eligible for a local Engine session"
+        )
     if not isinstance(source, ContextSource):
         raise WorkspaceValidationError("source must be ContextSource")
     binding_source = _source_from_binding(anchor.engine_binding)
@@ -1853,7 +1982,9 @@ def _anchor_with_evidence(
     evidence_receipts: Sequence[ContextReceipt],
 ) -> SourceAnchor:
     if not isinstance(evidence_receipts, (list, tuple)):
-        raise WorkspaceValidationError("evidence_receipts must be ContextReceipt values")
+        raise WorkspaceValidationError(
+            "evidence_receipts must be ContextReceipt values"
+        )
     if not evidence_receipts:
         if anchor.trust is not None and anchor.trust.level == "verified":
             raise WorkspaceValidationError("verified trust requires SDK evidence")
@@ -1863,7 +1994,9 @@ def _anchor_with_evidence(
     refs: List[str] = []
     for evidence in evidence_receipts:
         if not isinstance(evidence, ContextReceipt):
-            raise WorkspaceValidationError("evidence_receipts must be ContextReceipt values")
+            raise WorkspaceValidationError(
+                "evidence_receipts must be ContextReceipt values"
+            )
         try:
             verified = evidence.sealed is True and evidence.verify() is True
             source = evidence.source
@@ -1871,11 +2004,15 @@ def _anchor_with_evidence(
         except Exception as exc:
             raise WorkspaceValidationError("evidence receipt is invalid") from exc
         if not verified or source is None or link is None:
-            raise WorkspaceValidationError("evidence receipt is not sealed and verified")
+            raise WorkspaceValidationError(
+                "evidence receipt is not sealed and verified"
+            )
         if _plain(source.to_dict()) != _plain(anchor.engine_binding):
             raise WorkspaceConflictError()
         if not _P4_RECEIPT_REF_RE.fullmatch(link.receipt_ref):
-            raise WorkspaceValidationError("evidence receipt ref is not lifecycle-bound")
+            raise WorkspaceValidationError(
+                "evidence receipt ref is not lifecycle-bound"
+            )
         _validate_anchor_binding(anchor, source)
         refs.append(link.receipt_ref)
     refs = list(_refs(refs, "evidence_receipts", _MAX_ENTRY_REFS))
@@ -1899,7 +2036,12 @@ def _ensure_external_allowed(state: _WorkspaceState, anchor: SourceAnchor) -> No
         raise WorkspacePolicyError()
 
 
-def _ensure_state_bounds(state: _WorkspaceState, policy: Optional[WorkspacePolicy] = None, *, extra_event: bool = False) -> None:
+def _ensure_state_bounds(
+    state: _WorkspaceState,
+    policy: Optional[WorkspacePolicy] = None,
+    *,
+    extra_event: bool = False,
+) -> None:
     policy = policy or state.policy
     if policy is None:
         raise WorkspaceCorruptError()
@@ -1913,13 +2055,18 @@ def _ensure_state_bounds(state: _WorkspaceState, policy: Optional[WorkspacePolic
         raise WorkspacePolicyError()
     if len(state.package_pins) > _MAX_PACKAGE_PINS:
         raise WorkspacePolicyError()
-    if any(len(entry.value.encode("utf-8")) > policy.max_entry_bytes for entry in state.entries):
+    if any(
+        len(entry.value.encode("utf-8")) > policy.max_entry_bytes
+        for entry in state.entries
+    ):
         raise WorkspacePolicyError()
     if _state_context_bytes(state.entries) > policy.max_context_bytes:
         raise WorkspacePolicyError()
 
 
-def _session_record(session_id: str, task_id: str, source_ids: Sequence[str]) -> Mapping[str, object]:
+def _session_record(
+    session_id: str, task_id: str, source_ids: Sequence[str]
+) -> Mapping[str, object]:
     return _mapping(
         {
             "session_id": session_id,
@@ -1977,11 +2124,17 @@ def _validate_context_provenance(
         )
         for field_name in ("source_ids", "receipt_refs", "recovery_refs"):
             if not isinstance(raw_provenance[field_name], list):
-                raise WorkspaceIncompatibleError("context provenance arrays are required")
+                raise WorkspaceIncompatibleError(
+                    "context provenance arrays are required"
+                )
         session_id = _text(raw_provenance["session_id"], "provenance.session_id", 512)
         task_id = _text(raw_provenance["task_id"], "provenance.task_id", 512)
-        source_ids = _ids(raw_provenance["source_ids"], "provenance.source_ids", _MAX_SOURCE_IDS)
-        receipt_refs = _refs(raw_provenance["receipt_refs"], "provenance.receipt_refs", _MAX_ENTRY_REFS)
+        source_ids = _ids(
+            raw_provenance["source_ids"], "provenance.source_ids", _MAX_SOURCE_IDS
+        )
+        receipt_refs = _refs(
+            raw_provenance["receipt_refs"], "provenance.receipt_refs", _MAX_ENTRY_REFS
+        )
         recovery_refs = _refs(
             raw_provenance["recovery_refs"], "provenance.recovery_refs", _MAX_ENTRY_REFS
         )
@@ -2007,8 +2160,10 @@ def _validate_context_provenance(
         )
     except WorkspaceError as exc:
         raise _ProjectionFailure("incompatible", state) from exc
-    if not source_ids or not receipt_refs or any(
-        not _P4_RECEIPT_REF_RE.fullmatch(ref) for ref in receipt_refs
+    if (
+        not source_ids
+        or not receipt_refs
+        or any(not _P4_RECEIPT_REF_RE.fullmatch(ref) for ref in receipt_refs)
     ):
         raise _ProjectionFailure("incompatible", state)
     normalized = {
@@ -2022,7 +2177,9 @@ def _validate_context_provenance(
     }
     if _plain(normalized) != _plain(raw_provenance):
         raise _ProjectionFailure("incompatible", state)
-    durable = [record for record in state.sessions if record["session_id"] == session_id]
+    durable = [
+        record for record in state.sessions if record["session_id"] == session_id
+    ]
     if len(durable) != 1 or durable[0]["task_id"] != task_id:
         raise _ProjectionFailure("incompatible", state)
     durable_source_ids = durable[0].get("source_ids")
@@ -2078,7 +2235,8 @@ def _validate_context_provenance(
         if not any(
             (
                 state.sources[source_id].engine_binding is not None
-                and _plain(state.sources[source_id].engine_binding) == _plain(proof_source)
+                and _plain(state.sources[source_id].engine_binding)
+                == _plain(proof_source)
             )
             or (
                 state.sources[source_id].engine_binding is None
@@ -2141,10 +2299,9 @@ def _apply_event_unchecked(
             raise _ProjectionFailure("incompatible", state)
         except WorkspaceError:
             raise _ProjectionFailure("corrupt", state)
-        if (
-            _plain(identity.to_dict()) != _plain(payload["identity"])
-            or _plain(policy.to_dict()) != _plain(payload["policy"])
-        ):
+        if _plain(identity.to_dict()) != _plain(payload["identity"]) or _plain(
+            policy.to_dict()
+        ) != _plain(payload["policy"]):
             raise _ProjectionFailure("incompatible", state)
         if identity.workspace_id != event["workspace_id"]:
             raise _ProjectionFailure("corrupt", state)
@@ -2180,7 +2337,9 @@ def _apply_event_unchecked(
             if anchor.source_id not in state.sources:
                 raise _ProjectionFailure("corrupt", state)
             try:
-                previous_digest = _digest_value(payload["previous_anchor_digest"], "previous_anchor_digest")
+                previous_digest = _digest_value(
+                    payload["previous_anchor_digest"], "previous_anchor_digest"
+                )
             except WorkspaceError:
                 raise _ProjectionFailure("incompatible", state)
             if previous_digest != _anchor_digest(state.sources[anchor.source_id]):
@@ -2193,7 +2352,9 @@ def _apply_event_unchecked(
     elif kind == "policy_tightened":
         try:
             policy = WorkspacePolicy.from_dict(payload["policy"])
-            previous = _digest_value(payload["previous_policy_digest"], "previous_policy_digest")
+            previous = _digest_value(
+                payload["previous_policy_digest"], "previous_policy_digest"
+            )
         except WorkspaceError:
             raise _ProjectionFailure("incompatible", state)
         if _plain(policy.to_dict()) != _plain(payload["policy"]):
@@ -2241,7 +2402,10 @@ def _apply_event_unchecked(
             entries = [_entry_from_input(item) for item in raw_entries]
         except WorkspaceError:
             raise _ProjectionFailure("incompatible", state)
-        if any(_plain(entry.to_dict()) != _plain(raw) for entry, raw in zip(entries, raw_entries)):
+        if any(
+            _plain(entry.to_dict()) != _plain(raw)
+            for entry, raw in zip(entries, raw_entries)
+        ):
             raise _ProjectionFailure("incompatible", state)
         _validate_context_provenance(state, payload["provenance"], entries)
         existing_ids = {entry.entry_id for entry in state.entries}
@@ -2323,7 +2487,11 @@ def _apply_event_unchecked(
         state.package_lock_digest = lock_digest
         state.fork_lineage = _plain(fork.lineage.to_dict())
     elif kind == "handoff_applied":
-        from .parallel_context import ContextHandoffV1, ForkLineageV1, HandoffAdmissionV1
+        from .parallel_context import (
+            ContextHandoffV1,
+            ForkLineageV1,
+            HandoffAdmissionV1,
+        )
 
         try:
             handoff = ContextHandoffV1.from_dict(payload["handoff"])
@@ -2402,7 +2570,9 @@ def _apply_event_unchecked(
         imported_sources = {}
         for raw_anchor in handoff.source_anchors:
             try:
-                anchor = _source_anchor_from_dict(_plain(raw_anchor), allow_verified=True)
+                anchor = _source_anchor_from_dict(
+                    _plain(raw_anchor), allow_verified=True
+                )
             except WorkspaceError as exc:
                 raise _ProjectionFailure("incompatible", state) from exc
             existing_anchor = state.sources.get(anchor.source_id)
@@ -2413,7 +2583,10 @@ def _apply_event_unchecked(
             elif _plain(existing_anchor.to_dict()) != _plain(anchor.to_dict()):
                 raise _ProjectionFailure("corrupt", state)
         if imported_sources or admission.source_result == "unavailable":
-            if admission.decision != "degraded" or admission.source_result != "unavailable":
+            if (
+                admission.decision != "degraded"
+                or admission.source_result != "unavailable"
+            ):
                 raise _ProjectionFailure("corrupt", state)
         elif admission.decision != "admitted" or admission.source_result != "available":
             raise _ProjectionFailure("corrupt", state)
@@ -2423,7 +2596,9 @@ def _apply_event_unchecked(
             except WorkspaceError as exc:
                 raise _ProjectionFailure("incompatible", state) from exc
             existing_pin = state.package_pins.get((pin.name, pin.version))
-            if existing_pin is None or _plain(existing_pin.to_dict()) != _plain(pin.to_dict()):
+            if existing_pin is None or _plain(existing_pin.to_dict()) != _plain(
+                pin.to_dict()
+            ):
                 raise _ProjectionFailure("corrupt", state)
         existing_by_id = {entry.entry_id: entry for entry in state.entries}
         appended = []
@@ -2544,7 +2719,10 @@ def _apply_event_unchecked(
         except WorkspaceError as exc:
             raise _ProjectionFailure("incompatible", state) from exc
         restored_checkpoint = state.checkpoints.get(checkpoint_id)
-        if restored_checkpoint is None or restored_checkpoint.envelope_digest != envelope_digest:
+        if (
+            restored_checkpoint is None
+            or restored_checkpoint.envelope_digest != envelope_digest
+        ):
             raise _ProjectionFailure("corrupt", state)
         try:
             (
@@ -2581,7 +2759,12 @@ def _apply_event_unchecked(
         state.package_pins = target_package_pins
         state.package_lock_digest = target_package_lock_digest
     elif kind == "workspace_seeded":
-        if state.sources or state.entries or state.checkpoints or len(state.events) != 1:
+        if (
+            state.sources
+            or state.entries
+            or state.checkpoints
+            or len(state.events) != 1
+        ):
             raise _ProjectionFailure("incompatible", state)
         try:
             checkpoint = ContextCheckpointV2.from_dict(payload["checkpoint"])
@@ -2608,9 +2791,15 @@ def _apply_event_unchecked(
                 admission["allow_unsigned"], bool
             ):
                 raise WorkspaceIncompatibleError("seed admission flags are invalid")
-            if package["signature_state"] == "signed_valid" and not admission["trusted_signer"]:
+            if (
+                package["signature_state"] == "signed_valid"
+                and not admission["trusted_signer"]
+            ):
                 raise WorkspacePolicyError()
-            if package["signature_state"] == "unsigned" and not admission["allow_unsigned"]:
+            if (
+                package["signature_state"] == "unsigned"
+                and not admission["allow_unsigned"]
+            ):
                 raise WorkspacePolicyError()
             (
                 target_policy,
@@ -2682,7 +2871,10 @@ def _apply_event_unchecked(
         except WorkspaceError as exc:
             raise _ProjectionFailure("incompatible", state) from exc
         sealed_checkpoint = state.checkpoints.get(checkpoint_id)
-        if sealed_checkpoint is None or sealed_checkpoint.envelope_digest != envelope_digest:
+        if (
+            sealed_checkpoint is None
+            or sealed_checkpoint.envelope_digest != envelope_digest
+        ):
             raise _ProjectionFailure("corrupt", state)
     elif kind == "workspace_completed":
         state.lifecycle = "completed"
@@ -2728,7 +2920,9 @@ def _apply_event(
         raise _ProjectionFailure("incompatible", state) from exc
 
 
-def _receipt_for_event(state: _WorkspaceState, event: Mapping[str, object]) -> WorkspaceReceipt:
+def _receipt_for_event(
+    state: _WorkspaceState, event: Mapping[str, object]
+) -> WorkspaceReceipt:
     payload = event.get("payload")
     kind = event.get("kind")
     identity = state.identity
@@ -2762,11 +2956,19 @@ def _receipt_for_event(state: _WorkspaceState, event: Mapping[str, object]) -> W
         if not isinstance(raw_entries, (list, tuple)):
             raise WorkspaceIncompatibleError("event entries are invalid")
         entries = [_entry_from_input(item) for item in raw_entries]
-        source_ids = tuple(sorted({source_id for entry in entries for source_id in entry.source_ids}))
-        sessions = {entry.session_id for entry in entries if entry.session_id is not None}
+        source_ids = tuple(
+            sorted({source_id for entry in entries for source_id in entry.source_ids})
+        )
+        sessions = {
+            entry.session_id for entry in entries if entry.session_id is not None
+        }
         session_id = next(iter(sessions)) if len(sessions) == 1 else None
-        engine_refs = tuple(sorted({ref for entry in entries for ref in entry.receipt_refs}))
-        recovery_refs = tuple(sorted({ref for entry in entries for ref in entry.recovery_refs}))
+        engine_refs = tuple(
+            sorted({ref for entry in entries for ref in entry.receipt_refs})
+        )
+        recovery_refs = tuple(
+            sorted({ref for entry in entries for ref in entry.recovery_refs})
+        )
     return WorkspaceReceipt(
         identity.workspace_id,
         identity.state_id,
@@ -2797,7 +2999,10 @@ def _read_regular_file(path: str, *, directory_fd: Optional[int] = None) -> byte
         before_path = os.stat(path, dir_fd=directory_fd, follow_symlinks=False)
         if stat.S_ISLNK(before_path.st_mode) or not stat.S_ISREG(before_path.st_mode):
             raise _ProjectionFailure("corrupt")
-        if before_path.st_nlink not in (1, 2) or stat.S_IMODE(before_path.st_mode) & 0o077:
+        if (
+            before_path.st_nlink not in (1, 2)
+            or stat.S_IMODE(before_path.st_mode) & 0o077
+        ):
             raise _ProjectionFailure("corrupt")
         flags = os.O_RDONLY
         if not hasattr(os, "O_NOFOLLOW"):
@@ -2875,7 +3080,9 @@ def _read_event(
             raise _ProjectionFailure("corrupt")
         if _uuid(value["workspace_id"], "workspace_id") != workspace_id:
             raise _ProjectionFailure("corrupt")
-        if isinstance(value["sequence"], bool) or not isinstance(value["sequence"], int):
+        if isinstance(value["sequence"], bool) or not isinstance(
+            value["sequence"], int
+        ):
             raise _ProjectionFailure("incompatible")
         if value["sequence"] != expected_sequence:
             raise _ProjectionFailure("incompatible")
@@ -2893,8 +3100,13 @@ def _read_event(
         _digest_value(value["event_digest"], "event_digest")
         if value["previous_digest"] != previous_digest:
             raise _ProjectionFailure("corrupt")
-        event_digest = _digest({key: value[key] for key in expected_keys if key != "event_digest"})
-        if value["event_digest"] != event_digest or event_digest.removeprefix("sha256:") != filename_digest:
+        event_digest = _digest(
+            {key: value[key] for key in expected_keys if key != "event_digest"}
+        )
+        if (
+            value["event_digest"] != event_digest
+            or event_digest.removeprefix("sha256:") != filename_digest
+        ):
             raise _ProjectionFailure("corrupt")
     except _ProjectionFailure:
         raise
@@ -3016,7 +3228,9 @@ def _project(
     events_directory_fd: Optional[int] = None,
 ) -> _WorkspaceState:
     if workspace_directory_fd is None:
-        workspace_fd, workspace_stat = _open_directory_fd(workspace_path, failure="corrupt")
+        workspace_fd, workspace_stat = _open_directory_fd(
+            workspace_path, failure="corrupt"
+        )
     else:
         try:
             workspace_fd = os.dup(workspace_directory_fd)
@@ -3125,7 +3339,9 @@ def _project(
             if item.st_nlink != 2:
                 raise _ProjectionFailure("corrupt")
             matches = [
-                final for final, final_item in final_inodes if _same_inode(item, final_item)
+                final
+                for final, final_item in final_inodes
+                if _same_inode(item, final_item)
             ]
             if len(matches) != 1:
                 raise _ProjectionFailure("corrupt")
@@ -3141,9 +3357,9 @@ def _project(
             if len(matches) != 1:
                 raise _ProjectionFailure("corrupt")
         try:
-            if not _same_inode(workspace_stat, os.fstat(workspace_fd)) or not _same_inode(
-                events_stat, os.fstat(events_fd)
-            ):
+            if not _same_inode(
+                workspace_stat, os.fstat(workspace_fd)
+            ) or not _same_inode(events_stat, os.fstat(events_fd)):
                 raise _ProjectionFailure("corrupt")
         except OSError as exc:
             raise _ProjectionFailure("io") from exc
@@ -3230,7 +3446,9 @@ def _workspace_path(root: str, workspace_id: str, *, create: bool = False) -> st
     workspaces = _workspaces_path(root, create=create)
     path = os.path.join(workspaces, workspace_id)
     try:
-        if os.path.commonpath((os.path.realpath(workspaces), os.path.abspath(path))) != os.path.realpath(workspaces):
+        if os.path.commonpath(
+            (os.path.realpath(workspaces), os.path.abspath(path))
+        ) != os.path.realpath(workspaces):
             raise WorkspaceValidationError("workspace path is outside state root")
     except ValueError as exc:
         raise WorkspaceValidationError("workspace path is outside state root") from exc
@@ -3258,7 +3476,10 @@ def _directory_lock(directory_path: str, lock_name: str) -> Iterator[int]:
     try:
         directory_fd, directory_stat = _open_directory_ancestry(directory_path)
         directory_stat = os.fstat(directory_fd)
-        if not stat.S_ISDIR(directory_stat.st_mode) or stat.S_IMODE(directory_stat.st_mode) & 0o077:
+        if (
+            not stat.S_ISDIR(directory_stat.st_mode)
+            or stat.S_IMODE(directory_stat.st_mode) & 0o077
+        ):
             raise WorkspaceLockError()
         deadline = time.monotonic() + _LOCK_TIMEOUT
         while True:
@@ -3267,7 +3488,9 @@ def _directory_lock(directory_path: str, lock_name: str) -> Iterator[int]:
                 locked = True
                 break
             except (BlockingIOError, OSError) as exc:
-                if not isinstance(exc, BlockingIOError) and getattr(exc, "errno", None) not in (
+                if not isinstance(exc, BlockingIOError) and getattr(
+                    exc, "errno", None
+                ) not in (
                     errno.EACCES,
                     errno.EAGAIN,
                 ):
@@ -3298,10 +3521,15 @@ def _workspace_lock(workspace_path: str) -> Iterator[_WorkspaceLockHandle]:
         events_fd = -1
         try:
             events_fd = os.open(
-                "events", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=workspace_fd
+                "events",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=workspace_fd,
             )
             events_stat = os.fstat(events_fd)
-            if not stat.S_ISDIR(events_stat.st_mode) or stat.S_IMODE(events_stat.st_mode) & 0o077:
+            if (
+                not stat.S_ISDIR(events_stat.st_mode)
+                or stat.S_IMODE(events_stat.st_mode) & 0o077
+            ):
                 raise WorkspaceLockError()
             yield _WorkspaceLockHandle(
                 workspace_fd,
@@ -3418,7 +3646,14 @@ def _write_event(
             os.close(directory_fd)
 
 
-def _event_record(workspace_id: str, sequence: int, event_id: str, kind: str, payload: Mapping[str, object], previous_digest: str) -> Mapping[str, object]:
+def _event_record(
+    workspace_id: str,
+    sequence: int,
+    event_id: str,
+    kind: str,
+    payload: Mapping[str, object],
+    previous_digest: str,
+) -> Mapping[str, object]:
     unsigned = {
         "schema_version": _EVENT_SCHEMA,
         "workspace_id": workspace_id,
@@ -3483,7 +3718,11 @@ class ContextWorkspace:
         policy: Optional[WorkspacePolicy] = None,
         workspace_id: Optional[str] = None,
     ) -> "ContextWorkspace":
-        selected_id = str(uuid.uuid4()) if workspace_id is None else _uuid(workspace_id, "workspace_id")
+        selected_id = (
+            str(uuid.uuid4())
+            if workspace_id is None
+            else _uuid(workspace_id, "workspace_id")
+        )
         _text(name, "name", 128)
         _reject_sensitive(name, "name")
         root = _canonical_root(state_root, create=True)
@@ -3502,7 +3741,10 @@ class ContextWorkspace:
             1,
             str(uuid.uuid4()),
             "workspace_created",
-            {"identity": _plain(identity.to_dict()), "policy": _plain(policy.to_dict())},
+            {
+                "identity": _plain(identity.to_dict()),
+                "policy": _plain(policy.to_dict()),
+            },
             _ZERO_DIGEST,
         )
         _apply_event(state, event)
@@ -3515,7 +3757,9 @@ class ContextWorkspace:
             os.mkdir(events_path, 0o700)
             _enforce_owner_only(events_path, 0o700)
             event_digest = _digest_value(event.get("event_digest"), "event_digest")
-            filename = "0000000000000001-" + event_digest.removeprefix("sha256:") + ".json"
+            filename = (
+                "0000000000000001-" + event_digest.removeprefix("sha256:") + ".json"
+            )
             _write_event(events_path, filename, event_bytes)
             _fsync_directory(temporary_workspace)
             with _parent_create_lock(workspaces):
@@ -3536,7 +3780,9 @@ class ContextWorkspace:
         finally:
             if temporary_workspace is not None:
                 try:
-                    for filename in os.listdir(os.path.join(temporary_workspace, "events")):
+                    for filename in os.listdir(
+                        os.path.join(temporary_workspace, "events")
+                    ):
                         os.unlink(os.path.join(temporary_workspace, "events", filename))
                     os.rmdir(os.path.join(temporary_workspace, "events"))
                     os.rmdir(temporary_workspace)
@@ -3566,16 +3812,22 @@ class ContextWorkspace:
         if from_checkpoint is None:
             parent_state = self._read_state()
         if not isinstance(checkpoint, ContextCheckpointV2):
-            raise WorkspaceValidationError("from_checkpoint must be ContextCheckpointV2")
+            raise WorkspaceValidationError(
+                "from_checkpoint must be ContextCheckpointV2"
+            )
         stored = parent_state.checkpoints.get(checkpoint.checkpoint_id)
-        if stored is None or _canonical(stored.to_dict()) != _canonical(checkpoint.to_dict()):
+        if stored is None or _canonical(stored.to_dict()) != _canonical(
+            checkpoint.to_dict()
+        ):
             raise WorkspaceConflictError()
         selected_workspace_id = (
             str(uuid.uuid4())
             if workspace_id is None
             else _uuid(workspace_id, "workspace_id")
         )
-        selected_event_id = str(uuid.uuid4()) if event_id is None else _uuid(event_id, "event_id")
+        selected_event_id = (
+            str(uuid.uuid4()) if event_id is None else _uuid(event_id, "event_id")
+        )
         _text(name, "name", 128)
         _reject_sensitive(name, "name")
         identity = WorkspaceIdentity(selected_workspace_id, name, _now_timestamp())
@@ -3604,7 +3856,9 @@ class ContextWorkspace:
             "workspace_created",
             {
                 "identity": _plain(identity.to_dict()),
-                "policy": _plain(fork.policy_inheritance.effective_child_policy.to_dict()),
+                "policy": _plain(
+                    fork.policy_inheritance.effective_child_policy.to_dict()
+                ),
             },
             _ZERO_DIGEST,
         )
@@ -3632,7 +3886,9 @@ class ContextWorkspace:
                 raise WorkspaceValidationError("source_bindings must be a mapping")
             unknown = set(source_bindings) - set(candidate.sources)
             if unknown:
-                raise WorkspaceValidationError("source_bindings contains an unknown source")
+                raise WorkspaceValidationError(
+                    "source_bindings contains an unknown source"
+                )
             for source_id in sorted(source_bindings):
                 runtime_bindings[source_id] = _bind_portable_anchor(
                     candidate.sources[source_id], source_bindings[source_id]
@@ -3647,7 +3903,9 @@ class ContextWorkspace:
             for event in (created, forked):
                 filename = (
                     f"{event['sequence']:016d}-"
-                    + _digest_value(event.get("event_digest"), "event_digest").removeprefix("sha256:")
+                    + _digest_value(
+                        event.get("event_digest"), "event_digest"
+                    ).removeprefix("sha256:")
                     + ".json"
                 )
                 _write_event(events_path, filename, _canonical(event) + b"\n")
@@ -3670,7 +3928,9 @@ class ContextWorkspace:
         finally:
             if temporary_workspace is not None:
                 try:
-                    for filename in os.listdir(os.path.join(temporary_workspace, "events")):
+                    for filename in os.listdir(
+                        os.path.join(temporary_workspace, "events")
+                    ):
                         os.unlink(os.path.join(temporary_workspace, "events", filename))
                     os.rmdir(os.path.join(temporary_workspace, "events"))
                     os.rmdir(temporary_workspace)
@@ -3731,8 +3991,12 @@ class ContextWorkspace:
         receipt = state.receipts.get(selected_event_id)
         if receipt is None:
             return None
-        event = next(event for event in state.events if event["event_id"] == selected_event_id)
-        if event["kind"] == kind and _canonical(event["payload"]) == _canonical(payload):
+        event = next(
+            event for event in state.events if event["event_id"] == selected_event_id
+        )
+        if event["kind"] == kind and _canonical(event["payload"]) == _canonical(
+            payload
+        ):
             return receipt
         raise WorkspaceConflictError()
 
@@ -3751,9 +4015,13 @@ class ContextWorkspace:
         evidence_receipts: Sequence[ContextReceipt] = (),
     ) -> WorkspaceReceipt:
         if kind not in _EVENT_KINDS or kind == "workspace_created":
-            raise WorkspaceValidationError("event kind is not a mutable workspace event")
+            raise WorkspaceValidationError(
+                "event kind is not a mutable workspace event"
+            )
         _exact(payload, _event_payload_keys(kind), f"{kind} payload")
-        selected_event_id = str(uuid.uuid4()) if event_id is None else _uuid(event_id, "event_id")
+        selected_event_id = (
+            str(uuid.uuid4()) if event_id is None else _uuid(event_id, "event_id")
+        )
         _reject_sensitive(payload, "payload")
         verified_evidence = False
         if kind in {"source_attached", "source_updated"}:
@@ -3763,9 +4031,16 @@ class ContextWorkspace:
                 )
             except (KeyError, WorkspaceError) as exc:
                 raise WorkspaceValidationError("source anchor is invalid") from exc
-            if candidate_anchor.trust is not None and candidate_anchor.trust.level == "verified":
-                evidenced_anchor = _anchor_with_evidence(candidate_anchor, evidence_receipts)
-                if _plain(evidenced_anchor.to_dict()) != _plain(candidate_anchor.to_dict()):
+            if (
+                candidate_anchor.trust is not None
+                and candidate_anchor.trust.level == "verified"
+            ):
+                evidenced_anchor = _anchor_with_evidence(
+                    candidate_anchor, evidence_receipts
+                )
+                if _plain(evidenced_anchor.to_dict()) != _plain(
+                    candidate_anchor.to_dict()
+                ):
                     raise WorkspaceConflictError()
                 verified_evidence = True
             elif evidence_receipts:
@@ -3775,9 +4050,9 @@ class ContextWorkspace:
         try:
             with _workspace_lock(self._workspace_path) as lock:
                 try:
-                    if not _same_inode(lock.workspace_stat, os.fstat(lock.workspace_fd)) or not _same_inode(
-                        lock.events_stat, os.fstat(lock.events_fd)
-                    ):
+                    if not _same_inode(
+                        lock.workspace_stat, os.fstat(lock.workspace_fd)
+                    ) or not _same_inode(lock.events_stat, os.fstat(lock.events_fd)):
                         raise WorkspaceLockError()
                 except OSError as exc:
                     raise WorkspaceLockError() from exc
@@ -3793,12 +4068,13 @@ class ContextWorkspace:
                 previous = state.receipts.get(selected_event_id)
                 if previous is not None:
                     existing_event = next(
-                        event for event in state.events if event["event_id"] == selected_event_id
+                        event
+                        for event in state.events
+                        if event["event_id"] == selected_event_id
                     )
-                    if (
-                        existing_event["kind"] == kind
-                        and _canonical(existing_event["payload"]) == _canonical(payload)
-                    ):
+                    if existing_event["kind"] == kind and _canonical(
+                        existing_event["payload"]
+                    ) == _canonical(payload):
                         return previous
                     raise WorkspaceConflictError()
                 if state.lifecycle != "active":
@@ -3831,9 +4107,9 @@ class ContextWorkspace:
                     f"{_digest_value(event.get('event_digest'), 'event_digest').removeprefix('sha256:')}.json"
                 )
                 try:
-                    if not _same_inode(lock.workspace_stat, os.fstat(lock.workspace_fd)) or not _same_inode(
-                        lock.events_stat, os.fstat(lock.events_fd)
-                    ):
+                    if not _same_inode(
+                        lock.workspace_stat, os.fstat(lock.workspace_fd)
+                    ) or not _same_inode(lock.events_stat, os.fstat(lock.events_fd)):
                         raise WorkspaceLockError()
                 except OSError as exc:
                     raise WorkspaceLockError() from exc
@@ -3912,7 +4188,11 @@ class ContextWorkspace:
             current = self._read_state()
             existing = current.receipts.get(selected_event_id)
             if existing is not None:
-                event = next(event for event in current.events if event["event_id"] == selected_event_id)
+                event = next(
+                    event
+                    for event in current.events
+                    if event["event_id"] == selected_event_id
+                )
                 event_payload = event.get("payload")
                 if not isinstance(event_payload, Mapping):
                     raise WorkspaceConflictError()
@@ -3976,7 +4256,10 @@ class ContextWorkspace:
             _revalidate_source_pin(source, pin)
         with _SESSION_BINDINGS_LOCK:
             session_binding = _SESSION_BINDINGS.get(session)
-            if session_binding is not None and session_binding != self._session_binding_key():
+            if (
+                session_binding is not None
+                and session_binding != self._session_binding_key()
+            ):
                 raise WorkspaceConflictError()
             _SESSION_BINDINGS[session] = self._session_binding_key()
         payload = {
@@ -4014,7 +4297,14 @@ class ContextWorkspace:
             raise WorkspaceValidationError("session fields are invalid")
         except Exception as exc:
             raise WorkspaceValidationError("session fields are invalid") from exc
-        if session_state not in {"created", "planned", "executing", "completed", "aborted", "closed"}:
+        if session_state not in {
+            "created",
+            "planned",
+            "executing",
+            "completed",
+            "aborted",
+            "closed",
+        }:
             raise WorkspaceValidationError("session.state is invalid")
         if plan is None:
             raise WorkspaceValidationError("session current_plan is required")
@@ -4028,9 +4318,10 @@ class ContextWorkspace:
         anchors = []
         for source_id in source_ids:
             try:
-                anchors.append(state.sources[source_id])
+                durable_anchor = state.sources[source_id]
             except KeyError as exc:
                 raise WorkspaceValidationError("source_id is not attached") from exc
+            anchors.append(self._runtime_source_bindings.get(source_id, durable_anchor))
         with _SESSION_BINDINGS_LOCK:
             bound = _SESSION_BINDINGS.get(session)
             if bound is not None and bound != self._session_binding_key():
@@ -4047,7 +4338,11 @@ class ContextWorkspace:
         with _pin_source(plan.source) as pin:
             _revalidate_source_pin(plan.source, pin)
         existing = next(
-            (record for record in state.sessions if record["session_id"] == session_id_value),
+            (
+                record
+                for record in state.sessions
+                if record["session_id"] == session_id_value
+            ),
             None,
         )
         payload = {
@@ -4067,10 +4362,9 @@ class ContextWorkspace:
             existing_source_ids = existing.get("source_ids")
             if not isinstance(existing_source_ids, (list, tuple)):
                 raise WorkspaceConflictError()
-            if (
-                existing["task_id"] == task_id_value
-                and tuple(existing_source_ids) == tuple(source_ids)
-            ):
+            if existing["task_id"] == task_id_value and tuple(
+                existing_source_ids
+            ) == tuple(source_ids):
                 receipt = next(
                     receipt
                     for receipt in state.receipts.values()
@@ -4124,7 +4418,9 @@ class ContextWorkspace:
             except Exception as exc:
                 raise WorkspaceValidationError("session fields are invalid") from exc
             if session_state != "completed" or plan is None:
-                raise WorkspaceValidationError("session must have a completed current plan")
+                raise WorkspaceValidationError(
+                    "session must have a completed current plan"
+                )
             with _SESSION_BINDINGS_LOCK:
                 if (
                     self._runtime_sessions.get(selected_session) is not session
@@ -4132,17 +4428,26 @@ class ContextWorkspace:
                 ):
                     raise WorkspaceConflictError()
             durable = [
-                record for record in state.sessions if record["session_id"] == selected_session
+                record
+                for record in state.sessions
+                if record["session_id"] == selected_session
             ]
             if len(durable) != 1 or durable[0]["task_id"] != task_id:
                 raise WorkspaceConflictError()
-            if not isinstance(plan.source, ContextSource) or plan.session_id != selected_session:
+            if (
+                not isinstance(plan.source, ContextSource)
+                or plan.session_id != selected_session
+            ):
                 raise WorkspaceValidationError("session current plan is invalid")
             if not isinstance(current_receipt, ContextReceipt):
                 raise WorkspaceValidationError("session requires a ContextReceipt")
             try:
-                verified = current_receipt.sealed is True and current_receipt.verify() is True
-                receipt_session = _text(current_receipt.session_id, "receipt.session_id", 512)
+                verified = (
+                    current_receipt.sealed is True and current_receipt.verify() is True
+                )
+                receipt_session = _text(
+                    current_receipt.session_id, "receipt.session_id", 512
+                )
                 receipt_task = _text(current_receipt.task_id, "receipt.task_id", 512)
                 receipt_source = current_receipt.source
                 receipt_link = current_receipt.receipt_link
@@ -4170,9 +4475,12 @@ class ContextWorkspace:
                 effective: Optional[SourceAnchor] = anchor
                 if anchor.engine_binding is None:
                     effective = self._runtime_source_bindings.get(source_id)
-                if effective is not None and effective.engine_binding is not None and _plain(
-                    effective.engine_binding
-                ) == _plain(receipt_source.to_dict()):
+                if (
+                    effective is not None
+                    and effective.engine_binding is not None
+                    and _plain(effective.engine_binding)
+                    == _plain(receipt_source.to_dict())
+                ):
                     matching.append(source_id)
                     matching_anchors[source_id] = effective
             if len(matching) != 1:
@@ -4181,7 +4489,9 @@ class ContextWorkspace:
             if not _P4_RECEIPT_REF_RE.fullmatch(receipt_link.receipt_ref):
                 raise WorkspaceValidationError("receipt ref is not lifecycle-bound")
             bound_source_ids = (matching[0],)
-            receipt_refs = _refs((receipt_link.receipt_ref,), "receipt_refs", _MAX_ENTRY_REFS)
+            receipt_refs = _refs(
+                (receipt_link.receipt_ref,), "receipt_refs", _MAX_ENTRY_REFS
+            )
             if recovery_ref is not None:
                 recovery_refs = _refs((recovery_ref,), "recovery_refs", _MAX_ENTRY_REFS)
             provenance = {
@@ -4209,15 +4519,16 @@ class ContextWorkspace:
         existing_ids = {entry.entry_id for entry in state.entries}
         for raw in entries:
             entry = _entry_from_input(raw)
-            if (
-                any(item.entry_id == entry.entry_id for item in normalized)
-                or (event_id is None and entry.entry_id in existing_ids)
+            if any(item.entry_id == entry.entry_id for item in normalized) or (
+                event_id is None and entry.entry_id in existing_ids
             ):
                 raise WorkspaceConflictError()
             if session is not None and entry.session_id not in (None, selected_session):
                 raise WorkspaceConflictError()
             if entry.receipt_refs or entry.recovery_refs:
-                raise WorkspaceValidationError("entry lineage is derived from ContextReceipt")
+                raise WorkspaceValidationError(
+                    "entry lineage is derived from ContextReceipt"
+                )
             entry_session = selected_session if session is not None else None
             source_ids = entry.source_ids
             if session is not None:
@@ -4244,8 +4555,12 @@ class ContextWorkspace:
             if len(entry.value.encode("utf-8")) > _state_policy(state).max_entry_bytes:
                 raise WorkspacePolicyError()
             normalized.append(entry)
-        if session is None and any(entry.receipt_refs or entry.recovery_refs for entry in normalized):
-            raise WorkspaceValidationError("workspace entries cannot carry Engine lineage")
+        if session is None and any(
+            entry.receipt_refs or entry.recovery_refs for entry in normalized
+        ):
+            raise WorkspaceValidationError(
+                "workspace entries cannot carry Engine lineage"
+            )
         payload = {
             "entries": [_plain(entry.to_dict()) for entry in normalized],
             "provenance": _plain(provenance),
@@ -4258,7 +4573,10 @@ class ContextWorkspace:
         candidate_entries = list(state.entries) + normalized
         if len(candidate_entries) > _state_policy(state).max_context_entries:
             raise WorkspacePolicyError()
-        if _state_context_bytes(candidate_entries) > _state_policy(state).max_context_bytes:
+        if (
+            _state_context_bytes(candidate_entries)
+            > _state_policy(state).max_context_bytes
+        ):
             raise WorkspacePolicyError()
         return self._append(
             "context_committed",
@@ -4363,7 +4681,9 @@ class ContextWorkspace:
 
         state = self._read_state()
         stored = state.checkpoints.get(target.checkpoint_id)
-        if stored is None or _canonical(stored.to_dict()) != _canonical(target.to_dict()):
+        if stored is None or _canonical(stored.to_dict()) != _canonical(
+            target.to_dict()
+        ):
             raise WorkspaceConflictError()
         ancestry = "exact"
         if base.workspace_id == target.workspace_id:
@@ -4392,7 +4712,9 @@ class ContextWorkspace:
             base,
             target,
             ancestry=ancestry,
-            base_lineage=target_lineage if base.workspace_id == self.workspace_id else None,
+            base_lineage=target_lineage
+            if base.workspace_id == self.workspace_id
+            else None,
             target_lineage=target_lineage,
         )
 
@@ -4410,7 +4732,9 @@ class ContextWorkspace:
 
         state = self._read_state()
         stored = state.checkpoints.get(checkpoint.checkpoint_id)
-        if stored is None or _canonical(stored.to_dict()) != _canonical(checkpoint.to_dict()):
+        if stored is None or _canonical(stored.to_dict()) != _canonical(
+            checkpoint.to_dict()
+        ):
             raise WorkspaceConflictError()
         lineage = (
             ForkLineageV1.from_dict(state.fork_lineage)
@@ -4484,12 +4808,11 @@ class ContextWorkspace:
         )
         source_lineage = handoff.source_lineage
         source_lineage_ok = (
-            (stored_source_lineage is None and source_lineage is None)
-            or (
-                stored_source_lineage is not None
-                and source_lineage is not None
-                and stored_source_lineage == source_lineage
-            )
+            stored_source_lineage is None and source_lineage is None
+        ) or (
+            stored_source_lineage is not None
+            and source_lineage is not None
+            and stored_source_lineage == source_lineage
         )
         lineage_ok = source_checkpoint_ok and source_lineage_ok
         if handoff.source.workspace_id != self.workspace_id:
@@ -4521,8 +4844,7 @@ class ContextWorkspace:
                     and source_lineage.child_workspace_id
                     != receiver_lineage.child_workspace_id
                     and source_lineage.fork_id != receiver_lineage.fork_id
-                    and source_lineage.fork_event_ref
-                    != receiver_lineage.fork_event_ref
+                    and source_lineage.fork_event_ref != receiver_lineage.fork_event_ref
                 )
         conflicts = []
         existing = {entry.entry_id: entry for entry in state.entries}
@@ -4548,7 +4870,9 @@ class ContextWorkspace:
             ):
                 conflicts.append(
                     ConflictEntryV1.create(
-                        "DECISION" if entry.category == "decisions" else "PROJECT_CONTEXT",
+                        "DECISION"
+                        if entry.category == "decisions"
+                        else "PROJECT_CONTEXT",
                         entry.entry_id,
                         left=current.to_dict(),
                         right=entry.to_dict(),
@@ -4597,7 +4921,9 @@ class ContextWorkspace:
             if previous["handoff_digest"] != handoff.handoff_digest:
                 raise WorkspaceConflictError()
             return state.receipts[previous["event_id"]]
-        checkpoint = self.checkpoint() if receiver_checkpoint is None else receiver_checkpoint
+        checkpoint = (
+            self.checkpoint() if receiver_checkpoint is None else receiver_checkpoint
+        )
         admission = self.admit_handoff(handoff, checkpoint)
         if admission.decision == "rejected":
             if "POLICY_DOWNGRADE" in admission.reason_codes:
@@ -4700,7 +5026,9 @@ class ContextWorkspace:
             raise WorkspaceConflictError()
         state = self._read_state()
         stored = state.checkpoints.get(checkpoint.checkpoint_id)
-        if stored is None or _canonical(stored.to_dict()) != _canonical(checkpoint.to_dict()):
+        if stored is None or _canonical(stored.to_dict()) != _canonical(
+            checkpoint.to_dict()
+        ):
             raise WorkspaceConflictError()
         _verify_checkpoint_sources(checkpoint)
         receipt = self._append(
@@ -4798,7 +5126,9 @@ class ContextWorkspace:
                 raise WorkspaceValidationError("categories must be a collection")
             selected_categories = set(categories)
             if not selected_categories.issubset(_CATEGORIES):
-                raise WorkspaceValidationError("categories contains an invalid category")
+                raise WorkspaceValidationError(
+                    "categories contains an invalid category"
+                )
         if limit is not None:
             _positive_int(limit, "limit")
             if limit > state_policy.max_context_entries:
@@ -4809,7 +5139,9 @@ class ContextWorkspace:
                 raise WorkspacePolicyError()
         entry_limit = state_policy.max_context_entries if limit is None else limit
         byte_limit = state_policy.max_context_bytes if max_bytes is None else max_bytes
-        eligible = [entry for entry in state.entries if entry.category in selected_categories]
+        eligible = [
+            entry for entry in state.entries if entry.category in selected_categories
+        ]
         filtered_count = len(state.entries) - len(eligible)
         selected: List[ProjectContextEntry] = []
         if eligible:
@@ -4845,7 +5177,11 @@ class ContextWorkspace:
             current = self._read_state()
             existing = current.receipts.get(selected_event_id)
             if existing is not None:
-                event = next(event for event in current.events if event["event_id"] == selected_event_id)
+                event = next(
+                    event
+                    for event in current.events
+                    if event["event_id"] == selected_event_id
+                )
                 event_payload = event.get("payload")
                 if not isinstance(event_payload, Mapping):
                     raise WorkspaceConflictError()
@@ -4859,7 +5195,9 @@ class ContextWorkspace:
             raise WorkspaceLifecycleError()
         if not policy.is_tightening(_state_policy(state)):
             raise WorkspacePolicyError()
-        if any(entry.category not in policy.allowed_categories for entry in state.entries):
+        if any(
+            entry.category not in policy.allowed_categories for entry in state.entries
+        ):
             raise WorkspacePolicyError()
         if not policy.allow_external_sources and any(
             anchor.kind != "filesystem" for anchor in state.sources.values()
@@ -4880,7 +5218,9 @@ class ContextWorkspace:
     def complete(self, *, event_id: Optional[str] = None) -> WorkspaceReceipt:
         return self._append("workspace_completed", {}, event_id=event_id)
 
-    def abort(self, reason_code: str, *, event_id: Optional[str] = None) -> WorkspaceReceipt:
+    def abort(
+        self, reason_code: str, *, event_id: Optional[str] = None
+    ) -> WorkspaceReceipt:
         _text(reason_code, "reason_code", 128)
         _reject_sensitive(reason_code, "reason_code")
         return self._append(

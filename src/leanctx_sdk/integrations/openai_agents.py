@@ -98,6 +98,7 @@ def openai_tools(context: AgentContext) -> list:
     tools = []
 
     if "ctx_read" in context.capabilities:
+
         @function_tool
         def leanctx_read(path: str, mode: str = "auto") -> str:
             """Read one project file with LeanCTX compression and cache reuse."""
@@ -106,6 +107,7 @@ def openai_tools(context: AgentContext) -> list:
         tools.append(leanctx_read)
 
     if "ctx_search" in context.capabilities:
+
         @function_tool
         def leanctx_search(pattern: str, path: str = ".", max_results: int = 50) -> str:
             """Search project code without loading every matching file."""
@@ -114,6 +116,7 @@ def openai_tools(context: AgentContext) -> list:
         tools.append(leanctx_search)
 
     if "ctx_tree" in context.capabilities:
+
         @function_tool
         def leanctx_tree(path: str = ".", depth: int = 3) -> str:
             """Return a bounded project tree."""
@@ -122,6 +125,7 @@ def openai_tools(context: AgentContext) -> list:
         tools.append(leanctx_tree)
 
     if "ctx_patch" in context.capabilities and context.permissions.write:
+
         @function_tool
         def leanctx_replace_unique(path: str, old_text: str, new_text: str) -> str:
             """Replace one unique text occurrence inside the project root."""
@@ -135,6 +139,7 @@ def openai_tools(context: AgentContext) -> list:
         tools.extend((leanctx_replace_unique, leanctx_create_file))
 
     if "ctx_shell" in context.capabilities and context.permissions.execute:
+
         @function_tool
         def leanctx_run(argv: List[str], cwd: str = ".", timeout: float = 30.0) -> str:
             """Run an allowlisted argv command and return compressed output."""

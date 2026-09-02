@@ -136,10 +136,14 @@ def _validate_wheel_source(wheel: Path, repository: Path, commit: str) -> None:
                 if name.startswith("leanctx_sdk/") and not name.endswith("/")
             )
             if actual_names != sorted(expected):
-                raise SystemExit("wheel package contents differ from expected SDK commit")
+                raise SystemExit(
+                    "wheel package contents differ from expected SDK commit"
+                )
             for name, content in expected.items():
                 if archive.read(name) != content:
-                    raise SystemExit(f"wheel package file differs from SDK commit: {name}")
+                    raise SystemExit(
+                        f"wheel package file differs from SDK commit: {name}"
+                    )
     except (OSError, zipfile.BadZipFile) as exc:
         raise SystemExit("--wheel is not a readable wheel archive") from exc
 
@@ -288,7 +292,9 @@ def run_gate(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheel", required=True, help="absolute path to the SDK wheel")
-    parser.add_argument("--engine", required=True, help="absolute path to the lean-ctx binary")
+    parser.add_argument(
+        "--engine", required=True, help="absolute path to the lean-ctx binary"
+    )
     parser.add_argument("--expected-wheel-sha256", required=True)
     parser.add_argument("--expected-sdk-commit", required=True)
     parser.add_argument("--expected-engine-sha256", required=True)

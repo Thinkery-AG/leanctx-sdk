@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.10", "3.11", "3.12"]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -77,7 +77,13 @@ jobs:
           --requirement requirements/release-quality.txt
       - run: ruff --version | tee static-quality.log
       - run: mypy --version | tee -a static-quality.log
+      - run: ty --version | tee -a static-quality.log
       - run: ruff check src tests scripts examples benchmarks 2>&1 | tee -a static-quality.log
+      - run: ruff format --check src tests scripts examples benchmarks 2>&1 | tee -a static-quality.log
+      - run: >-
+          ty check --exclude 'src/leanctx_sdk/integrations/**'
+          src/leanctx_sdk
+          2>&1 | tee -a static-quality.log
       - run: >-
           MYPYPATH=src mypy --ignore-missing-imports
           src/leanctx_sdk
@@ -244,7 +250,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.10", "3.11", "3.12"]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -462,7 +468,7 @@ jobs:
       PUBLICATION_AUTHORIZATION: ${{ vars.SDK_V1_PUBLICATION_AUTHORIZED }}
       FRAMEWORK_GATE: ${{ needs.framework-offline.result }}
       FRAMEWORK_VERSION: openai-agents==0.8.4
-      PYTHON_MATRIX: 3.9,3.10,3.11,3.12
+      PYTHON_MATRIX: 3.9,3.10,3.11,3.12,3.13,3.14
       EVIDENCE_DIR: release-evidence/sdk-v1/${{ needs.sdk-artifact.outputs.sdk_commit }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

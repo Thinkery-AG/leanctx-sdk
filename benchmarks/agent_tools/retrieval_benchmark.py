@@ -104,7 +104,9 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
                 value = lane.get(field)
                 if type(value) is not int or value < 0:
                     raise ValueError(f"{label} {field} must be a non-negative integer")
-            if lane.get("answer") is not None and not isinstance(lane.get("answer"), str):
+            if lane.get("answer") is not None and not isinstance(
+                lane.get("answer"), str
+            ):
                 raise ValueError(f"{label} answer must be a string or null")
         lanes.append((raw, leanctx))
     raw_tokens = sum(raw["context_input_tokens"] for raw, _ in lanes)
@@ -121,7 +123,8 @@ def evaluate(rows: Iterable[dict[str, object]]) -> dict[str, object]:
     )
     savings = 100.0 * (raw_tokens - lean_tokens) / raw_tokens
     task_savings = [
-        100.0 * (raw["context_input_tokens"] - leanctx["context_input_tokens"])
+        100.0
+        * (raw["context_input_tokens"] - leanctx["context_input_tokens"])
         / raw["context_input_tokens"]
         for raw, leanctx in lanes
         if raw["context_input_tokens"] > 0
@@ -164,12 +167,15 @@ def _run_once(engine: Path) -> dict[str, object]:
 def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
     if type(repeats) is not int or not 2 <= repeats <= 10:
         raise ValueError("repeats must be between 2 and 10")
+
     def deny_network(*_args, **_kwargs):
         raise RuntimeError("network access is forbidden during the benchmark")
 
     with patch.object(socket.socket, "connect", deny_network):
         reports = [_run_once(engine) for _ in range(repeats)]
-    canonical = [json.dumps(report, sort_keys=True, separators=(",", ":")) for report in reports]
+    canonical = [
+        json.dumps(report, sort_keys=True, separators=(",", ":")) for report in reports
+    ]
     if len(set(canonical)) != 1:
         raise ValueError("benchmark results are not deterministic")
     report = reports[0]

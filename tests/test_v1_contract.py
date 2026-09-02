@@ -34,7 +34,13 @@ class V1ContractTests(unittest.TestCase):
         self.assertEqual(sdk.__version__, "1.1.0")
         self.assertEqual(
             self.contract["primitives"],
-            ["ContextSession", "ContextSource", "ContextView", "ContextPlan", "ContextReceipt"],
+            [
+                "ContextSession",
+                "ContextSource",
+                "ContextView",
+                "ContextPlan",
+                "ContextReceipt",
+            ],
         )
         for name in self.contract["primitives"]:
             self.assertTrue(hasattr(sdk, name), name)
@@ -66,7 +72,9 @@ class V1ContractTests(unittest.TestCase):
         self.assertIn("may change", manifest.lower())
 
     def test_lifecycle_and_plan_identity_are_deterministic(self):
-        self.assertEqual(self.contract["lifecycle"], ["Select", "Shape", "Reuse", "Recover"])
+        self.assertEqual(
+            self.contract["lifecycle"], ["Select", "Shape", "Reuse", "Recover"]
+        )
         with tempfile.TemporaryDirectory() as root:
             source = ContextSource("source.txt", project_root=root)
             one = ContextPlan("session", "task", "shape", source)
@@ -123,8 +131,7 @@ class V1ContractTests(unittest.TestCase):
     def test_primitive_serialization_fingerprints_are_frozen(self):
         fixture = json.loads(
             (
-                Path(__file__).parents[1]
-                / "fixtures/sdk-v1/serialization-sha256.json"
+                Path(__file__).parents[1] / "fixtures/sdk-v1/serialization-sha256.json"
             ).read_text(encoding="utf-8")
         )
         source = ContextSource("fixture/source.txt", project_root="/PROJECT")

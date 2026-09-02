@@ -31,9 +31,7 @@ from .workspace import (
 )
 
 
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SECRET_RE = re.compile(
     r"(?i)(?:-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----|"
@@ -101,7 +99,9 @@ def _plain(value: Any) -> Any:
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        return MappingProxyType(
+            {str(key): _freeze(item) for key, item in value.items()}
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     return value
@@ -111,13 +111,16 @@ def _canonical(value: Any) -> bytes:
     try:
         return canonical_bytes(_plain(value))
     except Exception as exc:
-        raise WorkspaceValidationError("parallel-context value is not canonical JSON") from exc
+        raise WorkspaceValidationError(
+            "parallel-context value is not canonical JSON"
+        ) from exc
 
 
 def _digest(domain: str, value: Any) -> str:
-    return "sha256:" + hashlib.sha256(
-        domain.encode("utf-8") + b"\n" + _canonical(value)
-    ).hexdigest()
+    return (
+        "sha256:"
+        + hashlib.sha256(domain.encode("utf-8") + b"\n" + _canonical(value)).hexdigest()
+    )
 
 
 def _uuid(value: Any, name: str) -> str:
@@ -127,7 +130,9 @@ def _uuid(value: Any, name: str) -> str:
         if str(uuid.UUID(value)) != value:
             raise ValueError
     except (ValueError, AttributeError) as exc:
-        raise WorkspaceValidationError(f"{name} must be a canonical lowercase UUID") from exc
+        raise WorkspaceValidationError(
+            f"{name} must be a canonical lowercase UUID"
+        ) from exc
     return value
 
 
@@ -172,7 +177,9 @@ def _reject_sensitive(value: Any) -> None:
         raise WorkspaceSensitiveDataError("parallel-context artifact")
 
 
-def _sorted_unique_text(values: Sequence[Any], name: str, maximum: int) -> Tuple[str, ...]:
+def _sorted_unique_text(
+    values: Sequence[Any], name: str, maximum: int
+) -> Tuple[str, ...]:
     if not isinstance(values, (list, tuple)):
         raise WorkspaceValidationError(f"{name} must be an array")
     if len(values) > maximum:
@@ -301,12 +308,16 @@ class ForkLineageV1:
             raise WorkspaceConflictError()
         _uuid(self.parent_checkpoint_id, "parent_checkpoint_id")
         _sha(self.parent_checkpoint_state_digest, "parent checkpoint state digest")
-        _sha(self.parent_checkpoint_envelope_digest, "parent checkpoint envelope digest")
+        _sha(
+            self.parent_checkpoint_envelope_digest, "parent checkpoint envelope digest"
+        )
         _uuid(self.fork_id, "fork_id")
-        if not isinstance(self.fork_event_ref, str) or not self.fork_event_ref.startswith(
-            "event-id:"
-        ):
-            raise WorkspaceValidationError("fork_event_ref must be an event-id reference")
+        if not isinstance(
+            self.fork_event_ref, str
+        ) or not self.fork_event_ref.startswith("event-id:"):
+            raise WorkspaceValidationError(
+                "fork_event_ref must be an event-id reference"
+            )
         _uuid(self.fork_event_ref.removeprefix("event-id:"), "fork event id")
 
     def to_dict(self) -> Mapping[str, Any]:
@@ -339,7 +350,10 @@ class ForkLineageV1:
             },
             "ForkLineageV1",
         )
-        if value["schema_version"] != cls.SCHEMA or value["fork_contract"] != cls.CONTRACT:
+        if (
+            value["schema_version"] != cls.SCHEMA
+            or value["fork_contract"] != cls.CONTRACT
+        ):
             raise WorkspaceIncompatibleError("unsupported fork lineage")
         return cls(
             value["child_workspace_id"],
@@ -450,13 +464,17 @@ class PolicyInheritanceV1:
         if not isinstance(parent, WorkspacePolicy):
             raise WorkspaceValidationError("parent policy is invalid")
         selected = parent if requested is None else requested
-        if not isinstance(selected, WorkspacePolicy) or not selected.is_tightening(parent):
+        if not isinstance(selected, WorkspacePolicy) or not selected.is_tightening(
+            parent
+        ):
             raise WorkspacePolicyError()
         relation = "equal" if selected == parent else "tightened"
         base = {
             "schema_version": cls.SCHEMA,
             "parent_policy": _plain(parent.to_dict()),
-            "parent_policy_digest": _digest("leanctx.workspace.policy.v1", parent.to_dict()),
+            "parent_policy_digest": _digest(
+                "leanctx.workspace.policy.v1", parent.to_dict()
+            ),
             "requested_child_policy": _plain(selected.to_dict()),
             "effective_child_policy": _plain(selected.to_dict()),
             "relation": relation,
@@ -498,7 +516,9 @@ class PolicyInheritanceV1:
             "effective_child_policy": _plain(self.effective_child_policy.to_dict()),
             "relation": self.relation,
         }
-        if self.inheritance_digest != _digest("leanctx.policy-inheritance.v1", unsigned):
+        if self.inheritance_digest != _digest(
+            "leanctx.policy-inheritance.v1", unsigned
+        ):
             raise WorkspaceConflictError()
 
     def to_dict(self) -> Mapping[str, Any]:
@@ -533,7 +553,9 @@ class PolicyInheritanceV1:
         requested = WorkspacePolicy.from_dict(value["requested_child_policy"])
         effective = WorkspacePolicy.from_dict(value["effective_child_policy"])
         expected = cls.create(parent, requested)
-        if effective != expected.effective_child_policy or _plain(expected.to_dict()) != _plain(value):
+        if effective != expected.effective_child_policy or _plain(
+            expected.to_dict()
+        ) != _plain(value):
             raise WorkspaceConflictError()
         return expected
 
@@ -565,7 +587,9 @@ class WorkspaceForkV1:
         fork_id: Optional[str] = None,
         execution_ref: Optional[str] = None,
     ) -> "WorkspaceForkV1":
-        selected_fork_id = str(uuid.uuid4()) if fork_id is None else _uuid(fork_id, "fork_id")
+        selected_fork_id = (
+            str(uuid.uuid4()) if fork_id is None else _uuid(fork_id, "fork_id")
+        )
         child_workspace_id = _uuid(child_workspace_id, "child_workspace_id")
         _text(child_name, "child_name", 128)
         event_id = _uuid(event_id, "event_id")
@@ -581,7 +605,9 @@ class WorkspaceForkV1:
             selected_fork_id,
             "event-id:" + event_id,
         )
-        content_digest = _digest("leanctx.fork.inherited-content.v1", _content_state(logical))
+        content_digest = _digest(
+            "leanctx.fork.inherited-content.v1", _content_state(logical)
+        )
         if execution_ref is not None:
             _text(execution_ref, "execution_ref", 512)
         base = {
@@ -613,7 +639,10 @@ class WorkspaceForkV1:
         _uuid(self.fork_id, "fork_id")
         _uuid(self.child_workspace_id, "child_workspace_id")
         _text(self.child_name, "child_name", 128)
-        if self.fork_id != self.lineage.fork_id or self.child_workspace_id != self.lineage.child_workspace_id:
+        if (
+            self.fork_id != self.lineage.fork_id
+            or self.child_workspace_id != self.lineage.child_workspace_id
+        ):
             raise WorkspaceConflictError()
         if (
             self.source.workspace_id != self.lineage.parent_workspace_id
@@ -632,7 +661,9 @@ class WorkspaceForkV1:
         _reject_sensitive(
             {"child_name": self.child_name, "execution_ref": self.execution_ref}
         )
-        if self.fork_digest != _digest("leanctx.workspace-fork.v1", self._digest_dict()):
+        if self.fork_digest != _digest(
+            "leanctx.workspace-fork.v1", self._digest_dict()
+        ):
             raise WorkspaceConflictError()
 
     def _digest_dict(self) -> Mapping[str, Any]:
@@ -685,7 +716,10 @@ class WorkspaceForkV1:
             value["execution_ref"],
             value["fork_digest"],
         )
-        if _digest("leanctx.workspace-fork.v1", result._digest_dict()) != result.fork_digest:
+        if (
+            _digest("leanctx.workspace-fork.v1", result._digest_dict())
+            != result.fork_digest
+        ):
             raise WorkspaceConflictError()
         return result
 
@@ -713,7 +747,9 @@ class ConflictEntryV1:
                 object.__setattr__(self, name, _freeze(_plain(value)))
         if any(not isinstance(ref, EvidenceRefV1) for ref in self.evidence_refs):
             raise WorkspaceValidationError("conflict evidence refs are invalid")
-        refs = tuple(sorted(self.evidence_refs, key=lambda ref: _canonical(ref.to_dict())))
+        refs = tuple(
+            sorted(self.evidence_refs, key=lambda ref: _canonical(ref.to_dict()))
+        )
         if self.evidence_refs != refs:
             raise WorkspaceValidationError("conflict evidence refs are not canonical")
         object.__setattr__(self, "evidence_refs", refs)
@@ -752,7 +788,9 @@ class ConflictEntryV1:
             "right": _plain(right),
             "evidence_refs": [
                 _plain(ref.to_dict())
-                for ref in sorted(evidence_refs, key=lambda ref: _canonical(ref.to_dict()))
+                for ref in sorted(
+                    evidence_refs, key=lambda ref: _canonical(ref.to_dict())
+                )
             ],
             "resolution": "manual_required",
         }
@@ -762,9 +800,7 @@ class ConflictEntryV1:
             _freeze(_plain(base)) if base is not None else None,
             _freeze(_plain(left)) if left is not None else None,
             _freeze(_plain(right)) if right is not None else None,
-            tuple(
-                sorted(evidence_refs, key=lambda ref: _canonical(ref.to_dict()))
-            ),
+            tuple(sorted(evidence_refs, key=lambda ref: _canonical(ref.to_dict()))),
             _digest("leanctx.conflict-entry.v1", payload),
         )
 
@@ -801,9 +837,7 @@ class ConflictEntryV1:
         if (
             value["schema_version"] != cls.SCHEMA
             or value["resolution"] != "manual_required"
-            or not isinstance(
-            value["evidence_refs"], list
-            )
+            or not isinstance(value["evidence_refs"], list)
         ):
             raise WorkspaceIncompatibleError("invalid conflict entry")
         result = cls.create(
@@ -838,7 +872,10 @@ class ConflictReportV1:
         if len(self.entries) > _MAX_CONFLICTS:
             raise WorkspacePolicyError()
         expected = tuple(
-            sorted(self.entries, key=lambda item: (item.category, item.stable_key, item.conflict_id))
+            sorted(
+                self.entries,
+                key=lambda item: (item.category, item.stable_key, item.conflict_id),
+            )
         )
         if tuple(self.entries) != expected:
             raise WorkspaceValidationError("conflict entries are not canonical")
@@ -864,7 +901,12 @@ class ConflictReportV1:
     ) -> "ConflictReportV1":
         if ancestry not in {"exact", "diverged", "unknown"}:
             raise WorkspaceValidationError("ancestry is invalid")
-        selected = tuple(sorted(entries, key=lambda item: (item.category, item.stable_key, item.conflict_id)))
+        selected = tuple(
+            sorted(
+                entries,
+                key=lambda item: (item.category, item.stable_key, item.conflict_id),
+            )
+        )
         if len(selected) > _MAX_CONFLICTS:
             raise WorkspacePolicyError()
         base_dict = {
@@ -875,7 +917,14 @@ class ConflictReportV1:
             "ancestry": ancestry,
             "entries": [_plain(item.to_dict()) for item in selected],
         }
-        return cls(base, left, right, ancestry, selected, _digest("leanctx.conflict-report.v1", base_dict))
+        return cls(
+            base,
+            left,
+            right,
+            ancestry,
+            selected,
+            _digest("leanctx.conflict-report.v1", base_dict),
+        )
 
     def to_dict(self) -> Mapping[str, Any]:
         return {
@@ -892,13 +941,25 @@ class ConflictReportV1:
     def from_dict(cls, value: Any) -> "ConflictReportV1":
         value = _exact(
             value,
-            {"schema_version", "base", "left", "right", "ancestry", "entries", "report_id"},
+            {
+                "schema_version",
+                "base",
+                "left",
+                "right",
+                "ancestry",
+                "entries",
+                "report_id",
+            },
             "ConflictReportV1",
         )
-        if value["schema_version"] != cls.SCHEMA or not isinstance(value["entries"], list):
+        if value["schema_version"] != cls.SCHEMA or not isinstance(
+            value["entries"], list
+        ):
             raise WorkspaceIncompatibleError("unsupported ConflictReportV1")
         result = cls.create(
-            WorkspaceStateRefV1.from_dict(value["base"]) if value["base"] is not None else None,
+            WorkspaceStateRefV1.from_dict(value["base"])
+            if value["base"] is not None
+            else None,
             WorkspaceStateRefV1.from_dict(value["left"]),
             WorkspaceStateRefV1.from_dict(value["right"]),
             value["ancestry"],
@@ -934,7 +995,9 @@ class DeltaItemV1:
             not isinstance(ref, EvidenceRefV1) for ref in self.evidence_refs
         ):
             raise WorkspaceValidationError("factual delta item requires EvidenceRefV1")
-        refs = tuple(sorted(self.evidence_refs, key=lambda ref: _canonical(ref.to_dict())))
+        refs = tuple(
+            sorted(self.evidence_refs, key=lambda ref: _canonical(ref.to_dict()))
+        )
         object.__setattr__(self, "evidence_refs", refs)
 
     def to_dict(self) -> Mapping[str, Any]:
@@ -1080,13 +1143,15 @@ class ContextDeltaV1:
         base_lineage: Optional[ForkLineageV1] = None,
         target_lineage: Optional[ForkLineageV1] = None,
     ) -> "ContextDeltaV1":
-        if not isinstance(base, ContextCheckpointV2) or not isinstance(target, ContextCheckpointV2):
-            raise WorkspaceValidationError("delta inputs must be ContextCheckpointV2 values")
+        if not isinstance(base, ContextCheckpointV2) or not isinstance(
+            target, ContextCheckpointV2
+        ):
+            raise WorkspaceValidationError(
+                "delta inputs must be ContextCheckpointV2 values"
+            )
         if ancestry not in {"exact", "diverged", "unknown"}:
             raise WorkspaceValidationError("ancestry is invalid")
-        base_ref = WorkspaceStateRefV1.from_checkpoint(
-            base, fork_lineage=base_lineage
-        )
+        base_ref = WorkspaceStateRefV1.from_checkpoint(base, fork_lineage=base_lineage)
         target_ref = WorkspaceStateRefV1.from_checkpoint(
             target, fork_lineage=target_lineage
         )
@@ -1134,11 +1199,17 @@ class ContextDeltaV1:
                 ):
                     raise WorkspaceConflictError()
                 for action in actions:
-                    items.append(DeltaItemV1("source", action, key, before, after, refs))
+                    items.append(
+                        DeltaItemV1("source", action, key, before, after, refs)
+                    )
                 if "revision_changed" in actions:
                     conflicts.append(
                         ConflictEntryV1.create(
-                            "SOURCE_REVISION", key, left=before, right=after, evidence_refs=refs
+                            "SOURCE_REVISION",
+                            key,
+                            left=before,
+                            right=after,
+                            evidence_refs=refs,
                         )
                     )
 
@@ -1152,9 +1223,13 @@ class ContextDeltaV1:
                 if value is not None
             )
             if before is None:
-                items.append(DeltaItemV1("project_context", "added", key, None, after, refs))
+                items.append(
+                    DeltaItemV1("project_context", "added", key, None, after, refs)
+                )
             elif after is None:
-                items.append(DeltaItemV1("project_context", "removed", key, before, None, refs))
+                items.append(
+                    DeltaItemV1("project_context", "removed", key, before, None, refs)
+                )
             elif _canonical(before) != _canonical(after):
                 semantic_before = (before.get("category"), before.get("value"))
                 semantic_after = (after.get("category"), after.get("value"))
@@ -1163,7 +1238,9 @@ class ContextDeltaV1:
                     if semantic_before == semantic_after
                     else "contradicted"
                 )
-                items.append(DeltaItemV1("project_context", action, key, before, after, refs))
+                items.append(
+                    DeltaItemV1("project_context", action, key, before, after, refs)
+                )
                 if action == "contradicted":
                     category = (
                         "DECISION"
@@ -1180,7 +1257,9 @@ class ContextDeltaV1:
             return str(value.get("name")) + "@" + str(value.get("version"))
 
         left_pins = {package_key(value): value for value in left_state["package_pins"]}
-        right_pins = {package_key(value): value for value in right_state["package_pins"]}
+        right_pins = {
+            package_key(value): value for value in right_state["package_pins"]
+        }
         if len(left_pins) != len(left_state["package_pins"]) or len(right_pins) != len(
             right_state["package_pins"]
         ):
@@ -1193,9 +1272,13 @@ class ContextDeltaV1:
                 if value is not None
             )
             if before is None:
-                items.append(DeltaItemV1("package", "pin_added", key, None, after, refs))
+                items.append(
+                    DeltaItemV1("package", "pin_added", key, None, after, refs)
+                )
             elif after is None:
-                items.append(DeltaItemV1("package", "pin_removed", key, before, None, refs))
+                items.append(
+                    DeltaItemV1("package", "pin_removed", key, before, None, refs)
+                )
             elif _canonical(before) != _canonical(after):
                 action = (
                     "trust_changed"
@@ -1240,8 +1323,14 @@ class ContextDeltaV1:
                 "lineage",
                 lineage_action,
                 target.workspace_id,
-                {"workspace_id": base.workspace_id, "checkpoint_id": base.checkpoint_id},
-                {"workspace_id": target.workspace_id, "checkpoint_id": target.checkpoint_id},
+                {
+                    "workspace_id": base.workspace_id,
+                    "checkpoint_id": base.checkpoint_id,
+                },
+                {
+                    "workspace_id": target.workspace_id,
+                    "checkpoint_id": target.checkpoint_id,
+                },
                 (_evidence_ref(base), _evidence_ref(target)),
             )
         )
@@ -1259,7 +1348,9 @@ class ContextDeltaV1:
         )
         if len(selected) > _MAX_DELTA_ITEMS:
             raise WorkspacePolicyError()
-        report = ConflictReportV1.create(base_ref, base_ref, target_ref, ancestry, conflicts)
+        report = ConflictReportV1.create(
+            base_ref, base_ref, target_ref, ancestry, conflicts
+        )
         payload = {
             "schema_version": cls.SCHEMA,
             "base": _plain(base_ref.to_dict()),
@@ -1270,7 +1361,13 @@ class ContextDeltaV1:
         }
         if len(_canonical(payload)) > _MAX_DELTA_BYTES:
             raise WorkspacePolicyError()
-        return cls(base_ref, target_ref, selected, report, _digest("leanctx.context-delta.v1", payload))
+        return cls(
+            base_ref,
+            target_ref,
+            selected,
+            report,
+            _digest("leanctx.context-delta.v1", payload),
+        )
 
     def to_dict(self) -> Mapping[str, Any]:
         return dict(self._unsigned_dict(), delta_id=self.delta_id)
@@ -1290,7 +1387,9 @@ class ContextDeltaV1:
             },
             "ContextDeltaV1",
         )
-        if value["schema_version"] != cls.SCHEMA or not isinstance(value["items"], list):
+        if value["schema_version"] != cls.SCHEMA or not isinstance(
+            value["items"], list
+        ):
             raise WorkspaceIncompatibleError("unsupported ContextDeltaV1")
         expected_bounds = {"max_items": _MAX_DELTA_ITEMS, "max_bytes": _MAX_DELTA_BYTES}
         if value["bounds"] != expected_bounds:
@@ -1307,11 +1406,15 @@ class ContextDeltaV1:
         return result
 
 
-def _checkpoint_entries(checkpoint: ContextCheckpointV2) -> Mapping[str, Mapping[str, Any]]:
+def _checkpoint_entries(
+    checkpoint: ContextCheckpointV2,
+) -> Mapping[str, Mapping[str, Any]]:
     return _keyed(checkpoint.logical_state["entries"], "entry_id", "entries")
 
 
-def _checkpoint_sources(checkpoint: ContextCheckpointV2) -> Mapping[str, Mapping[str, Any]]:
+def _checkpoint_sources(
+    checkpoint: ContextCheckpointV2,
+) -> Mapping[str, Mapping[str, Any]]:
     return _keyed(checkpoint.logical_state["sources"], "source_id", "sources")
 
 
@@ -1349,14 +1452,24 @@ class ContextHandoffV1:
         task = _text(task, "task", 16 * 1024, controls=False)
         if target_role is not None:
             _text(target_role, "target_role", 128)
-        selected_id = str(uuid.uuid4()) if handoff_id is None else _uuid(handoff_id, "handoff_id")
+        selected_id = (
+            str(uuid.uuid4()) if handoff_id is None else _uuid(handoff_id, "handoff_id")
+        )
         ids = _sorted_unique_text(entry_ids, "entry_ids", _MAX_HANDOFF_ENTRIES)
         entries_by_id = _checkpoint_entries(checkpoint)
         try:
             entries = tuple(_freeze(entries_by_id[entry_id]) for entry_id in ids)
         except KeyError as exc:
-            raise WorkspaceValidationError("handoff entry is not present in source state") from exc
-        source_ids = sorted({source_id for entry in entries for source_id in entry.get("source_ids", ())})
+            raise WorkspaceValidationError(
+                "handoff entry is not present in source state"
+            ) from exc
+        source_ids = sorted(
+            {
+                source_id
+                for entry in entries
+                for source_id in entry.get("source_ids", ())
+            }
+        )
         sources_by_id = _checkpoint_sources(checkpoint)
         try:
             anchors = tuple(
@@ -1376,7 +1489,10 @@ class ContextHandoffV1:
                 key=lambda pin: (pin["name"], pin["version"], pin["artifact_digest"]),
             )
         )
-        if len(anchors) > _MAX_HANDOFF_ANCHORS or len(recovery) > _MAX_HANDOFF_RECOVERY_REFS:
+        if (
+            len(anchors) > _MAX_HANDOFF_ANCHORS
+            or len(recovery) > _MAX_HANDOFF_RECOVERY_REFS
+        ):
             raise WorkspacePolicyError()
         if len(pins) > _MAX_HANDOFF_PACKAGE_REFS:
             raise WorkspacePolicyError()
@@ -1428,7 +1544,10 @@ class ContextHandoffV1:
             "schema_version": self.SCHEMA,
             "handoff_id": self.handoff_id,
             "source": _plain(self.source.to_dict()),
-            "target": {"workspace_id": self.target_workspace_id, "role": self.target_role},
+            "target": {
+                "workspace_id": self.target_workspace_id,
+                "role": self.target_role,
+            },
             "task": self.task,
             "selected_entries": [_plain(entry) for entry in self.selected_entries],
             "source_anchors": [_plain(anchor) for anchor in self.source_anchors],
@@ -1451,17 +1570,39 @@ class ContextHandoffV1:
         _sha(self.handoff_digest, "handoff_digest")
         if self.target_role is not None:
             _text(self.target_role, "target_role", 128)
-        object.__setattr__(self, "selected_entries", tuple(_freeze(_plain(v)) for v in self.selected_entries))
-        object.__setattr__(self, "source_anchors", tuple(_freeze(_plain(v)) for v in self.source_anchors))
-        object.__setattr__(self, "package_refs", tuple(_freeze(_plain(v)) for v in self.package_refs))
-        object.__setattr__(self, "recovery_refs", _sorted_unique_text(self.recovery_refs, "recovery_refs", _MAX_HANDOFF_RECOVERY_REFS))
-        if not self.selected_entries or len(self.selected_entries) > _MAX_HANDOFF_ENTRIES:
+        object.__setattr__(
+            self,
+            "selected_entries",
+            tuple(_freeze(_plain(v)) for v in self.selected_entries),
+        )
+        object.__setattr__(
+            self,
+            "source_anchors",
+            tuple(_freeze(_plain(v)) for v in self.source_anchors),
+        )
+        object.__setattr__(
+            self, "package_refs", tuple(_freeze(_plain(v)) for v in self.package_refs)
+        )
+        object.__setattr__(
+            self,
+            "recovery_refs",
+            _sorted_unique_text(
+                self.recovery_refs, "recovery_refs", _MAX_HANDOFF_RECOVERY_REFS
+            ),
+        )
+        if (
+            not self.selected_entries
+            or len(self.selected_entries) > _MAX_HANDOFF_ENTRIES
+        ):
             raise WorkspacePolicyError()
         if len(self.source_anchors) > _MAX_HANDOFF_ANCHORS:
             raise WorkspacePolicyError()
         if len(self.package_refs) > _MAX_HANDOFF_PACKAGE_REFS:
             raise WorkspacePolicyError()
-        entries = [ProjectContextEntry.from_dict(_plain(entry)) for entry in self.selected_entries]
+        entries = [
+            ProjectContextEntry.from_dict(_plain(entry))
+            for entry in self.selected_entries
+        ]
         entry_ids = [entry.entry_id for entry in entries]
         if entry_ids != sorted(entry_ids) or len(set(entry_ids)) != len(entry_ids):
             raise WorkspaceValidationError("handoff entries are not canonical")
@@ -1489,7 +1630,10 @@ class ContextHandoffV1:
         ):
             raise WorkspaceConflictError()
         _reject_sensitive(self._unsigned_dict())
-        if _digest("leanctx.context-handoff.v1", self._unsigned_dict()) != self.handoff_digest:
+        if (
+            _digest("leanctx.context-handoff.v1", self._unsigned_dict())
+            != self.handoff_digest
+        ):
             raise WorkspaceConflictError()
 
     @property
@@ -1622,7 +1766,8 @@ class HandoffAdmissionV1:
             for anchor in receiver_state["sources"]
         }
         source_missing = any(
-            anchor["source_id"] not in receiver_sources for anchor in handoff.source_anchors
+            anchor["source_id"] not in receiver_sources
+            for anchor in handoff.source_anchors
         )
         source_mismatch = any(
             anchor["source_id"] in receiver_sources
@@ -1634,11 +1779,17 @@ class HandoffAdmissionV1:
             and anchor["source_id"] not in available_sources
             for anchor in handoff.source_anchors
         )
-        source_ok = not source_missing and not source_mismatch and not source_unavailable
+        source_ok = (
+            not source_missing and not source_mismatch and not source_unavailable
+        )
         if conflicts is None:
             receiver_ref = WorkspaceStateRefV1.from_checkpoint(receiver_checkpoint)
             conflicts = ConflictReportV1.create(
-                None, handoff.source, receiver_ref, "exact" if lineage_ok else "unknown", ()
+                None,
+                handoff.source,
+                receiver_ref,
+                "exact" if lineage_ok else "unknown",
+                (),
             )
         reasons = []
         if not target_ok:
@@ -1663,14 +1814,18 @@ class HandoffAdmissionV1:
             or source_mismatch
             or bool(conflicts.entries)
         )
-        decision = "rejected" if hard_reject else ("degraded" if not source_ok else "admitted")
+        decision = (
+            "rejected" if hard_reject else ("degraded" if not source_ok else "admitted")
+        )
         values = {
             "target_result": "match" if target_ok else "mismatch",
             "lineage_result": "verified" if lineage_ok else "unverified",
             "policy_result": "monotonic" if policy_ok else "downgrade",
             "package_result": "exact" if package_ok else "mismatch",
             "source_result": (
-                "available" if source_ok else ("mismatch" if source_mismatch else "unavailable")
+                "available"
+                if source_ok
+                else ("mismatch" if source_mismatch else "unavailable")
             ),
         }
         payload = {
@@ -1714,7 +1869,11 @@ class HandoffAdmissionV1:
             raise WorkspaceValidationError("package result is invalid")
         if self.source_result not in {"available", "unavailable", "mismatch"}:
             raise WorkspaceValidationError("source result is invalid")
-        object.__setattr__(self, "reason_codes", _sorted_unique_text(self.reason_codes, "reason_codes", 16))
+        object.__setattr__(
+            self,
+            "reason_codes",
+            _sorted_unique_text(self.reason_codes, "reason_codes", 16),
+        )
         hard_failure = (
             self.target_result != "match"
             or self.lineage_result != "verified"
@@ -1781,7 +1940,9 @@ class HandoffAdmissionV1:
             },
             "HandoffAdmissionV1",
         )
-        if value["schema_version"] != cls.SCHEMA or not isinstance(value["reason_codes"], list):
+        if value["schema_version"] != cls.SCHEMA or not isinstance(
+            value["reason_codes"], list
+        ):
             raise WorkspaceIncompatibleError("unsupported HandoffAdmissionV1")
         result = cls(
             value["handoff_id"],
@@ -1797,7 +1958,10 @@ class HandoffAdmissionV1:
             tuple(value["reason_codes"]),
             value["admission_digest"],
         )
-        if _digest("leanctx.handoff-admission.v1", result._unsigned_dict()) != result.admission_digest:
+        if (
+            _digest("leanctx.handoff-admission.v1", result._unsigned_dict())
+            != result.admission_digest
+        ):
             raise WorkspaceConflictError()
         if _plain(result.to_dict()) != _plain(value):
             raise WorkspaceConflictError()
@@ -1827,7 +1991,9 @@ class NarrowReconciliationV1:
         object.__setattr__(
             self,
             "selected_entry_ids",
-            _sorted_unique_text(self.selected_entry_ids, "selected_entry_ids", _MAX_DELTA_ITEMS),
+            _sorted_unique_text(
+                self.selected_entry_ids, "selected_entry_ids", _MAX_DELTA_ITEMS
+            ),
         )
         if (self.result == "manual_required") != bool(self.conflicts.entries):
             raise WorkspaceConflictError()
@@ -1925,22 +2091,34 @@ class NarrowReconciliationV1:
         changed_left = {
             key: value
             for key, value in left_entries.items()
-            if key not in ancestor_entries or _canonical(value) != _canonical(ancestor_entries[key])
+            if key not in ancestor_entries
+            or _canonical(value) != _canonical(ancestor_entries[key])
         }
         changed_right = {
             key: value
             for key, value in right_entries.items()
-            if key not in ancestor_entries or _canonical(value) != _canonical(ancestor_entries[key])
+            if key not in ancestor_entries
+            or _canonical(value) != _canonical(ancestor_entries[key])
         }
         for key in sorted(set(changed_left) | set(changed_right)):
             if accepted_ids is not None and key not in accepted_ids:
                 continue
             left_value, right_value = changed_left.get(key), changed_right.get(key)
             values = [value for value in (left_value, right_value) if value is not None]
-            if not values or any(value.get("category") not in allowed for value in values):
+            if not values or any(
+                value.get("category") not in allowed for value in values
+            ):
                 continue
-            if left_value is not None and right_value is not None and _canonical(left_value) != _canonical(right_value):
-                category = "DECISION" if left_value.get("category") == "decisions" else "PROJECT_CONTEXT"
+            if (
+                left_value is not None
+                and right_value is not None
+                and _canonical(left_value) != _canonical(right_value)
+            ):
+                category = (
+                    "DECISION"
+                    if left_value.get("category") == "decisions"
+                    else "PROJECT_CONTEXT"
+                )
                 refs = tuple(
                     _evidence_ref(checkpoint, value)
                     for checkpoint, value in (
@@ -1963,13 +2141,13 @@ class NarrowReconciliationV1:
             else:
                 selected.append(key)
         ancestor_ref = WorkspaceStateRefV1.from_checkpoint(ancestor)
-        left_ref = WorkspaceStateRefV1.from_checkpoint(
-            left, fork_lineage=left_lineage
-        )
+        left_ref = WorkspaceStateRefV1.from_checkpoint(left, fork_lineage=left_lineage)
         right_ref = WorkspaceStateRefV1.from_checkpoint(
             right, fork_lineage=right_lineage
         )
-        report = ConflictReportV1.create(ancestor_ref, left_ref, right_ref, "diverged", conflicts)
+        report = ConflictReportV1.create(
+            ancestor_ref, left_ref, right_ref, "diverged", conflicts
+        )
         result = "manual_required" if conflicts else "applicable"
         payload = {
             "schema_version": cls.SCHEMA,

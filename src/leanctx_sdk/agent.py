@@ -99,9 +99,14 @@ class ExecutionPolicy:
                 not isinstance(executable, str)
                 or not executable
                 or os.path.basename(executable) != executable
-                or any(not (character.isalnum() or character in "._+-") for character in executable)
+                or any(
+                    not (character.isalnum() or character in "._+-")
+                    for character in executable
+                )
             ):
-                raise ValidationError("allowed_executables must contain executable basenames")
+                raise ValidationError(
+                    "allowed_executables must contain executable basenames"
+                )
             normalized.append(executable)
         object.__setattr__(self, "allowed_executables", tuple(sorted(set(normalized))))
         allowed_env = []
@@ -110,10 +115,14 @@ class ExecutionPolicy:
                 not isinstance(name, str)
                 or not name
                 or not (name[0].isalpha() or name[0] == "_")
-                or any(not (character.isalnum() or character == "_") for character in name)
+                or any(
+                    not (character.isalnum() or character == "_") for character in name
+                )
                 or name.upper() in _FORBIDDEN_ENV
             ):
-                raise ValidationError("allowed_env must contain environment variable names")
+                raise ValidationError(
+                    "allowed_env must contain environment variable names"
+                )
             allowed_env.append(name)
         object.__setattr__(self, "allowed_env", tuple(sorted(set(allowed_env))))
 
@@ -177,11 +186,19 @@ class AgentContext:
             raise ConfigurationError(
                 "execute permission requires at least one allowed executable"
             )
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0.1 <= timeout <= 120.0:
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not 0.1 <= timeout <= 120.0
+        ):
             raise ConfigurationError("timeout must be between 0.1 and 120 seconds")
 
         binary = os.fspath(engine_binary)
-        resolved_binary = shutil.which(binary) if os.path.sep not in binary else os.path.abspath(binary)
+        resolved_binary = (
+            shutil.which(binary)
+            if os.path.sep not in binary
+            else os.path.abspath(binary)
+        )
         if not resolved_binary or not os.path.isfile(resolved_binary):
             raise EngineUnavailable("configured Engine binary is unavailable")
 
@@ -271,7 +288,9 @@ class AgentContext:
                     "allow_exec": self.permissions.execute,
                     "allow_write": self.permissions.write,
                     "allowed_env": list(self.execution_policy.allowed_env),
-                    "allowed_executables": list(self.execution_policy.allowed_executables),
+                    "allowed_executables": list(
+                        self.execution_policy.allowed_executables
+                    ),
                     "max_timeout_ms": int(self.execution_policy.max_timeout * 1000),
                     "schema_version": AGENT_TOOLS_SCHEMA_VERSION,
                 },
@@ -327,7 +346,9 @@ class AgentContext:
             request_id = self._request_id()
             envelope = dict(request)
             envelope["id"] = request_id
-            encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            encoded = json.dumps(
+                envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
             if len(encoded) > MAX_REQUEST_BYTES:
                 raise EngineProtocolError("Agent Tools request exceeds its bound")
             assert self._process.stdin is not None
@@ -338,11 +359,15 @@ class AgentContext:
                 raise EngineCrashed(self._crash_message()) from exc
             try:
                 raw = self._responses.get(
-                    timeout=self.timeout if response_timeout is None else response_timeout
+                    timeout=self.timeout
+                    if response_timeout is None
+                    else response_timeout
                 )
             except queue.Empty as exc:
                 self._terminate()
-                raise EngineTimeout("Agent Tools response exceeded its deadline") from exc
+                raise EngineTimeout(
+                    "Agent Tools response exceeded its deadline"
+                ) from exc
             if not raw:
                 if self._closed:
                     raise EngineCrashed("AgentContext is closed")
@@ -352,16 +377,22 @@ class AgentContext:
             try:
                 response = strict_json_loads(raw, label="Agent Tools response")
             except (UnicodeDecodeError, ValidationError) as exc:
-                raise EngineProtocolError("Agent Tools response is invalid JSON") from exc
-            if not isinstance(response, dict) or response.get("id") != request_id or not isinstance(response.get("ok"), bool):
+                raise EngineProtocolError(
+                    "Agent Tools response is invalid JSON"
+                ) from exc
+            if (
+                not isinstance(response, dict)
+                or response.get("id") != request_id
+                or not isinstance(response.get("ok"), bool)
+            ):
                 raise EngineProtocolError("Agent Tools response envelope is invalid")
             expected_envelope = (
-                {"id", "ok", "result"}
-                if response["ok"]
-                else {"id", "ok", "error"}
+                {"id", "ok", "result"} if response["ok"] else {"id", "ok", "error"}
             )
             if set(response) != expected_envelope:
-                raise EngineProtocolError("Agent Tools response envelope fields are invalid")
+                raise EngineProtocolError(
+                    "Agent Tools response envelope fields are invalid"
+                )
             if not response["ok"]:
                 self._raise_engine_error(response.get("error"))
             result = response.get("result")
@@ -400,14 +431,17 @@ class AgentContext:
         if set(result) != expected_fields or (
             result.get("schema_version") != AGENT_TOOLS_SCHEMA_VERSION
             or result.get("transport_version") != AGENT_TOOLS_TRANSPORT_VERSION
-            or result.get("agent_tools_interface_version") != AGENT_TOOLS_INTERFACE_VERSION
+            or result.get("agent_tools_interface_version")
+            != AGENT_TOOLS_INTERFACE_VERSION
             or result.get("engine_version") != SUPPORTED_AGENT_TOOLS_ENGINE_VERSION
             or result.get("allow_write") is not self.permissions.write
             or result.get("allow_exec") is not self.permissions.execute
         ):
             raise EngineProtocolError("Agent Tools hello is incompatible")
         capabilities = result.get("capabilities")
-        if not isinstance(capabilities, list) or any(not isinstance(item, str) for item in capabilities):
+        if not isinstance(capabilities, list) or any(
+            not isinstance(item, str) for item in capabilities
+        ):
             raise EngineProtocolError("Agent Tools capabilities are invalid")
         if capabilities != sorted(set(capabilities)):
             raise EngineProtocolError("Agent Tools capabilities are not canonical")
@@ -428,7 +462,9 @@ class AgentContext:
     def metrics(self) -> AgentMetrics:
         return self._metrics
 
-    def call(self, tool: str, arguments: Optional[Mapping[str, object]] = None) -> ToolResult:
+    def call(
+        self, tool: str, arguments: Optional[Mapping[str, object]] = None
+    ) -> ToolResult:
         if not isinstance(tool, str) or not tool:
             raise ValidationError("tool must be a non-empty string")
         if tool in _EXEC_TOOLS:
@@ -445,8 +481,12 @@ class AgentContext:
         response_timeout: Optional[float] = None,
     ) -> ToolResult:
         if tool not in self._capabilities:
-            raise UnsupportedCapabilityError("Engine did not negotiate capability: " + tool)
-        if not isinstance(arguments, Mapping) or any(not isinstance(key, str) for key in arguments):
+            raise UnsupportedCapabilityError(
+                "Engine did not negotiate capability: " + tool
+            )
+        if not isinstance(arguments, Mapping) or any(
+            not isinstance(key, str) for key in arguments
+        ):
             raise ValidationError("arguments must be a string-keyed mapping")
         result = self._exchange(
             {"op": "call", "tool": tool, "arguments": dict(arguments)},
@@ -478,23 +518,38 @@ class AgentContext:
         mode = value["mode"]
         shell_value = value["shell"]
         content_blocks_value = value["content_blocks"]
-        if not isinstance(text, str) or (mode is not None and not isinstance(mode, str)):
+        if not isinstance(text, str) or (
+            mode is not None and not isinstance(mode, str)
+        ):
             raise EngineProtocolError("Agent Tools text or mode is invalid")
-        integers = (value["original_tokens"], value["output_tokens"], value["saved_tokens"])
-        if any(isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in integers):
+        integers = (
+            value["original_tokens"],
+            value["output_tokens"],
+            value["saved_tokens"],
+        )
+        if any(
+            isinstance(item, bool) or not isinstance(item, int) or item < 0
+            for item in integers
+        ):
             raise EngineProtocolError("Agent Tools token metrics are invalid")
         original_tokens = cast(int, integers[0])
         output_tokens = cast(int, integers[1])
         saved_tokens = cast(int, integers[2])
         if output_tokens + saved_tokens != original_tokens:
             raise EngineProtocolError("Agent Tools token metrics are inconsistent")
-        if not isinstance(value["changed"], bool) or (shell_value is not None and not isinstance(shell_value, dict)):
+        if not isinstance(value["changed"], bool) or (
+            shell_value is not None and not isinstance(shell_value, dict)
+        ):
             raise EngineProtocolError("Agent Tools status metadata is invalid")
         if not isinstance(content_blocks_value, list) or any(
             not isinstance(block, dict) for block in content_blocks_value
         ):
             raise EngineProtocolError("Agent Tools content blocks are invalid")
-        shell = MappingProxyType(dict(shell_value)) if isinstance(shell_value, dict) else None
+        shell = (
+            MappingProxyType(dict(shell_value))
+            if isinstance(shell_value, dict)
+            else None
+        )
         content_blocks = tuple(
             MappingProxyType(dict(block)) for block in content_blocks_value
         )
@@ -510,21 +565,48 @@ class AgentContext:
             shell=shell,
         )
 
-    def read(self, path: str, mode: Union[ReadMode, str] = ReadMode.AUTO, *, fresh: bool = False) -> ToolResult:
+    def read(
+        self,
+        path: str,
+        mode: Union[ReadMode, str] = ReadMode.AUTO,
+        *,
+        fresh: bool = False,
+    ) -> ToolResult:
         selected = mode.value if isinstance(mode, ReadMode) else mode
-        return self._call_tool("ctx_read", {"path": path, "mode": selected, "fresh": fresh})
+        return self._call_tool(
+            "ctx_read", {"path": path, "mode": selected, "fresh": fresh}
+        )
 
-    def search(self, pattern: str, *, path: str = ".", max_results: int = 50, include: Optional[str] = None) -> ToolResult:
-        arguments: dict[str, object] = {"path": path, "pattern": pattern, "max_results": max_results}
+    def search(
+        self,
+        pattern: str,
+        *,
+        path: str = ".",
+        max_results: int = 50,
+        include: Optional[str] = None,
+    ) -> ToolResult:
+        arguments: dict[str, object] = {
+            "path": path,
+            "pattern": pattern,
+            "max_results": max_results,
+        }
         if include is not None:
             arguments["include"] = include
         return self._call_tool("ctx_search", arguments)
 
-    def glob(self, pattern: str, *, path: str = ".", max_results: int = 200) -> ToolResult:
-        return self._call_tool("ctx_glob", {"path": path, "pattern": pattern, "max_results": max_results})
+    def glob(
+        self, pattern: str, *, path: str = ".", max_results: int = 200
+    ) -> ToolResult:
+        return self._call_tool(
+            "ctx_glob", {"path": path, "pattern": pattern, "max_results": max_results}
+        )
 
-    def tree(self, path: str = ".", *, depth: int = 3, show_hidden: bool = False) -> ToolResult:
-        return self._call_tool("ctx_tree", {"path": path, "depth": depth, "show_hidden": show_hidden})
+    def tree(
+        self, path: str = ".", *, depth: int = 3, show_hidden: bool = False
+    ) -> ToolResult:
+        return self._call_tool(
+            "ctx_tree", {"path": path, "depth": depth, "show_hidden": show_hidden}
+        )
 
     def compose(self, task: Optional[str] = None, *, path: str = ".") -> ToolResult:
         selected_task = self.task if task is None else task
@@ -544,7 +626,9 @@ class AgentContext:
         return self.patch(path=path, op="create", new_text=text)
 
     def replace_unique(self, path: str, old_text: str, new_text: str) -> ToolResult:
-        return self.patch(path=path, op="replace_unique", old_text=old_text, new_text=new_text)
+        return self.patch(
+            path=path, op="replace_unique", old_text=old_text, new_text=new_text
+        )
 
     def run(
         self,
@@ -556,16 +640,14 @@ class AgentContext:
     ) -> ToolResult:
         if not self.permissions.execute:
             raise AgentPermissionError("execute permission is disabled")
-        if isinstance(argv, (str, bytes)) or not argv or any(not isinstance(item, str) or not item for item in argv):
-            raise ValidationError("argv must be a non-empty sequence of strings")
         if (
-            "/" in argv[0]
-            or "\\" in argv[0]
-            or os.path.basename(argv[0]) != argv[0]
+            isinstance(argv, (str, bytes))
+            or not argv
+            or any(not isinstance(item, str) or not item for item in argv)
         ):
-            raise AgentPermissionError(
-                "executable must be a bare allowlisted name"
-            )
+            raise ValidationError("argv must be a non-empty sequence of strings")
+        if "/" in argv[0] or "\\" in argv[0] or os.path.basename(argv[0]) != argv[0]:
+            raise AgentPermissionError("executable must be a bare allowlisted name")
         executable = argv[0]
         allowed = self.execution_policy.allowed_executables
         if allowed and executable not in allowed:
@@ -580,7 +662,10 @@ class AgentContext:
         if not 0.1 <= selected_timeout <= self.execution_policy.max_timeout:
             raise ValidationError("timeout exceeds ExecutionPolicy")
         environment = dict(env or {})
-        if any(not isinstance(key, str) or not isinstance(value, str) for key, value in environment.items()):
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in environment.items()
+        ):
             raise ValidationError("env must be a string mapping")
         unexpected_env = set(environment).difference(self.execution_policy.allowed_env)
         if unexpected_env:
@@ -591,10 +676,9 @@ class AgentContext:
             real_root = os.path.realpath(self.project_root)
             candidate = cwd if os.path.isabs(cwd) else os.path.join(real_root, cwd)
             real_cwd = os.path.realpath(candidate)
-            if (
-                os.path.commonpath((real_root, real_cwd)) != real_root
-                or not os.path.isdir(real_cwd)
-            ):
+            if os.path.commonpath(
+                (real_root, real_cwd)
+            ) != real_root or not os.path.isdir(real_cwd):
                 raise AgentPermissionError("cwd escapes project root")
             checked_cwd = os.path.relpath(real_cwd, real_root).replace(os.sep, "/")
         except (OSError, ValueError) as error:
@@ -771,10 +855,18 @@ class AsyncAgentContext:
             await asyncio.to_thread(self.context.cancel)
             raise
 
-    async def call(self, tool: str, arguments: Optional[Mapping[str, object]] = None) -> ToolResult:
+    async def call(
+        self, tool: str, arguments: Optional[Mapping[str, object]] = None
+    ) -> ToolResult:
         return await self._invoke(self.context.call, tool, arguments)
 
-    async def read(self, path: str, mode: Union[ReadMode, str] = ReadMode.AUTO, *, fresh: bool = False) -> ToolResult:
+    async def read(
+        self,
+        path: str,
+        mode: Union[ReadMode, str] = ReadMode.AUTO,
+        *,
+        fresh: bool = False,
+    ) -> ToolResult:
         return await self._invoke(self.context.read, path, mode, fresh=fresh)
 
     async def search(self, pattern: str, **kwargs: object) -> ToolResult:
@@ -798,7 +890,9 @@ class AsyncAgentContext:
     async def create_file(self, path: str, text: str) -> ToolResult:
         return await self._invoke(self.context.create_file, path, text)
 
-    async def replace_unique(self, path: str, old_text: str, new_text: str) -> ToolResult:
+    async def replace_unique(
+        self, path: str, old_text: str, new_text: str
+    ) -> ToolResult:
         return await self._invoke(self.context.replace_unique, path, old_text, new_text)
 
     async def run(self, argv: Sequence[str], **kwargs: object) -> ToolResult:

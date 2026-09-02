@@ -31,7 +31,10 @@ def _validate(values: dict[str, str]) -> None:
         raise ValueError("final evidence requires explicit publication authorization")
     if values.get("sdk_version") != "1.0.0":
         raise ValueError("final evidence requires SDK version 1.0.0")
-    if values.get("engine_version") != "3.10.0" or values.get("engine_tag") != "v3.10.0":
+    if (
+        values.get("engine_version") != "3.10.0"
+        or values.get("engine_tag") != "v3.10.0"
+    ):
         raise ValueError("final evidence requires Engine v3.10.0")
     if values.get("pypi_project") != "thinkery-leanctx-sdk":
         raise ValueError(
@@ -247,7 +250,9 @@ def main() -> None:
     ):
         parser.add_argument(f"--{name}", required=True)
     args = parser.parse_args()
-    values = {key: str(value) for key, value in vars(args).items() if key != "output_dir"}
+    values = {
+        key: str(value) for key, value in vars(args).items() if key != "output_dir"
+    }
     generate(args.output_dir, values)
 
 

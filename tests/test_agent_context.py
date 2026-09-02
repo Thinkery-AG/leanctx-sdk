@@ -225,9 +225,7 @@ class AgentContextTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX process-tree behavior")
     @mock.patch("leanctx_sdk.agent.os.killpg")
     @mock.patch("leanctx_sdk.agent.os.kill")
-    def test_cancel_tree_stops_engine_and_kills_descendants(
-        self, kill, killpg
-    ):
+    def test_cancel_tree_stops_engine_and_kills_descendants(self, kill, killpg):
         AgentContext._kill_posix_tree(10)
         kill.assert_any_call(10, signal.SIGSTOP)
         killpg.assert_called_once_with(10, signal.SIGKILL)

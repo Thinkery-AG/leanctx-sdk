@@ -17,10 +17,14 @@ FACT = "agent_contract_fact = bounded_context_reuse"
 
 def verify(engine: Path, expected_engine_version: str) -> dict[str, object]:
     if expected_engine_version != SUPPORTED_AGENT_TOOLS_ENGINE_VERSION:
-        raise RuntimeError("SDK Engine version constant does not match the release gate")
+        raise RuntimeError(
+            "SDK Engine version constant does not match the release gate"
+        )
     with tempfile.TemporaryDirectory(prefix="leanctx-agent-e2e-") as directory:
         root = Path(directory)
-        repeated = "\n".join(f"irrelevant_{index % 8} = repeated context" for index in range(512))
+        repeated = "\n".join(
+            f"irrelevant_{index % 8} = repeated context" for index in range(512)
+        )
         (root / "knowledge.py").write_text(
             f'"""Deterministic AgentContext fixture."""\n{FACT!s}\n{repeated}\n',
             encoding="utf-8",
@@ -66,7 +70,9 @@ def verify(engine: Path, expected_engine_version: str) -> dict[str, object]:
                 raise RuntimeError("compose returned no context")
             if not created.text or not replaced.text:
                 raise RuntimeError("write operations returned no Engine evidence")
-            if (root / "agent-output.txt").read_text(encoding="utf-8") != "status=verified\n":
+            if (root / "agent-output.txt").read_text(
+                encoding="utf-8"
+            ) != "status=verified\n":
                 raise RuntimeError("Engine-backed edit produced the wrong content")
             if command.shell is None or command.shell.get("exitCode") != 0:
                 raise RuntimeError("structured argv execution failed")

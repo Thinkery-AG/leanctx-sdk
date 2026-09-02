@@ -18,7 +18,7 @@ from typing import Dict
 
 _DIST = "thinkery-leanctx-sdk"
 _VERSION = "1.1.0"
-_PYTHON_REQUIRES = "<3.13,>=3.9"
+_PYTHON_REQUIRES = "<3.15,>=3.9"
 _DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
 _DIST_INFO_FILES = {
     "METADATA",
@@ -30,9 +30,9 @@ _DIST_INFO_FILES = {
     "licenses/THIRD_PARTY_NOTICES",
 }
 _SECRET_PATTERNS = (
-    re.compile(br"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    re.compile(br"\bsk-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(br"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
 )
 _HOST_PATHS = (b"/Users/", b"/private/tmp/", b"C:\\Users\\")
 
@@ -110,7 +110,9 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
             contents[_DIST_INFO + "/METADATA"]
         )
         if metadata.get("Name") != _DIST or metadata.get("Version") != _VERSION:
-            raise ValueError("wheel identity does not match the frozen release identity")
+            raise ValueError(
+                "wheel identity does not match the frozen release identity"
+            )
         license_text = contents[_DIST_INFO + "/licenses/LICENSE"]
         if not all(
             marker in license_text
@@ -120,9 +122,7 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
             )
         ):
             raise ValueError("wheel does not contain the reviewed final license")
-        commercial_text = contents[
-            _DIST_INFO + "/licenses/COMMERCIAL-LICENSE.md"
-        ]
+        commercial_text = contents[_DIST_INFO + "/licenses/COMMERCIAL-LICENSE.md"]
         if not all(
             marker in commercial_text
             for marker in (
@@ -147,7 +147,9 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
             sorted(part.strip() for part in python_requires.split(",") if part.strip())
         )
         if canonical_python_requires != _PYTHON_REQUIRES:
-            raise ValueError("wheel Python requirement differs from the certified matrix")
+            raise ValueError(
+                "wheel Python requirement differs from the certified matrix"
+            )
         requirements = sorted(
             _canonical_requirement(value)
             for value in metadata.get_all("Requires-Dist", [])
@@ -155,14 +157,14 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
         expected_requirements = sorted(
             _canonical_requirement(value)
             for value in [
-                'thinkery-leanctx-engine (==3.10.1) ; extra == \'agent\'',
+                "thinkery-leanctx-engine (==3.10.1) ; extra == 'agent'",
                 'thinkery-leanctx-engine-cuda (==3.10.1) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == \'agent-cuda\'',
                 'thinkery-leanctx-engine-windows-gnu (==3.10.1) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == \'agent-windows-gnu\'',
-                'openai (==2.19.0) ; (python_version >= "3.10") and extra == \'openai-agents\'',
-                'openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == \'openai-agents\'',
-                'pydantic (==2.12.3) ; (python_version >= "3.10") and extra == \'openai-agents\'',
-                'requests (==2.33.0) ; (python_version >= "3.10") and extra == \'openai-agents\'',
-                'urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == \'openai-agents\'',
+                "openai (==2.19.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
+                "openai-agents (==0.8.4) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
+                "pydantic (==2.12.3) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
+                "requests (==2.33.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
+                "urllib3 (==2.7.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
             ]
         )
         if requirements != expected_requirements:
@@ -179,7 +181,9 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
             if name == record_name:
                 if digest or size:
                     raise ValueError("RECORD self-entry must omit hash and size")
-            elif digest != _record_hash(contents[name]) or size != str(len(contents[name])):
+            elif digest != _record_hash(contents[name]) or size != str(
+                len(contents[name])
+            ):
                 raise ValueError(f"RECORD integrity mismatch: {name}")
 
         for name, content in contents.items():

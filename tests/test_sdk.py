@@ -119,7 +119,9 @@ class FakeEngine:
         return _fixture_view(plan.source)
 
     def recover(self, project_root, path, recovery_ref, source_ref, source_digest):
-        self.recover_calls.append((project_root, path, recovery_ref, source_ref, source_digest))
+        self.recover_calls.append(
+            (project_root, path, recovery_ref, source_ref, source_digest)
+        )
         raise AssertionError("base fake recovery is not used")
 
 
@@ -183,7 +185,9 @@ class SDKTests(unittest.TestCase):
     def test_abort_preserves_host_exception_identity_and_hides_message(self):
         with tempfile.TemporaryDirectory() as root:
             fake = FakeEngine()
-            session = ContextSession("inspect", engine=fake, session_id="s", task_id="t")
+            session = ContextSession(
+                "inspect", engine=fake, session_id="s", task_id="t"
+            )
             session.prepare(self.make_source(root))
             error = RuntimeError("secret host message")
             receipt = session.abort(error)
@@ -198,7 +202,9 @@ class SDKTests(unittest.TestCase):
     def test_fail_open_is_limited_to_unavailable_and_timeout(self):
         with tempfile.TemporaryDirectory() as root:
             for failure in (EngineUnavailable("missing"), EngineTimeout("slow")):
-                session = ContextSession("inspect", engine=FakeEngine(failure), fail_open=True)
+                session = ContextSession(
+                    "inspect", engine=FakeEngine(failure), fail_open=True
+                )
                 self.assertIsNone(session.prepare(self.make_source(root)))
                 self.assertEqual(session.state, "executing")
                 self.assertTrue(session.degradations)
@@ -208,7 +214,9 @@ class SDKTests(unittest.TestCase):
                 EngineRejected("unsafe"),
                 EngineExecutionError("failed"),
             ):
-                session = ContextSession("inspect", engine=FakeEngine(failure), fail_open=True)
+                session = ContextSession(
+                    "inspect", engine=FakeEngine(failure), fail_open=True
+                )
                 with self.assertRaises(type(failure)):
                     session.prepare(self.make_source(root))
                 self.assertEqual(session.state, "aborted")
@@ -217,8 +225,12 @@ class SDKTests(unittest.TestCase):
         from leanctx_sdk.protocol import RecoveredSource
 
         class RecoveringFake(FakeEngine):
-            def recover(self, project_root, path, recovery_ref, source_ref, source_digest):
-                self.recover_calls.append((project_root, path, recovery_ref, source_ref, source_digest))
+            def recover(
+                self, project_root, path, recovery_ref, source_ref, source_digest
+            ):
+                self.recover_calls.append(
+                    (project_root, path, recovery_ref, source_ref, source_digest)
+                )
                 text = "fresh synthetic source\n"
                 return RecoveredSource(text, source_ref, source_digest, recovery_ref)
 
@@ -329,24 +341,38 @@ class SDKTests(unittest.TestCase):
             _parse_response(canonical_bytes(nested_unknown))
 
     def test_fixture_is_independently_authored_and_has_no_placeholder(self):
-        fixture_path = Path(__file__).parents[1] / "fixtures/engine-interface-v1/r1-success.json"
+        fixture_path = (
+            Path(__file__).parents[1] / "fixtures/engine-interface-v1/r1-success.json"
+        )
         fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-        self.assertEqual(fixture["expected"]["plan_id"], "plan:sha256:25f29db61cbb19986896152ecf2c8b1b60a1187c83a8e4ceefb0b7203542296e")
+        self.assertEqual(
+            fixture["expected"]["plan_id"],
+            "plan:sha256:25f29db61cbb19986896152ecf2c8b1b60a1187c83a8e4ceefb0b7203542296e",
+        )
         self.assertEqual(fixture["contract"]["transport_version"], 1)
 
     def test_fixture_projects_factual_observation_evidence(self):
-        fixture_path = Path(__file__).parents[1] / "fixtures/engine-interface-v1/r1-success.json"
+        fixture_path = (
+            Path(__file__).parents[1] / "fixtures/engine-interface-v1/r1-success.json"
+        )
         fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
         view, evidence, recovery = _parse_response(canonical_bytes(fixture["response"]))
         observation = evidence["observation"]
         self.assertEqual(observation["status"], "succeeded")
-        self.assertEqual(observation["source_lineage"], evidence["invocation"]["source_refs"])
         self.assertEqual(
-            [(item.name, item.classification, item.value) for item in observation["measurements"]],
+            observation["source_lineage"], evidence["invocation"]["source_refs"]
+        )
+        self.assertEqual(
+            [
+                (item.name, item.classification, item.value)
+                for item in observation["measurements"]
+            ],
             [("input_tokens", "measured", 3), ("output_tokens", "measured", 3)],
         )
         self.assertEqual(view["output_digest"], observation["output_digest"])
-        self.assertEqual(recovery["source_digest"], fixture["expected"]["source_digest"])
+        self.assertEqual(
+            recovery["source_digest"], fixture["expected"]["source_digest"]
+        )
 
     def test_native_embed_preserves_explicit_outcome(self):
         from leanctx_sdk.integrations.native_embed import complete, prepare
@@ -391,10 +417,13 @@ class SDKTests(unittest.TestCase):
                 fake.completed = True
                 return receipt
 
-            with patch(
-                "examples.reference_application.SubprocessEngineClient",
-                return_value=fake,
-            ), patch.object(ContextSession, "complete", complete):
+            with (
+                patch(
+                    "examples.reference_application.SubprocessEngineClient",
+                    return_value=fake,
+                ),
+                patch.object(ContextSession, "complete", complete),
+            ):
                 result = run(Path("/unused/engine"), root_path, "fixture/source.txt")
             self.assertTrue(result["receipt_verified"])
             self.assertTrue(result["recovery_exact"])
@@ -457,15 +486,20 @@ class SDKTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             root_path = Path(root)
             Path(root, "source.md").write_text("original\n", encoding="utf-8")
-            with patch(
-                "examples.context_reactor.SubprocessEngineClient",
-                return_value=InexactRecoveryFake(),
-            ), patch.object(
-                ContextSession,
-                "recover",
-                return_value=SimpleNamespace(text="not the original\n"),
+            with (
+                patch(
+                    "examples.context_reactor.SubprocessEngineClient",
+                    return_value=InexactRecoveryFake(),
+                ),
+                patch.object(
+                    ContextSession,
+                    "recover",
+                    return_value=SimpleNamespace(text="not the original\n"),
+                ),
             ):
-                with self.assertRaisesRegex(RuntimeError, "exact source recovery failed"):
+                with self.assertRaisesRegex(
+                    RuntimeError, "exact source recovery failed"
+                ):
                     run(Path("/unused/engine"), root_path, "source.md")
 
     def test_installed_gate_uses_native_embed_adapter_for_real_lifecycle(self):
@@ -477,7 +511,9 @@ class SDKTests(unittest.TestCase):
                 self.last_plan = plan
                 return _fixture_view(plan.source, "installed SDK verification\n")
 
-            def recover(self, project_root, path, recovery_ref, source_ref, source_digest):
+            def recover(
+                self, project_root, path, recovery_ref, source_ref, source_digest
+            ):
                 from leanctx_sdk.protocol import RecoveredSource
 
                 text = "installed SDK verification\n"
@@ -486,31 +522,42 @@ class SDKTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             engine = Path(root, "lean-ctx")
             engine.touch()
-            with patch(
-                "scripts.verify_installed.SubprocessEngineClient",
-                return_value=RecoveringFake(),
-            ), patch(
-                "scripts.verify_installed.version",
-                return_value="1.0.0",
-            ), patch(
-                "scripts.verify_installed.prepare",
-                wraps=native_embed.prepare,
-            ) as prepare, patch(
-                "scripts.verify_installed.complete",
-                wraps=native_embed.complete,
-            ) as complete:
+            with (
+                patch(
+                    "scripts.verify_installed.SubprocessEngineClient",
+                    return_value=RecoveringFake(),
+                ),
+                patch(
+                    "scripts.verify_installed.version",
+                    return_value="1.0.0",
+                ),
+                patch(
+                    "scripts.verify_installed.prepare",
+                    wraps=native_embed.prepare,
+                ) as prepare,
+                patch(
+                    "scripts.verify_installed.complete",
+                    wraps=native_embed.complete,
+                ) as complete,
+            ):
                 result = verify_installed(engine)
             self.assertEqual(result["status"], "succeeded")
             prepare.assert_called_once()
             complete.assert_called_once()
 
     def test_offline_agents_manifest_pins_certified_stack(self):
-        manifest_path = Path(__file__).parents[1] / "fixtures/openai-agents-0.8.4/wheelhouse-manifest.json"
+        manifest_path = (
+            Path(__file__).parents[1]
+            / "fixtures/openai-agents-0.8.4/wheelhouse-manifest.json"
+        )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(manifest["stack"], "openai-agents")
         self.assertEqual(manifest["stack_version"], "0.8.4")
         self.assertEqual(
-            [(item["distribution"], item["version"]) for item in manifest["requirements"]],
+            [
+                (item["distribution"], item["version"])
+                for item in manifest["requirements"]
+            ],
             [
                 ("openai-agents", "0.8.4"),
                 ("openai", "2.19.0"),
@@ -528,12 +575,17 @@ class SDKTests(unittest.TestCase):
         )
         if not wheelhouse.is_dir():
             self.skipTest("private certified OpenAI Agents wheelhouse is not mounted")
-        self.assertEqual(validate_wheelhouse(manifest_path, wheelhouse)["artifacts_checked"], 41)
+        self.assertEqual(
+            validate_wheelhouse(manifest_path, wheelhouse)["artifacts_checked"], 41
+        )
         self.assertEqual(len(load_manifest(manifest_path)["artifacts"]), 41)
 
     def test_offline_full_stack_manifest_rejects_reduced_or_changed_inputs(self):
         with tempfile.TemporaryDirectory() as root:
-            source = Path(__file__).parents[1] / "fixtures/openai-agents-0.8.4/wheelhouse-manifest.json"
+            source = (
+                Path(__file__).parents[1]
+                / "fixtures/openai-agents-0.8.4/wheelhouse-manifest.json"
+            )
             manifest = json.loads(source.read_text(encoding="utf-8"))
             manifest["artifacts"] = manifest["artifacts"][:-1]
             reduced = Path(root) / "reduced.json"
@@ -561,35 +613,50 @@ class SDKTests(unittest.TestCase):
                     return SimpleNamespace(stdout="src/leanctx_sdk/protocol.py\n")
                 return SimpleNamespace(stdout=b"source bytes")
 
-            with patch(
-                "scripts.verify_wheel_install.inspect_wheel",
-                return_value={"status": "PASS"},
-            ), patch("scripts.verify_wheel_install.subprocess.run", side_effect=git):
+            with (
+                patch(
+                    "scripts.verify_wheel_install.inspect_wheel",
+                    return_value={"status": "PASS"},
+                ),
+                patch("scripts.verify_wheel_install.subprocess.run", side_effect=git),
+            ):
                 _validate_wheel_source(wheel, Path(root), "a" * 40)
 
     def test_wheel_provenance_requires_matching_archive_hash(self):
         digest = "a" * 64
         wheel_url = "file:///private/tmp/sdk.whl"
         with self.assertRaises(SystemExit):
-            _validate_direct_url(json.dumps({"archive_info": {}, "url": wheel_url}), digest, wheel_url)
+            _validate_direct_url(
+                json.dumps({"archive_info": {}, "url": wheel_url}), digest, wheel_url
+            )
         _validate_direct_url(
-            json.dumps({"archive_info": {"hashes": {"sha256": digest}}, "url": wheel_url}),
+            json.dumps(
+                {"archive_info": {"hashes": {"sha256": digest}}, "url": wheel_url}
+            ),
             digest,
             wheel_url,
         )
         _validate_direct_url(
-            json.dumps({"archive_info": {"hash": "sha256=" + digest}, "url": wheel_url}),
+            json.dumps(
+                {"archive_info": {"hash": "sha256=" + digest}, "url": wheel_url}
+            ),
             digest,
             wheel_url,
         )
         with self.assertRaises(SystemExit):
             _validate_direct_url(
-                json.dumps({"archive_info": {"hashes": {"sha256": "b" * 64}}, "url": wheel_url}),
+                json.dumps(
+                    {"archive_info": {"hashes": {"sha256": "b" * 64}}, "url": wheel_url}
+                ),
                 digest,
                 wheel_url,
             )
         with self.assertRaises(SystemExit):
-            _validate_direct_url(json.dumps({"archive_info": {}, "url": "file:///other.whl"}), digest, wheel_url)
+            _validate_direct_url(
+                json.dumps({"archive_info": {}, "url": "file:///other.whl"}),
+                digest,
+                wheel_url,
+            )
 
     def test_offline_gate_removes_provider_credentials(self):
         with patch.dict(
@@ -626,7 +693,9 @@ class SDKTests(unittest.TestCase):
             environment=environment,
         )
 
-    @unittest.skipIf(sys.version_info < (3, 10), "certified Agents path requires Python 3.10+")
+    @unittest.skipIf(
+        sys.version_info < (3, 10), "certified Agents path requires Python 3.10+"
+    )
     def test_openai_agents_084_adapter_preserves_runner_result(self):
         import types
 
@@ -662,7 +731,9 @@ class SDKTests(unittest.TestCase):
             else:
                 sys.modules["agents"] = old
 
-    @unittest.skipIf(sys.version_info < (3, 10), "certified Agents path requires Python 3.10+")
+    @unittest.skipIf(
+        sys.version_info < (3, 10), "certified Agents path requires Python 3.10+"
+    )
     def test_openai_agents_084_adapter_preserves_exact_exception(self):
         import types
 
@@ -682,43 +753,58 @@ class SDKTests(unittest.TestCase):
                 session = ContextSession("inspect", engine=FakeEngine())
                 session.plan(self.make_source(root))
                 adapter = OpenAIAgentsAdapter(object(), session)
-                with patch(
-                    "leanctx_sdk.integrations.openai_agents.package_version",
-                    return_value="0.8.4",
-                ), self.assertRaises(RuntimeError) as caught:
+                with (
+                    patch(
+                        "leanctx_sdk.integrations.openai_agents.package_version",
+                        return_value="0.8.4",
+                    ),
+                    self.assertRaises(RuntimeError) as caught,
+                ):
                     adapter.run_sync("caller input")
                 self.assertIs(caught.exception, error)
                 self.assertIs(adapter.receipt.exception, error)
                 self.assertEqual(adapter.receipt.outcome, "aborted")
-                self.assertNotIn("host secret", json.dumps(dict(adapter.receipt.to_dict())))
+                self.assertNotIn(
+                    "host secret", json.dumps(dict(adapter.receipt.to_dict()))
+                )
         finally:
             if old is None:
                 sys.modules.pop("agents", None)
             else:
                 sys.modules["agents"] = old
 
-    @unittest.skipIf(sys.version_info < (3, 10), "certified Agents path requires Python 3.10+")
+    @unittest.skipIf(
+        sys.version_info < (3, 10), "certified Agents path requires Python 3.10+"
+    )
     def test_openai_agents_adapter_rejects_uncertified_version(self):
         with tempfile.TemporaryDirectory() as root:
             session = ContextSession("inspect", engine=FakeEngine())
             session.plan(self.make_source(root))
             adapter = OpenAIAgentsAdapter(object(), session)
-            with patch(
-                "leanctx_sdk.integrations.openai_agents.package_version",
-                return_value="0.8.3",
-            ), self.assertRaises(FrameworkCompatibilityError):
+            with (
+                patch(
+                    "leanctx_sdk.integrations.openai_agents.package_version",
+                    return_value="0.8.3",
+                ),
+                self.assertRaises(FrameworkCompatibilityError),
+            ):
                 adapter.run_sync("caller input")
 
-    @unittest.skipIf(sys.version_info < (3, 10), "certified Agents path requires Python 3.10+")
+    @unittest.skipIf(
+        sys.version_info < (3, 10), "certified Agents path requires Python 3.10+"
+    )
     def test_openai_agents_adapter_rejects_missing_distribution(self):
         with tempfile.TemporaryDirectory() as root:
             session = ContextSession("inspect", engine=FakeEngine())
             session.plan(self.make_source(root))
             adapter = OpenAIAgentsAdapter(object(), session)
-            with patch(
-                "leanctx_sdk.integrations.openai_agents.package_version",
-                side_effect=PackageNotFoundError,
-            ), self.assertRaises(FrameworkIntegrationError):
+            with (
+                patch(
+                    "leanctx_sdk.integrations.openai_agents.package_version",
+                    side_effect=PackageNotFoundError,
+                ),
+                self.assertRaises(FrameworkIntegrationError),
+            ):
                 adapter.run_sync("caller input")
 
 

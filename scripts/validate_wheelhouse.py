@@ -45,7 +45,9 @@ _CERTIFIED_SOURCE_OVERRIDES = [
         "commit": "9a950b92d999f906b6020bb2d1076ee56cddd5d2",
     },
 ]
-_CERTIFIED_ARTIFACTS_DIGEST = "2a0a53adb0bf16f78653b001db8bf667bfb9c5ab8fe9d5344544471a8a1e6cd5"
+_CERTIFIED_ARTIFACTS_DIGEST = (
+    "2a0a53adb0bf16f78653b001db8bf667bfb9c5ab8fe9d5344544471a8a1e6cd5"
+)
 _CERTIFIED_ARTIFACT_COUNT = 41
 
 
@@ -123,7 +125,9 @@ def load_manifest(path: Path) -> Mapping[str, object]:
             raise ValueError("artifact filename/hash is invalid")
         names.add(name)
         filenames.add(filename)
-    required_names = {_canonical_name(item["distribution"]) for item in _CERTIFIED_REQUIREMENTS}
+    required_names = {
+        _canonical_name(item["distribution"]) for item in _CERTIFIED_REQUIREMENTS
+    }
     if not required_names.issubset(names):
         raise ValueError("artifact closure does not cover direct requirements")
     return manifest
@@ -148,7 +152,11 @@ def validate_wheelhouse(manifest_path: Path, wheelhouse: Path | None = None) -> 
         raise ValueError("wheelhouse files do not match the manifest")
     for filename, artifact in expected.items():
         path = actual[filename]
-        if path.is_symlink() or not path.is_file() or _sha256(path) != artifact["sha256"]:
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or _sha256(path) != artifact["sha256"]
+        ):
             raise ValueError(f"wheel hash mismatch: {filename}")
     return {
         "artifacts_checked": len(artifacts),

@@ -54,7 +54,9 @@ def _phase_a(state_root: Path, project_root: Path) -> dict:
     if view is None or not view.verify():
         raise RuntimeError("process A received an invalid Engine view")
     recovered = session.recover(view)
-    if recovered.text != project_root.joinpath("source.txt").read_text(encoding="utf-8"):
+    if recovered.text != project_root.joinpath("source.txt").read_text(
+        encoding="utf-8"
+    ):
         raise RuntimeError("process A recovery changed source text")
     engine_receipt = session.complete()
     if not engine_receipt.verify():
@@ -72,7 +74,9 @@ def _phase_a(state_root: Path, project_root: Path) -> dict:
     }
 
 
-def _phase_b(state_root: Path, project_root: Path, workspace_id: str, session_a: str) -> dict:
+def _phase_b(
+    state_root: Path, project_root: Path, workspace_id: str, session_a: str
+) -> dict:
     workspace = ContextWorkspace.open(state_root, workspace_id)
     context = workspace.project_context()
     if len(context.entries) != 1 or context.entries[0].value != _FACT:
@@ -132,7 +136,9 @@ def _clean_environment(engine: Path, shim_directory: Path) -> dict:
     return environment
 
 
-def _run_phase(script: Path, phase: str, state: Path, project: Path, environment: dict, **values) -> dict:
+def _run_phase(
+    script: Path, phase: str, state: Path, project: Path, environment: dict, **values
+) -> dict:
     command = [
         sys.executable,
         str(script),
@@ -157,7 +163,11 @@ def _run_phase(script: Path, phase: str, state: Path, project: Path, environment
 
 
 def verify(engine: Path) -> dict:
-    if not engine.is_absolute() or not engine.is_file() or not os.access(engine, os.X_OK):
+    if (
+        not engine.is_absolute()
+        or not engine.is_file()
+        or not os.access(engine, os.X_OK)
+    ):
         raise SystemExit("--engine must name an absolute executable file")
     script = Path(__file__).resolve()
     with tempfile.TemporaryDirectory(prefix="leanctx-p5-clean-") as temporary:
@@ -203,7 +213,9 @@ def main() -> None:
             result = _phase_a(state, project)
         else:
             if not args.workspace_id or not args.session_a:
-                raise SystemExit("phase B requires workspace and prior session identities")
+                raise SystemExit(
+                    "phase B requires workspace and prior session identities"
+                )
             result = _phase_b(state, project, args.workspace_id, args.session_a)
     else:
         if not args.engine:

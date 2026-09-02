@@ -24,8 +24,16 @@ of the model and agent loop.
 - Language-native 1.1 preview packages under `packages/` for TypeScript/Node,
   Go, Rust, Java/Kotlin, and .NET, sharing frozen wire fingerprints and the PR #8
   Agent Tools contract.
+- Forked Workspaces can now attach an externally prepared session after an
+  explicit fresh-process source rebind; changed source content still fails
+  closed.
+- Release quality now enforces Ruff lint/format plus complementary ty and mypy
+  checks; mypy remains until ty covers the optional integration surface.
 
 ## Compatibility
+
+- CPython 3.9 through 3.14 is covered by source and installed-wheel contract
+  matrices.
 
 The five SDK 1.0 lifecycle primitives and Engine Interface v1 are unchanged.
 Agent Tools requires LeanCTX Engine 3.10.1 with interface `1.0.0`, schema `1`,

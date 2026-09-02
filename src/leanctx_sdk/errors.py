@@ -77,8 +77,10 @@ class WorkspaceSensitiveDataError(WorkspaceError):
     code = "workspace_sensitive_data"
 
     def __init__(self, field_name="value"):
-        if not isinstance(field_name, str) or not field_name or any(
-            not (char.isalnum() or char in "._-") for char in field_name
+        if (
+            not isinstance(field_name, str)
+            or not field_name
+            or any(not (char.isalnum() or char in "._-") for char in field_name)
         ):
             field_name = "value"
         self.field_name = field_name
@@ -144,7 +146,9 @@ class EngineCrashed(EngineError):
     """The persistent Agent Tools Engine process exited unexpectedly."""
 
     code = "engine_crashed"
-    guidance = "create a new AgentContext; mutation and execution calls are never retried"
+    guidance = (
+        "create a new AgentContext; mutation and execution calls are never retried"
+    )
 
 
 class AgentPermissionError(EngineError):

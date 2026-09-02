@@ -16,7 +16,9 @@ Specialist = Callable[[str], Dict[str, object]]
 
 
 def _architect(text: str) -> Dict[str, object]:
-    headings = [line.strip() for line in text.splitlines() if line.lstrip().startswith("#")]
+    headings = [
+        line.strip() for line in text.splitlines() if line.lstrip().startswith("#")
+    ]
     return {"signal": "structure", "headings": headings[:5]}
 
 
@@ -77,7 +79,9 @@ def run(engine: Path, project_root: Path, relative_path: str) -> Dict[str, objec
     for _ in range(len(SPECIALISTS) - 1):
         reused = session.prepare()
         if reused is not view:
-            raise RuntimeError("ContextSession did not reuse its materialized ContextView")
+            raise RuntimeError(
+                "ContextSession did not reuse its materialized ContextView"
+            )
         relayed_views.append(reused)
 
     shaped = view.require_text()

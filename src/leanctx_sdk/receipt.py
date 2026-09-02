@@ -20,7 +20,9 @@ from .protocol import (
 )
 
 
-def _safe_usage(value: Optional[Mapping[str, object]]) -> Optional[Mapping[str, object]]:
+def _safe_usage(
+    value: Optional[Mapping[str, object]],
+) -> Optional[Mapping[str, object]]:
     if value is None:
         return None
     if not isinstance(value, Mapping):
@@ -47,7 +49,9 @@ class ContextReceipt:
     usage: Optional[Mapping[str, object]] = None
     host_exception_type: Optional[str] = None
     host_result: object = field(default=None, repr=False, compare=False)
-    host_exception: Optional[BaseException] = field(default=None, repr=False, compare=False)
+    host_exception: Optional[BaseException] = field(
+        default=None, repr=False, compare=False
+    )
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
@@ -63,7 +67,10 @@ class ContextReceipt:
             raise ValidationError("invalid host outcome")
         if self.integrity_status not in {item.value for item in Integrity}:
             raise ValidationError("invalid integrity status")
-        if self.outcome == HostOutcome.ABORTED.value and self.host_exception_type is not None:
+        if (
+            self.outcome == HostOutcome.ABORTED.value
+            and self.host_exception_type is not None
+        ):
             _text(self.host_exception_type, "host_exception_type", 512)
             if ":" in self.host_exception_type or "\n" in self.host_exception_type:
                 raise ValidationError("host_exception_type must be a safe type name")
@@ -79,7 +86,9 @@ class ContextReceipt:
                 f"{type(self.host_exception).__qualname__}"
             )
             if self.host_exception_type != expected_type:
-                raise ValidationError("host_exception_type does not match host_exception")
+                raise ValidationError(
+                    "host_exception_type does not match host_exception"
+                )
         if (
             not isinstance(self.schema_version, int)
             or isinstance(self.schema_version, bool)
@@ -93,7 +102,9 @@ class ContextReceipt:
         object.__setattr__(self, "usage", _safe_usage(self.usage))
         if self.integrity_status == Integrity.SEALED.value:
             if self.view is None or not self.view.verify():
-                raise ValidationError("sealed receipt requires verified Engine evidence")
+                raise ValidationError(
+                    "sealed receipt requires verified Engine evidence"
+                )
 
     @property
     def sealed(self) -> bool:
@@ -157,7 +168,9 @@ class ContextReceipt:
             "source": _plain(self.source.to_dict()) if self.source else None,
             "invocation": _plain(self.invocation) if self.invocation else None,
             "observation": _plain(self.observation) if self.observation else None,
-            "receipt_link": _plain(self.receipt_link.to_dict()) if self.receipt_link else None,
+            "receipt_link": _plain(self.receipt_link.to_dict())
+            if self.receipt_link
+            else None,
             "recovery_ref": self.recovery_ref,
             "output_digest": self.output_digest,
         }

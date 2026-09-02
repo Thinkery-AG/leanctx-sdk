@@ -14,13 +14,13 @@ from typing import Iterable
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
 PATTERNS = (
-    ("private_key", re.compile(br"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
-    ("openai_token", re.compile(br"\bsk-[A-Za-z0-9_-]{20,}\b")),
-    ("github_token", re.compile(br"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
-    ("gitlab_token", re.compile(br"\bglpat-[A-Za-z0-9_-]{20,}\b")),
-    ("pypi_token", re.compile(br"\bpypi-[A-Za-z0-9_-]{50,}\b")),
-    ("aws_access_key", re.compile(br"\bAKIA[A-Z0-9]{16}\b")),
-    ("slack_token", re.compile(br"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
+    ("private_key", re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
+    ("openai_token", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("github_token", re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
+    ("gitlab_token", re.compile(rb"\bglpat-[A-Za-z0-9_-]{20,}\b")),
+    ("pypi_token", re.compile(rb"\bpypi-[A-Za-z0-9_-]{50,}\b")),
+    ("aws_access_key", re.compile(rb"\bAKIA[A-Z0-9]{16}\b")),
+    ("slack_token", re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
 )
 
 

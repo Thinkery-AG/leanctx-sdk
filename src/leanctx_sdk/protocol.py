@@ -104,7 +104,9 @@ def _text(value: str, field_name: str, maximum: int, *, controls: bool = True) -
     return value
 
 
-def _optional_text(value: Optional[str], field_name: str, maximum: int) -> Optional[str]:
+def _optional_text(
+    value: Optional[str], field_name: str, maximum: int
+) -> Optional[str]:
     if value is None:
         return None
     return _text(value, field_name, maximum)
@@ -239,7 +241,9 @@ class ContextSource:
             stored_path = absolute_path
         else:
             stored_path = os.path.normpath(supplied_path).replace(os.sep, "/")
-            absolute_path = os.path.abspath(os.path.normpath(os.path.join(root, supplied_path)))
+            absolute_path = os.path.abspath(
+                os.path.normpath(os.path.join(root, supplied_path))
+            )
         if not _contained(absolute_path, root):
             raise ValidationError("source path escapes project_root")
         if len(_utf8(absolute_path, "path")) > MAX_PATH_BYTES:
@@ -355,7 +359,11 @@ class ContextMeasurement:
         if self.classification == "unavailable":
             if self.value is not None:
                 raise ValidationError("unavailable measurement value must be null")
-        elif isinstance(self.value, bool) or not isinstance(self.value, int) or self.value < 0:
+        elif (
+            isinstance(self.value, bool)
+            or not isinstance(self.value, int)
+            or self.value < 0
+        ):
             raise ValidationError("measurement value must be a non-negative integer")
 
     def to_dict(self) -> Mapping[str, object]:
@@ -484,7 +492,9 @@ class ContextView:
             actual = sha256_digest(self.text.encode("utf-8"))
             if actual != self.output_digest:
                 raise ValidationError("view output digest mismatch")
-            if self.output_ref != "output:" + self.output_digest.removeprefix("sha256:"):
+            if self.output_ref != "output:" + self.output_digest.removeprefix(
+                "sha256:"
+            ):
                 raise ValidationError("view output reference mismatch")
         validate_ref(self.source_ref, "source_ref")
         validate_digest(self.source_digest, "source_digest")
@@ -499,7 +509,9 @@ class ContextView:
             raise ValidationError("measurements must be ContextMeasurement values")
         if self.failure is not None and not isinstance(self.failure, ContextFailure):
             raise ValidationError("failure must be ContextFailure")
-        if not isinstance(self.invocation, Mapping) or not isinstance(self.observation, Mapping):
+        if not isinstance(self.invocation, Mapping) or not isinstance(
+            self.observation, Mapping
+        ):
             raise ValidationError("invocation and observation must be mappings")
         object.__setattr__(self, "invocation", _freeze(dict(self.invocation)))
         object.__setattr__(self, "observation", _freeze(dict(self.observation)))
@@ -541,7 +553,11 @@ class ContextView:
     @property
     def capability_version(self) -> Optional[str]:
         operation = self.invocation.get("operation")
-        value = operation.get("capability_version") if isinstance(operation, Mapping) else None
+        value = (
+            operation.get("capability_version")
+            if isinstance(operation, Mapping)
+            else None
+        )
         return value if isinstance(value, str) else None
 
     def require_text(self) -> str:
@@ -565,9 +581,16 @@ class ContextView:
             if self.recovery_ref is None:
                 return False
             source_refs = self.invocation.get("source_refs")
-            if not isinstance(source_refs, (list, tuple)) or self.source_ref not in source_refs:
+            if (
+                not isinstance(source_refs, (list, tuple))
+                or self.source_ref not in source_refs
+            ):
                 return False
-            if self.output_digest is None or self.output_ref is None or self.text is None:
+            if (
+                self.output_digest is None
+                or self.output_ref is None
+                or self.text is None
+            ):
                 return False
             if self.observation.get("invocation_id") != self.invocation_id:
                 return False
@@ -598,7 +621,9 @@ class ContextView:
             "status": self.status,
             "measurements": [_plain(item.to_dict()) for item in self.measurements],
             "failure": _plain(self.failure.to_dict()) if self.failure else None,
-            "receipt_link": _plain(self.receipt_link.to_dict()) if self.receipt_link else None,
+            "receipt_link": _plain(self.receipt_link.to_dict())
+            if self.receipt_link
+            else None,
             "invocation": _plain(self.invocation),
             "observation": _plain(self.observation),
         }

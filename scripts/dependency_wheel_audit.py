@@ -16,13 +16,13 @@ from scripts.validate_wheelhouse import load_manifest
 _MAX_ENTRY = 100 * 1024 * 1024
 _MAX_WHEEL = 500 * 1024 * 1024
 _PRIVATE_KEY = re.compile(
-    br"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\s+"
-    br"[A-Za-z0-9+/=\r\n]{100,}\s+"
-    br"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\s+"
+    rb"[A-Za-z0-9+/=\r\n]{100,}\s+"
+    rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
 )
 _TOKENS = (
-    re.compile(br"\bsk-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(br"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
 )
 _HOST_PATHS = (b"/Users/", b"/private/tmp/", b"C:\\Users\\")
 _FORBIDDEN_LICENSE = re.compile(r"(?:^|[^A-Z])(AGPL|GPL|SSPL)(?:[^A-Z]|$)")
@@ -45,17 +45,25 @@ def _declared_licenses(metadata: bytes) -> list[str]:
         for value in message.get_all("Classifier", [])
         if value.startswith("License ::")
     )
-    return sorted({value.strip() for value in values if value.strip()}, key=str.casefold)
+    return sorted(
+        {value.strip() for value in values if value.strip()}, key=str.casefold
+    )
 
 
-def audit(manifest_path: Path, wheelhouse: Path, policy_path: Path) -> dict[str, object]:
+def audit(
+    manifest_path: Path, wheelhouse: Path, policy_path: Path
+) -> dict[str, object]:
     manifest = load_manifest(manifest_path)
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    if set(policy) != {
-        "accepted_build_path_entries",
-        "build_path_rationale",
-        "schema_version",
-    } or policy["schema_version"] != 1:
+    if (
+        set(policy)
+        != {
+            "accepted_build_path_entries",
+            "build_path_rationale",
+            "schema_version",
+        }
+        or policy["schema_version"] != 1
+    ):
         raise ValueError("unsupported dependency audit policy")
     accepted_build_paths = policy["accepted_build_path_entries"]
     rationale = policy["build_path_rationale"]
@@ -90,7 +98,9 @@ def audit(manifest_path: Path, wheelhouse: Path, policy_path: Path) -> dict[str,
             infos = archive.infolist()
             names = [info.filename for info in infos]
             if not names or len(names) != len(set(names)):
-                raise ValueError(f"wheel entries must be non-empty and unique: {filename}")
+                raise ValueError(
+                    f"wheel entries must be non-empty and unique: {filename}"
+                )
             if sum(info.file_size for info in infos) > _MAX_WHEEL:
                 raise ValueError(f"uncompressed wheel is too large: {filename}")
             metadata_names = [
@@ -115,7 +125,9 @@ def audit(manifest_path: Path, wheelhouse: Path, policy_path: Path) -> dict[str,
                 if stat.S_ISLNK(mode):
                     raise ValueError(f"wheel symlink is forbidden: {filename}:{name}")
                 if path.suffix in {".pth", ".egg-link"}:
-                    raise ValueError(f"executable import hook is forbidden: {filename}:{name}")
+                    raise ValueError(
+                        f"executable import hook is forbidden: {filename}:{name}"
+                    )
                 if info.file_size > _MAX_ENTRY:
                     raise ValueError(f"wheel entry is too large: {filename}:{name}")
                 if info.is_dir():

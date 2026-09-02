@@ -50,9 +50,7 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
 
     def test_rejects_any_task_below_the_savings_floor(self):
-        report = evaluate(
-            (self.row("a", 10_000, 100), self.row("b", 100, 80))
-        )
+        report = evaluate((self.row("a", 10_000, 100), self.row("b", 100, 80)))
         self.assertGreater(report["savings_percent"], 30.0)
         self.assertEqual(report["minimum_task_savings_percent"], 20.0)
         self.assertEqual(report["status"], "FAIL")
@@ -80,7 +78,10 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
         ):
             row = self.row("a", 1000, 100)
             row[lane][field] = value
-            with self.subTest(lane=lane, field=field, value=value), self.assertRaises(ValueError):
+            with (
+                self.subTest(lane=lane, field=field, value=value),
+                self.assertRaises(ValueError),
+            ):
                 evaluate((row,))
 
     def test_run_requires_three_identical_provider_free_repeats(self):
@@ -97,11 +98,14 @@ class AgentToolsBenchmarkTests(unittest.TestCase):
     def test_run_rejects_nondeterministic_repeats(self):
         first = evaluate((self.row("a", 1000, 100),))
         second = evaluate((self.row("a", 1000, 200),))
-        with mock.patch.object(
-            retrieval_benchmark,
-            "_run_once",
-            side_effect=(first, second, first),
-        ), self.assertRaises(ValueError):
+        with (
+            mock.patch.object(
+                retrieval_benchmark,
+                "_run_once",
+                side_effect=(first, second, first),
+            ),
+            self.assertRaises(ValueError),
+        ):
             retrieval_benchmark.run(Path("engine"))
 
 
