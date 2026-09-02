@@ -58,16 +58,18 @@ and remain publication-locked until verified Engine 3.10.1 artifacts exist.
 
 | Runtime | Package source | Package identity |
 | --- | --- | --- |
-| Python 3.10+ | repository root | `thinkery-leanctx-sdk` |
+| Python 3.9–3.14 | repository root | `thinkery-leanctx-sdk` |
 | Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery-ag/leanctx-sdk` |
 | Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk-go` |
 | Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
-| Java 17+ / Kotlin | `packages/jvm` | `ch.thinkery:leanctx-sdk` |
+| Java 21 / Kotlin 2.1 | `packages/jvm` | `com.thinkery.leanctx:leanctx-sdk` |
 | .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
 
-Each package includes language-native tests, frozen serialization fingerprints,
-strict protocol validation, explicit execution policy, and source-available
-license notices. The Engine remains a separate local binary.
+Each package includes language-native tests against the same canonical
+serialization fixture, strict protocol validation, explicit execution policy,
+package-content checks, and source-available license notices. The release
+workflow requires every language job before pull-request validation or
+publication provenance can pass. The Engine remains a separate local binary.
 
 ## Five-minute custom agent
 

@@ -6,8 +6,12 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Thinkery.LeanCtx.csproj" />
+    <None Include="../../../../fixtures/sdk-v1/serialization-sha256.json"
+          Link="fixtures/serialization-sha256.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import tempfile
 import unittest
 import zipfile
@@ -325,8 +326,13 @@ class ReleaseGateTests(unittest.TestCase):
             Path(__file__).parents[1] / ".github/workflows/release-candidate.yml"
         ).read_text(encoding="utf-8")
         self.assertNotRegex(workflow, r"uses:\s+[^\s]+@(v\d+|main|master)\b")
+        action_refs = re.findall(r"uses:\s+[^@\s]+@([^\s]+)", workflow)
+        self.assertTrue(action_refs)
+        for action_ref in action_refs:
+            self.assertRegex(action_ref, r"^[0-9a-f]{40}$")
         for required in (
             "ENGINE_COMMIT: 5b6920216177b01f48694efff1d6be9505665263",
+            "AGENT_TOOLS_ENGINE_VERSION: 3.10.1",
             "ENGINE_VERSION: 3.10.0",
             "ENGINE_TAG: v3.10.0",
             "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
@@ -347,6 +353,12 @@ class ReleaseGateTests(unittest.TestCase):
             "sdk-artifact:",
             "installed-engine-contract:",
             "dependency-audit:",
+            "typescript-sdk:",
+            "go-sdk:",
+            "rust-sdk:",
+            "jvm-sdk:",
+            "dotnet-sdk:",
+            "cross-sdk-proof:",
             "framework-offline:",
             "provenance:",
             "publication-guard:",
@@ -366,6 +378,7 @@ class ReleaseGateTests(unittest.TestCase):
             "SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY",
             "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
             "technical-release-gate:",
+            'test "$ENGINE_VERSION" = "$AGENT_TOOLS_ENGINE_VERSION"',
             "pull-request-validation:",
             "scripts/verify_wheel_install.py",
             "scripts.dependency_wheel_audit",
@@ -401,6 +414,67 @@ class ReleaseGateTests(unittest.TestCase):
             publication,
         )
         self.assertNotIn("path: dist", publication)
+
+    def test_release_workflow_proves_every_language_sdk(self):
+        workflow = (
+            Path(__file__).parents[1] / ".github/workflows/release-candidate.yml"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+            "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff",
+            "actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3",
+            "actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9",
+            "npm ci --ignore-scripts",
+            "npm test",
+            "npm run pack:dry-run",
+            "go test ./...",
+            "go vet ./...",
+            'rust: ["1.76.0", "stable"]',
+            "cargo +${{ matrix.rust }} test --locked",
+            "cargo +${{ matrix.rust }} clippy --locked --all-targets --all-features -- -D warnings",
+            "mvn --batch-mode --no-transfer-progress verify",
+            "dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj",
+            "dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj",
+            "dotnet pack Thinkery.LeanCtx.csproj",
+        ):
+            self.assertIn(required, workflow)
+        proof = workflow.split("  cross-sdk-proof:", 1)[1].split(
+            "\n  engine-artifact:", 1
+        )[0]
+        for dependency in (
+            "typescript-sdk",
+            "go-sdk",
+            "rust-sdk",
+            "jvm-sdk",
+            "dotnet-sdk",
+        ):
+            self.assertIn(dependency, proof)
+        provenance = workflow.split("  provenance:", 1)[1].split(
+            "\n  publication-guard:", 1
+        )[0]
+        self.assertIn("needs.cross-sdk-proof.result == 'success'", provenance)
+        self.assertIn("- cross-sdk-proof", provenance)
+        pull_request_gate = workflow.split("  pull-request-validation:", 1)[1]
+        self.assertIn("- cross-sdk-proof", pull_request_gate)
+
+    def test_every_language_consumes_the_canonical_fingerprint_fixture(self):
+        root = Path(__file__).parents[1]
+        consumers = {
+            "typescript": root / "packages/typescript/test/core.test.mjs",
+            "go": root / "packages/go/protocol_test.go",
+            "rust": root / "packages/rust/tests/sdk.rs",
+            "jvm": root
+            / "packages/jvm/src/test/java/com/thinkery/leanctx/ProductConformanceTest.java",
+            "dotnet": root / "packages/dotnet/tests/Thinkery.LeanCtx.Tests/Program.cs",
+        }
+        for language, path in consumers.items():
+            with self.subTest(language=language):
+                content = path.read_text(encoding="utf-8")
+                self.assertIn("serialization-sha256.json", content)
+                self.assertNotIn(
+                    "a948177b44cfd1fd22b5aa59bd4d0210510675eb0742d219ac2ac36ed09a6d75",
+                    content,
+                )
 
     def test_workspace_clean_install_drops_source_pythonpath(self):
         verifier = (

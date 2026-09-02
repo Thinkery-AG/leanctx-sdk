@@ -181,34 +181,21 @@ fn product_primitives_match_frozen_serialization_fingerprints(
         "state": SessionState::Created.to_string()
     });
     let actual = BTreeMap::from([
-        ("ContextPlan", canonical_hash(&plan.to_dict()?)),
-        ("ContextReceipt", canonical_hash(&receipt.to_dict())),
-        ("ContextSession", canonical_hash(&session)),
-        ("ContextSource", canonical_hash(&source.to_dict()?)),
-        ("ContextView", canonical_hash(&view.to_dict())),
+        ("ContextPlan".to_owned(), canonical_hash(&plan.to_dict()?)),
+        (
+            "ContextReceipt".to_owned(),
+            canonical_hash(&receipt.to_dict()),
+        ),
+        ("ContextSession".to_owned(), canonical_hash(&session)),
+        (
+            "ContextSource".to_owned(),
+            canonical_hash(&source.to_dict()?),
+        ),
+        ("ContextView".to_owned(), canonical_hash(&view.to_dict())),
     ]);
-    let expected: BTreeMap<&str, String> = BTreeMap::from([
-        (
-            "ContextPlan",
-            "a948177b44cfd1fd22b5aa59bd4d0210510675eb0742d219ac2ac36ed09a6d75".to_owned(),
-        ),
-        (
-            "ContextReceipt",
-            "0edf6bdc1afd5eb605a01900a99ff1d18579d98ba09719c4397d7366bfeca963".to_owned(),
-        ),
-        (
-            "ContextSession",
-            "219d600e70f8421386b034395f7db4e8d6494cb14d57cd34e63058e51834735c".to_owned(),
-        ),
-        (
-            "ContextSource",
-            "814ab90ae5f1ab6e93d1f447c703572c04174f7c0dccdd8939daeb304828ee9f".to_owned(),
-        ),
-        (
-            "ContextView",
-            "b80a6a0055e6ff06724f99990d59f03bbd4cf407d0143085a858cd1949b18918".to_owned(),
-        ),
-    ]);
+    let expected: BTreeMap<String, String> = serde_json::from_str(include_str!(
+        "../../../fixtures/sdk-v1/serialization-sha256.json"
+    ))?;
     assert_eq!(actual, expected);
     Ok(())
 }
