@@ -49,7 +49,9 @@ def verify_installed(engine: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--engine", required=True, help="absolute path to the lean-ctx binary")
+    parser.add_argument(
+        "--engine", required=True, help="absolute path to the lean-ctx binary"
+    )
     args = parser.parse_args()
     engine = Path(args.engine)
     if not engine.is_absolute():

@@ -17,7 +17,7 @@ from scripts.public_release_guard import PublicReleaseGuardError, check_files
 from scripts.source_secret_scan import SecretScanError, scan_files
 
 
-DIST_INFO = "thinkery_leanctx_sdk-1.0.0.dist-info"
+DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
 
 
 def _record_hash(data):
@@ -25,12 +25,18 @@ def _record_hash(data):
     return "sha256=" + encoded.decode("ascii")
 
 
-def _wheel(path, *, extra=None, python_requires=">=3.9,<3.13"):
+def _wheel(path, *, extra=None, python_requires=">=3.9,<3.15"):
     metadata = f"""Metadata-Version: 2.1
 Name: thinkery-leanctx-sdk
-Version: 1.0.0
+Version: 1.1.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
+Provides-Extra: agent
+Requires-Dist: thinkery-leanctx-engine (==3.10.1) ; extra == 'agent'
+Provides-Extra: agent-cuda
+Requires-Dist: thinkery-leanctx-engine-cuda (==3.10.1) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
+Provides-Extra: agent-windows-gnu
+Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.10.1) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
 Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
@@ -52,11 +58,9 @@ Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'open
             b"Terms require an executed agreement with Thinkery AG.\n"
         ),
         f"{DIST_INFO}/licenses/THIRD_PARTY_NOTICES": (
-            "LeanCTX SDK v1.0.0 — Third-Party Notices\n"
+            "LeanCTX SDK v1.1.0 — Third-Party Notices\n"
             "The exact 41-wheel audit includes openai-agents 0.8.4 — MIT.\n"
-        ).encode(
-            "utf-8"
-        ),
+        ).encode("utf-8"),
     }
     if extra:
         files.update(extra)
@@ -161,13 +165,8 @@ class ReleaseGateTests(unittest.TestCase):
             'openai (==2.19.0) ; (python_version >= "3.10") '
             "and extra == 'openai-agents'"
         )
-        modern = (
-            'openai==2.19.0; python_version >= "3.10" '
-            'and extra == "openai-agents"'
-        )
-        self.assertEqual(
-            _canonical_requirement(legacy), _canonical_requirement(modern)
-        )
+        modern = 'openai==2.19.0; python_version >= "3.10" and extra == "openai-agents"'
+        self.assertEqual(_canonical_requirement(legacy), _canonical_requirement(modern))
         self.assertNotEqual(
             _canonical_requirement(modern),
             _canonical_requirement(modern.replace("2.19.0", "2.18.0")),
@@ -199,10 +198,7 @@ class ReleaseGateTests(unittest.TestCase):
     def test_unexpected_path_and_secret_fail_closed(self):
         cases = [
             {"notes.txt": b"unexpected"},
-            {
-                "leanctx_sdk/key.txt": b"-----BEGIN "
-                + b"PRIVATE KEY-----"
-            },
+            {"leanctx_sdk/key.txt": b"-----BEGIN " + b"PRIVATE KEY-----"},
             {"leanctx_sdk/path.txt": b"/Users/private/source.py"},
             {"leanctx_sdk/research/private.py": b"value = 1\n"},
             {"leanctx_sdk/internal/decision.py": b"value = 1\n"},
@@ -222,9 +218,15 @@ class ReleaseGateTests(unittest.TestCase):
         requirements = render(manifest).splitlines()
         self.assertEqual(len(requirements), 41)
         self.assertEqual(requirements, sorted(requirements, key=str.casefold))
-        self.assertTrue(any(line.startswith("openai-agents==0.8.4 ") for line in requirements))
-        self.assertTrue(any(line.startswith("requests==2.33.0 ") for line in requirements))
-        self.assertTrue(any(line.startswith("urllib3==2.7.0 ") for line in requirements))
+        self.assertTrue(
+            any(line.startswith("openai-agents==0.8.4 ") for line in requirements)
+        )
+        self.assertTrue(
+            any(line.startswith("requests==2.33.0 ") for line in requirements)
+        )
+        self.assertTrue(
+            any(line.startswith("urllib3==2.7.0 ") for line in requirements)
+        )
         self.assertTrue(all(" --hash=sha256:" in line for line in requirements))
 
     def test_dependency_audit_rejects_manifest_outside_certified_closure(self):
@@ -291,9 +293,12 @@ class ReleaseGateTests(unittest.TestCase):
             manifest, wheelhouse, data, policy = self._dependency_fixture(
                 Path(root), "GPL-3.0-only"
             )
-            with patch(
-                "scripts.dependency_wheel_audit.load_manifest", return_value=data
-            ), self.assertRaisesRegex(ValueError, "forbidden copyleft"):
+            with (
+                patch(
+                    "scripts.dependency_wheel_audit.load_manifest", return_value=data
+                ),
+                self.assertRaisesRegex(ValueError, "forbidden copyleft"),
+            ):
                 audit_dependencies(manifest, wheelhouse, policy)
 
     def test_dependency_wheel_audit_rejects_unreviewed_findings(self):
@@ -307,15 +312,17 @@ class ReleaseGateTests(unittest.TestCase):
             data["artifacts"][0]["sha256"] = hashlib.sha256(
                 wheel.read_bytes()
             ).hexdigest()
-            with patch(
-                "scripts.dependency_wheel_audit.load_manifest", return_value=data
-            ), self.assertRaisesRegex(ValueError, "reviewed policy"):
+            with (
+                patch(
+                    "scripts.dependency_wheel_audit.load_manifest", return_value=data
+                ),
+                self.assertRaisesRegex(ValueError, "reviewed policy"),
+            ):
                 audit_dependencies(manifest, wheelhouse, policy)
 
     def test_release_workflow_is_immutable_and_binds_required_gates(self):
         workflow = (
-            Path(__file__).parents[1]
-            / ".github/workflows/release-candidate.yml"
+            Path(__file__).parents[1] / ".github/workflows/release-candidate.yml"
         ).read_text(encoding="utf-8")
         self.assertNotRegex(workflow, r"uses:\s+[^\s]+@(v\d+|main|master)\b")
         for required in (
@@ -390,7 +397,7 @@ class ReleaseGateTests(unittest.TestCase):
         )[0]
         self.assertIn("path: download", publication)
         self.assertIn(
-            "cp download/thinkery_leanctx_sdk-1.0.0-py3-none-any.whl",
+            "cp download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl",
             publication,
         )
         self.assertNotIn("path: dist", publication)
@@ -402,13 +409,9 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertIn('name == "PYTHONPATH"', verifier)
 
     def test_package_metadata_binds_public_repository(self):
-        metadata = (Path(__file__).parents[1] / "setup.cfg").read_text(
-            encoding="utf-8"
-        )
+        metadata = (Path(__file__).parents[1] / "setup.cfg").read_text(encoding="utf-8")
         self.assertIn("url = https://github.com/Thinkery-AG/leanctx-sdk", metadata)
-        self.assertIn(
-            "Source = https://github.com/Thinkery-AG/leanctx-sdk", metadata
-        )
+        self.assertIn("Source = https://github.com/Thinkery-AG/leanctx-sdk", metadata)
 
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
@@ -438,8 +441,8 @@ class ReleaseGateTests(unittest.TestCase):
             "build_lock_sha256": "2" * 64,
             "quality_lock_sha256": "3" * 64,
             "audit_lock_sha256": "4" * 64,
-            "python_matrix": "3.9,3.10,3.11,3.12",
-            "verified_python_matrix": "3.9,3.10,3.11,3.12",
+            "python_matrix": "3.9,3.10,3.11,3.12,3.13,3.14",
+            "verified_python_matrix": "3.9,3.10,3.11,3.12,3.13,3.14",
             "framework_version": "openai-agents==0.8.4",
             "release_workflow": ".github/workflows/release-candidate.yml@" + "a" * 40,
             "release_run": "fixture-run",
@@ -455,24 +458,20 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertEqual(
                 {path.name for path in output.iterdir()}, set(REQUIRED_FILES)
             )
-            manifest = (output / "RELEASE-MANIFEST.md").read_text(
-                encoding="utf-8"
-            )
+            manifest = (output / "RELEASE-MANIFEST.md").read_text(encoding="utf-8")
             self.assertIn(values["sdk_commit"], manifest)
             self.assertIn(values["framework_version"], manifest)
             self.assertIn(values["release_workflow"], manifest)
             self.assertIn(values["engine_release_url"], manifest)
             self.assertIn(values["engine_linux_archive_sha256"], manifest)
-            license_status = (output / "LICENSE-STATUS.md").read_text(
-                encoding="utf-8"
-            )
+            license_status = (output / "LICENSE-STATUS.md").read_text(encoding="utf-8")
             self.assertIn("CUSTOM_LICENSE_TEXT_APPROVED", license_status)
             self.assertIn(values["license_sha256"], license_status)
             self.assertNotIn("license family: BSL", license_status)
-            decision_gate = (output / "DECISION-GATE.md").read_text(
-                encoding="utf-8"
+            decision_gate = (output / "DECISION-GATE.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "Custom-license product policy and exact release text", decision_gate
             )
-            self.assertIn("Custom-license product policy and exact release text", decision_gate)
             self.assertNotIn("All ten authority rows remain", decision_gate)
 
             blocked = dict(values, publication_authorization="PENDING")

@@ -50,7 +50,9 @@ def _source_fixture(root):
         "source-1",
         "filesystem",
         "file://source.txt",
-        revision=SourceRevision("filesystem", "sha256:" + hashlib.sha256(content).hexdigest()),
+        revision=SourceRevision(
+            "filesystem", "sha256:" + hashlib.sha256(content).hexdigest()
+        ),
         freshness=SourceFreshness("2026-08-28T00:00:00Z", "current"),
         trust=SourceTrust("local"),
         scope=SourceScope("project", "project"),
@@ -84,21 +86,29 @@ class ParallelContextTests(unittest.TestCase):
                 from_checkpoint=checkpoint,
                 source_bindings={"source-1": source},
             )
-            self.assertEqual(len(list(Path(child_a._workspace_path, "events").glob("*.json"))), 2)
+            self.assertEqual(
+                len(list(Path(child_a._workspace_path, "events").glob("*.json"))), 2
+            )
             fork_event = child_a._read_state().events[1]
             inherited_source = fork_event["payload"]["inherited_state"]["sources"][0]
             self.assertIsNone(inherited_source["engine_binding"])
             self.assertNotIn(str(Path(root, "project")), json.dumps(fork_event))
             self.assertNotEqual(parent.workspace_id, child_a.workspace_id)
             self.assertNotEqual(child_a.workspace_id, child_b.workspace_id)
-            self.assertEqual(child_a.fork_lineage["parent_checkpoint_id"], checkpoint.checkpoint_id)
+            self.assertEqual(
+                child_a.fork_lineage["parent_checkpoint_id"], checkpoint.checkpoint_id
+            )
             self.assertEqual(
                 child_a.project_context().entries,
                 child_b.project_context().entries,
             )
 
             child_a.commit_context(
-                [ProjectContextEntry(ENTRY_B, "decisions", "retry_limit=3", ("source-1",))]
+                [
+                    ProjectContextEntry(
+                        ENTRY_B, "decisions", "retry_limit=3", ("source-1",)
+                    )
+                ]
             )
             self.assertEqual(len(parent.project_context().entries), 1)
             self.assertEqual(len(child_b.project_context().entries), 1)
@@ -111,6 +121,18 @@ class ParallelContextTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkspaceValidationError, "explicitly rebound"):
                 reopened_b.start_session("review", source_id="source-1", source=source)
             reopened_b.bind_source("source-1", source)
+
+    def test_fork_rebind_rejects_source_changed_before_fresh_process(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, source, parent, checkpoint = _base(root)
+            child = parent.fork("builder", from_checkpoint=checkpoint)
+            Path(root, "project", "source.txt").write_text(
+                "changed after fork\n", encoding="utf-8"
+            )
+
+            reopened = ContextWorkspace.open(state, child.workspace_id)
+            with self.assertRaises(WorkspaceConflictError):
+                reopened.bind_source("source-1", source)
 
     def test_fork_policy_floor_rejects_relaxation_before_child_publication(self):
         with tempfile.TemporaryDirectory() as root:
@@ -163,7 +185,9 @@ class ParallelContextTests(unittest.TestCase):
             self.assertEqual(len(reconciliation.conflicts.entries), 1)
             self.assertIsNotNone(reconciliation.left.fork_lineage)
             self.assertIsNotNone(reconciliation.right.fork_lineage)
-            self.assertEqual(reconciliation.conflicts.entries[0].stable_key, SHARED_DECISION)
+            self.assertEqual(
+                reconciliation.conflicts.entries[0].stable_key, SHARED_DECISION
+            )
 
     def test_bounded_handoff_admission_apply_and_replay(self):
         from tests.test_sdk import FakeEngine
@@ -188,7 +212,9 @@ class ParallelContextTests(unittest.TestCase):
             implementer.commit_context(
                 [
                     ProjectContextEntry(ENTRY_B, "facts", "finding", ("source-1",)),
-                    ProjectContextEntry(ENTRY_C, "decisions", "decision", ("source-1",)),
+                    ProjectContextEntry(
+                        ENTRY_C, "decisions", "decision", ("source-1",)
+                    ),
                 ],
                 session=sender.session,
             )
@@ -297,7 +323,9 @@ class ParallelContextTests(unittest.TestCase):
                 task="review",
                 entry_ids=[ENTRY_B],
             )
-            self.assertEqual(target.admit_handoff(wrong, target_checkpoint).decision, "rejected")
+            self.assertEqual(
+                target.admit_handoff(wrong, target_checkpoint).decision, "rejected"
+            )
             portable = parent.create_handoff(
                 checkpoint,
                 target_workspace_id=target.workspace_id,
@@ -309,9 +337,12 @@ class ParallelContextTests(unittest.TestCase):
             bound_raw["source_anchors"][0]["engine_binding"] = context_source.to_dict()
             unsigned = dict(bound_raw)
             unsigned.pop("handoff_digest")
-            bound_raw["handoff_digest"] = "sha256:" + hashlib.sha256(
-                b"leanctx.context-handoff.v1\n" + canonical_bytes(unsigned)
-            ).hexdigest()
+            bound_raw["handoff_digest"] = (
+                "sha256:"
+                + hashlib.sha256(
+                    b"leanctx.context-handoff.v1\n" + canonical_bytes(unsigned)
+                ).hexdigest()
+            )
             with self.assertRaises(WorkspaceValidationError):
                 ContextHandoffV1.from_dict(bound_raw)
             valid = source.create_handoff(
@@ -326,9 +357,12 @@ class ParallelContextTests(unittest.TestCase):
             forged_lineage["fork_event_ref"] = "event-id:" + str(uuid.uuid4())
             unsigned = dict(forged_raw)
             unsigned.pop("handoff_digest")
-            forged_raw["handoff_digest"] = "sha256:" + hashlib.sha256(
-                b"leanctx.context-handoff.v1\n" + canonical_bytes(unsigned)
-            ).hexdigest()
+            forged_raw["handoff_digest"] = (
+                "sha256:"
+                + hashlib.sha256(
+                    b"leanctx.context-handoff.v1\n" + canonical_bytes(unsigned)
+                ).hexdigest()
+            )
             forged = ContextHandoffV1.from_dict(forged_raw)
             self.assertEqual(
                 target.admit_handoff(forged, target_checkpoint).decision,
@@ -377,7 +411,9 @@ class ParallelContextTests(unittest.TestCase):
             child = parent.fork("child", from_checkpoint=checkpoint)
             child_checkpoint = child.checkpoint()
             self.assertEqual(child_checkpoint.package_pins, checkpoint.package_pins)
-            self.assertEqual(child_checkpoint.package_lock_digest, checkpoint.package_lock_digest)
+            self.assertEqual(
+                child_checkpoint.package_lock_digest, checkpoint.package_lock_digest
+            )
             with self.assertRaises(WorkspacePolicyError):
                 child.create_handoff(
                     child_checkpoint,
@@ -393,7 +429,11 @@ class ParallelContextTests(unittest.TestCase):
             reviewer = parent.fork("reviewer", from_checkpoint=checkpoint)
             unrelated = ContextWorkspace.create(state, "unrelated")
             implementer.commit_context(
-                [ProjectContextEntry(ENTRY_B, "decisions", "bounded transfer", ("source-1",))]
+                [
+                    ProjectContextEntry(
+                        ENTRY_B, "decisions", "bounded transfer", ("source-1",)
+                    )
+                ]
             )
             implementer_checkpoint = implementer.checkpoint()
             reviewer_checkpoint = reviewer.checkpoint()
@@ -411,8 +451,7 @@ class ParallelContextTests(unittest.TestCase):
             script = """
 import json
 import sys
-from unittest.mock import patch
-from leanctx_sdk import ContextSource
+from leanctx_sdk import ContextSession, ContextSource
 from leanctx_sdk.preview import ContextHandoffV1, ContextWorkspace
 from tests.test_sdk import FakeEngine
 
@@ -423,14 +462,16 @@ handoff = ContextHandoffV1.from_dict(json.loads(open(handoff_path, encoding="utf
 receipt = workspace.apply_handoff(handoff, receiver_checkpoint=checkpoint)
 source = ContextSource("source.txt", project_root=project_root)
 workspace.bind_source("source-1", source)
-with patch("leanctx_sdk.session.SubprocessEngineClient", return_value=FakeEngine()):
-    attachment = workspace.start_session(
-        "continue",
-        source_id="source-1",
-        source=source,
-        session_id="p7-process-session",
-        task_id="p7-process-task",
-    )
+session = ContextSession(
+    "continue",
+    project_root=project_root,
+    session_id="p7-process-session",
+    task_id="p7-process-task",
+    engine=FakeEngine(),
+)
+session.plan(source)
+session.prepare(source)
+attachment = workspace.attach_session(session, source_ids=["source-1"])
 print(json.dumps({
     "event_kind": receipt.event_kind,
     "session_state": attachment.session.state,

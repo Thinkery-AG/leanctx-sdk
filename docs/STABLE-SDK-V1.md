@@ -15,3 +15,9 @@ dictionaries, and exact recovery remains bound to the admitted source digest.
 Stable supporting symbols—errors, Engine clients, protocol records, and
 constants—are enumerated in `PUBLIC-SURFACE-MANIFEST.md` and follow the same
 SemVer policy unless explicitly marked INTERNAL.
+
+SDK 1.1 adds a separate Stable Agent Tools contract: `AgentContext` and
+`AsyncAgentContext` expose negotiated local read/search/edit/execute tools for
+host-owned agent loops. This additive contract does not change the five
+Product primitives or make the SDK responsible for models, planning, retries,
+or autonomous orchestration.

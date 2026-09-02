@@ -1,119 +1,144 @@
 # LeanCTX SDK
 
-The Context SDK for AI Agents.
+Build Python, TypeScript, Go, Rust, JVM, and .NET coding agents that read,
+search, edit, and run approved commands without sending raw repository output
+to the model every time.
 
-Your framework runs the agent. LeanCTX manages its context path.
+Your framework owns the model and agent loop. LeanCTX owns the local context
+tools, compression, cache, permissions, token measurements, and recovery path.
 
-**Select → Shape → Reuse → Recover.**
+## Choose the right product
+
+| You want to… | Use |
+| --- | --- |
+| improve an existing coding agent through CLI/MCP | LeanCTX Engine |
+| build your own agent with LeanCTX tools | LeanCTX SDK + Engine |
+| keep your own model/framework but add governed context | `AgentContext` |
+
+The SDK does not contain a second implementation of the Engine. It starts one
+verified local Engine process and exposes its negotiated capabilities as stable
+language-native methods.
+
+```text
+your model / agent loop
+          ↓
+AgentContext or AsyncAgentContext
+          ↓  versioned local Agent Tools Interface
+LeanCTX Engine 3.10.1
+          ↓
+project-jailed files, cache, search, patches, approved commands
+```
 
 ## Install
 
-The final distribution is `thinkery-leanctx-sdk` and the import namespace is
-`leanctx_sdk`:
+The 1.1 source tree is a release candidate until the exact Engine 3.10.1
+companion wheels are published. The release gate must not publish the SDK first.
+After both artifacts are available, the one-command install is:
+
+Standard Engine:
 
 ```bash
-python -m pip install thinkery-leanctx-sdk==1.0.0
+python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
 ```
 
-Install the supported public Engine `v3.10.0` artifact described in
-[COMPATIBILITY.md](COMPATIBILITY.md) before running the SDK.
+With the certified OpenAI Agents integration:
 
-## 5-minute Quickstart
+```bash
+python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.0"
+```
+
+CUDA and Windows-GNU builds use the documented `agent-cuda` and
+`agent-windows-gnu` extras. The core SDK remains pure Python.
+
+## Language SDKs
+
+All SDK 1.1 previews implement the five stable Product primitives, Engine
+Interface v1, and PR #8 Agent Tools 1.1 contract. They live in this repository
+and remain publication-locked until verified Engine 3.10.1 artifacts exist.
+
+| Runtime | Package source | Package identity |
+| --- | --- | --- |
+| Python 3.10+ | repository root | `thinkery-leanctx-sdk` |
+| Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery-ag/leanctx-sdk` |
+| Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk-go` |
+| Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
+| Java 17+ / Kotlin | `packages/jvm` | `ch.thinkery:leanctx-sdk` |
+| .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
+
+Each package includes language-native tests, frozen serialization fingerprints,
+strict protocol validation, explicit execution policy, and source-available
+license notices. The Engine remains a separate local binary.
+
+## Five-minute custom agent
 
 ```python
-from pathlib import Path
+from leanctx_sdk import AgentContext
 
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
 
-root = Path.cwd()
-engine = SubprocessEngineClient()  # uses the compatible `lean-ctx` on PATH
-session = ContextSession("inspect the configuration", project_root=str(root), engine=engine)
-source = ContextSource("README.md", project_root=str(root))
+def my_model(task: str, context: str) -> str:
+    # Replace with any model or framework call.
+    return f"{task}\n\nRelevant project context:\n{context}"
 
-view = session.prepare(source)
-plan = session.current_plan
-assert plan is not None
 
-try:
-    host_result = {"selected_context": view.require_text()}
-except BaseException as error:
-    session.abort(error)
-    raise
-
-receipt = session.complete(host_result, outcome="completed")
-recovered = session.recover(view)
-
-assert recovered.source_digest == view.source_digest
-print(plan.plan_id, receipt.receipt_link.receipt_id)
+with AgentContext(".", task="Explain the public API") as ctx:
+    files = ctx.tree(depth=2)
+    matches = ctx.search("class AgentContext", path="src")
+    source = ctx.read("src/leanctx_sdk/agent.py", mode="signatures")
+    answer = my_model(ctx.task, "\n".join((files.text, matches.text, source.text)))
+    print(answer)
+    print(f"saved tokens: {ctx.metrics.saved_tokens}")
 ```
 
-The host owns prompts, models, tools, retries, scheduling, and result objects.
-The SDK owns the context lifecycle, identity, bounded degradation, receipts,
-and exact recovery. Deterministic local use requires no provider credential or
-Cloud service.
-
-## Stable v1
-
-The only Stable Product primitives are:
-
-- `ContextSession`
-- `ContextSource`
-- `ContextView`
-- `ContextPlan`
-- `ContextReceipt`
-
-Stable supporting errors, Engine clients, protocol records, and constants are
-listed in [PUBLIC-SURFACE-MANIFEST.md](PUBLIC-SURFACE-MANIFEST.md). Stable APIs
-follow SemVer; see [docs/SEMVER-AND-DEPRECATION.md](docs/SEMVER-AND-DEPRECATION.md).
-
-## Preview
-
-Local Workspace, Checkpoint, Delta, and Handoff APIs are available from
-`leanctx_sdk.preview`. Preview APIs may change in minor releases and are not
-covered by the Stable v1 compatibility guarantee.
-
-The same namespace contains the narrow Engine-backed `.ctxpkg` seal, seed, and
-SnapshotV1 migration operations.
+Default permissions are read-only. A coding agent must opt in explicitly:
 
 ```python
-from leanctx_sdk.preview import ContextCheckpoint, ContextWorkspace
+from leanctx_sdk import AgentContext, AgentPermissions, ExecutionPolicy
+
+with AgentContext(
+    ".",
+    permissions=AgentPermissions(write=True, execute=True),
+    execution_policy=ExecutionPolicy(allowed_executables=("git", "pytest")),
+) as ctx:
+    ctx.replace_unique("app.py", "old_name", "new_name")
+    tests = ctx.run(("pytest", "-q"), timeout=30)
 ```
 
-See [docs/PREVIEW.md](docs/PREVIEW.md). P8 Receipt Board, P9 Governed
-Optimization, Cloud, and production AutoTune are private Research and are not
-included.
+The permission policy is immutable for the session and is enforced again by
+the Engine. `call()` cannot bypass it, and process tools must use `run(argv)`.
 
-Run the provider-free lifecycle example with
-`python examples/preview_workspace.py` from a source checkout.
+## SDK 1.1 Agent Tools capabilities
 
-## Engine
+- `read`, `search`, `glob`, `tree`, `compose`, and `symbol`
+- safe `create_file`, `patch`, and `replace_unique`
+- allowlisted argv execution with compressed output
+- persistent per-agent cache and aggregate token measurements
+- synchronous and asynchronous APIs
+- capability negotiation and typed fail-closed errors
+- optional OpenAI Agents 0.8.4 function tools
 
-LeanCTX Engine is Apache-2.0, independently useful, and remains a separate
-product. The dependency is one-way: SDK → Engine. See
-[COMPATIBILITY.md](COMPATIBILITY.md) for the exact supported public
-[`v3.10.0` release](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0).
+The SDK supplies the tool substrate, not an autonomous planner, model, hosted
+service, or universal quality guarantee. Savings are measured per call against
+the Engine's raw-output baseline; they are not a promise for every workload.
 
-## Documentation
+## Compatibility
 
+The five SDK 1.0 lifecycle primitives remain available unchanged:
+`ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
+`ContextReceipt`. `AgentContext` requires Agent Tools Interface v1 from Engine
+3.10.1; the older context-view/recover Engine Interface v1 remains unchanged.
+
+See:
+
+- [Custom agents](docs/CUSTOM-AGENTS.md)
 - [Quickstart](docs/QUICKSTART.md)
-- [Stable SDK v1](docs/STABLE-SDK-V1.md)
-- [Integration modes](docs/INTEGRATION-MODES.md)
-- [Preview APIs](docs/PREVIEW.md)
-- [Receipts and evidence](docs/RECEIPTS-AND-EVIDENCE.md)
-- [Recovery](docs/RECOVERY.md)
-- [Release notes](RELEASE-NOTES-1.0.0.md)
 - [Compatibility](COMPATIBILITY.md)
-- [Errors and troubleshooting](docs/ERRORS.md)
-- [Migration](MIGRATION.md)
 - [Security](SECURITY.md)
-- [Licensing](LICENSING.md)
+- [Errors](docs/ERRORS.md)
+- [Migration](MIGRATION.md)
+- [Stable public surface](PUBLIC-SURFACE-MANIFEST.md)
 
 ## License
 
-LeanCTX SDK is source-available, not open source. Development, testing, CI,
-staging, evaluation, and proofs of concept are permitted under the included
-license. Commercial Production Use, OEM embedding, and commercial
-redistribution require a separate written agreement with Thinkery AG.
-
-LeanCTX Engine remains an Apache-2.0 open-source product. There is no automatic
-future open-source conversion for the SDK.
+LeanCTX SDK is source-available. Commercial Production Use, OEM embedding, and
+commercial redistribution require a written agreement with Thinkery AG.
+LeanCTX Engine and its companion binary distributions remain Apache-2.0.

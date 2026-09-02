@@ -16,6 +16,14 @@ import leanctx_sdk.preview as preview  # noqa: E402
 
 ROOT_EXPORTS = {
     "__version__",
+    "AGENT_TOOLS_INTERFACE_VERSION",
+    "AGENT_TOOLS_SCHEMA_VERSION",
+    "AGENT_TOOLS_TRANSPORT_VERSION",
+    "AgentContext",
+    "AgentMetrics",
+    "AgentPermissionError",
+    "AgentPermissions",
+    "AsyncAgentContext",
     "ArtifactIntegrityError",
     "CompatibilityError",
     "ConfigurationError",
@@ -29,6 +37,7 @@ ROOT_EXPORTS = {
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
     "EngineClient",
+    "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
     "EngineProtocolError",
@@ -36,6 +45,7 @@ ROOT_EXPORTS = {
     "EngineStatus",
     "EngineTimeout",
     "EngineUnavailable",
+    "ExecutionPolicy",
     "FailureCode",
     "Freshness",
     "FrameworkCompatibilityError",
@@ -44,15 +54,19 @@ ROOT_EXPORTS = {
     "Integrity",
     "PolicyAdmissionError",
     "RecoveredSource",
+    "ReadMode",
     "RecoveryUnavailableError",
     "SCHEMA_VERSION",
     "SDKError",
     "SessionState",
     "SessionStateError",
     "SourceUnavailableError",
+    "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
     "SubprocessEngineClient",
+    "ToolResult",
     "TRANSPORT_VERSION",
     "UnsupportedEngineError",
+    "UnsupportedCapabilityError",
     "ValidationError",
 }
 
@@ -153,10 +167,22 @@ if loaded:
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_no_private_research_names_are_exported(self):
-        exported = {name.casefold() for name in (*leanctx_sdk.__all__, *preview.__all__)}
-        forbidden_fragments = ("cloud", "receiptboard", "governed", "optimization", "autotune")
+        exported = {
+            name.casefold() for name in (*leanctx_sdk.__all__, *preview.__all__)
+        }
+        forbidden_fragments = (
+            "cloud",
+            "receiptboard",
+            "governed",
+            "optimization",
+            "autotune",
+        )
         self.assertFalse(
-            {name for name in exported if any(part in name for part in forbidden_fragments)}
+            {
+                name
+                for name in exported
+                if any(part in name for part in forbidden_fragments)
+            }
         )
 
     def test_preview_workspace_example_runs_provider_free(self):

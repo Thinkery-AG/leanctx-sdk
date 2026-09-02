@@ -28,3 +28,22 @@ credentials or Cloud configuration and does not persist raw transcripts.
 The core wheel has no third-party runtime dependency. Optional OpenAI Agents
 dependencies are accepted only through the exact reviewed closure and release
 audit.
+
+## Agent Tools boundary
+
+`AgentContext` is read-only by default. Write and process execution are
+separate immutable permissions, recorded in an owner-only policy file and
+enforced again by the Engine. The Engine canonicalizes the project root,
+rejects unsafe roots, restricts the callable capability set, and returns
+bounded NDJSON frames. The SDK never passes a shell string: `run()` accepts an
+argv sequence; the Engine revalidates argv, executable, env, and timeout before
+constructing its internal command and applying its own shell policy.
+
+Timeout, process exit, malformed frames, unknown capabilities, permission
+violations, and protocol mismatches fail closed. The SDK does not retry a
+write or execution request after an ambiguous failure.
+
+Executable allowlisting is not an operating-system sandbox. A permitted tool
+such as `git` may itself access the network or execute configured helpers. Use
+an OS/container sandbox when the host requires filesystem or network isolation
+beyond the Engine's project jail and command policy.

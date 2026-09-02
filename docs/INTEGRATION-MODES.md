@@ -11,6 +11,13 @@ Use `ContextSession` with `SubprocessEngineClient`. The host keeps its native
 model and result objects while the SDK owns context lifecycle and evidence.
 This is the Stable SDK path.
 
+## Build
+
+Use `AgentContext` or `AsyncAgentContext` when the host is building a custom
+coding agent and needs persistent read, search, patch, command, cache, and token
+measurement APIs. The Engine enforces the immutable permission policy. This is
+the Stable SDK 1.1 Agent Tools path.
+
 ## Wrap
 
 `leanctx_sdk.integrations.openai_agents` supports the exact certified

@@ -1,0 +1,9 @@
+LeanCTX SDK TypeScript 1.1.0 — Third-Party Notices
+
+The published TypeScript package has no mandatory third-party runtime
+dependency. LeanCTX Engine is a separate Apache-2.0 work and is not relicensed
+by the SDK.
+
+TypeScript, @types/node, and their transitive development-only dependencies
+are used to build and test the package. They are not embedded as runtime
+dependencies; their own distributions and license files govern their use.

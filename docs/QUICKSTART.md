@@ -1,5 +1,34 @@
 # Quickstart
 
+## Build a custom coding agent (SDK 1.1)
+
+For a released Engine companion package:
+
+```bash
+python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
+```
+
+During source validation, point the SDK at a locally built Engine:
+
+```python
+from leanctx_sdk import AgentContext
+
+with AgentContext(
+    ".",
+    task="Find the public API",
+    engine_binary="/path/to/lean-ctx",
+) as tools:
+    print(tools.tree(depth=2).text)
+    print(tools.search("class AgentContext", path="src").text)
+    print(tools.read("src/leanctx_sdk/agent.py", mode="signatures").text)
+    print(tools.metrics.saved_tokens)
+```
+
+This is read-only. Enable writes or approved commands explicitly with
+`AgentPermissions` and `ExecutionPolicy`; see `CUSTOM-AGENTS.md`.
+
+## Context lifecycle (SDK 1.0 contract)
+
 Install `thinkery-leanctx-sdk==1.0.0` and the exact LeanCTX Engine `v3.10.0` artifact
 listed in the compatibility matrix. Verify its signed checksum before putting
 `lean-ctx` on `PATH`. Provider credentials are not required for deterministic

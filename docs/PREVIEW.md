@@ -29,6 +29,36 @@ The Preview namespace also exposes the narrow `.ctxpkg` path:
 release declared in `COMPATIBILITY.md`; signature, compatibility, and policy
 checks fail closed.
 
+## Fresh-process Workspace sessions
+
+A fork intentionally omits machine-local source paths from durable state. Each
+worker process must therefore rebind inherited sources before starting or
+attaching a session:
+
+```python
+from leanctx_sdk import ContextSource
+
+source = ContextSource("src", project_root=project_root)
+workspace = ContextWorkspace.open(state_root, workspace_id)
+workspace.bind_source("project-source", source)
+
+# Preferred when the Workspace owns session creation and preparation.
+attachment = workspace.start_session(
+    "Review the implementation",
+    source_id="project-source",
+    source=source,
+)
+```
+
+Hosts that already own a prepared `ContextSession` may instead call
+`attach_session` after the same explicit rebind. The rebind verifies the
+inherited source digest and fails closed if content changed before the new
+process established its binding.
+
+A Workspace is durable context state, not an agent task queue: completion and
+abort are terminal, and states such as input-required, cancellation, retries,
+or worker scheduling remain owned by the host orchestration layer.
+
 Run the provider-free lifecycle smoke from a repository checkout:
 
 ```bash

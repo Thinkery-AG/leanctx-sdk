@@ -49,7 +49,9 @@ def _plain(value: Any) -> Any:
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        return MappingProxyType(
+            {str(key): _freeze(item) for key, item in value.items()}
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     return value
@@ -67,7 +69,9 @@ def _non_portable_fields(value: Any, pointer: str = "$.checkpoint") -> Tuple[str
         for key, item in value.items():
             child = pointer + "." + str(key)
             if key in {"path", "project_root"} and isinstance(item, str):
-                if os.path.isabs(item) or (len(item) > 2 and item[1] == ":" and item[2] in "/\\"):
+                if os.path.isabs(item) or (
+                    len(item) > 2 and item[1] == ":" and item[2] in "/\\"
+                ):
                     found.append(child)
             if key in {"canonical_id", "immutable_ref"} and isinstance(item, str):
                 if (
@@ -95,8 +99,13 @@ class SnapshotV1MigrationProvenance:
 
     def __post_init__(self) -> None:
         if self.origin != "SnapshotV1" or self.migration_contract != _MIGRATION_SCHEMA:
-            raise WorkspaceIncompatibleError("SnapshotV1 migration contract is unsupported")
-        if not self.legacy_snapshot_id or len(self.legacy_snapshot_id.encode("utf-8")) > 512:
+            raise WorkspaceIncompatibleError(
+                "SnapshotV1 migration contract is unsupported"
+            )
+        if (
+            not self.legacy_snapshot_id
+            or len(self.legacy_snapshot_id.encode("utf-8")) > 512
+        ):
             raise WorkspaceValidationError("legacy_snapshot_id is invalid")
         for name in ("legacy_snapshot_digest", "state_digest"):
             value = getattr(self, name)
@@ -197,18 +206,24 @@ class LocalCheckpointPackageEngine:
     ) -> None:
         selected = executable or shutil.which("lean-ctx")
         if selected is None:
-            raise WorkspaceIncompatibleError("lean-ctx Engine executable is unavailable")
+            raise WorkspaceIncompatibleError(
+                "lean-ctx Engine executable is unavailable"
+            )
         try:
             selected_info = os.lstat(selected)
         except OSError as exc:
-            raise WorkspaceIncompatibleError("lean-ctx Engine executable is unavailable") from exc
+            raise WorkspaceIncompatibleError(
+                "lean-ctx Engine executable is unavailable"
+            ) from exc
         if stat.S_ISLNK(selected_info.st_mode):
             raise WorkspaceIncompatibleError("lean-ctx Engine executable is invalid")
         resolved = os.path.realpath(selected)
         try:
             info = os.stat(resolved)
         except OSError as exc:
-            raise WorkspaceIncompatibleError("lean-ctx Engine executable is unavailable") from exc
+            raise WorkspaceIncompatibleError(
+                "lean-ctx Engine executable is unavailable"
+            ) from exc
         if not stat.S_ISREG(info.st_mode) or info.st_mode & stat.S_IXUSR == 0:
             raise WorkspaceIncompatibleError("lean-ctx Engine executable is invalid")
         if timeout <= 0 or timeout > 120:
@@ -230,15 +245,22 @@ class LocalCheckpointPackageEngine:
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise WorkspaceIOError() from exc
-        if len(result.stdout) > _MAX_ENGINE_OUTPUT_BYTES or len(result.stderr) > _MAX_ENGINE_ERROR_BYTES:
+        if (
+            len(result.stdout) > _MAX_ENGINE_OUTPUT_BYTES
+            or len(result.stderr) > _MAX_ENGINE_ERROR_BYTES
+        ):
             raise WorkspacePolicyError()
         if result.returncode != 0:
-            raise WorkspaceIncompatibleError("Engine rejected checkpoint package operation")
+            raise WorkspaceIncompatibleError(
+                "Engine rejected checkpoint package operation"
+            )
         try:
             decoded = result.stdout.decode("utf-8", "strict")
             value = strict_json_loads(decoded)
         except Exception as exc:
-            raise WorkspaceIncompatibleError("Engine checkpoint response is invalid") from exc
+            raise WorkspaceIncompatibleError(
+                "Engine checkpoint response is invalid"
+            ) from exc
         if not isinstance(value, Mapping):
             raise WorkspaceIncompatibleError("Engine checkpoint response is invalid")
         return value
@@ -255,10 +277,14 @@ class LocalCheckpointPackageEngine:
     ) -> CheckpointPackageInspection:
         raw_destination = Path(os.fspath(destination)).expanduser()
         if raw_destination.is_symlink():
-            raise WorkspaceValidationError("destination must be a non-symlink .ctxpkg path")
+            raise WorkspaceValidationError(
+                "destination must be a non-symlink .ctxpkg path"
+            )
         destination_path = raw_destination.resolve()
         if destination_path.suffix != ".ctxpkg":
-            raise WorkspaceValidationError("destination must be a non-symlink .ctxpkg path")
+            raise WorkspaceValidationError(
+                "destination must be a non-symlink .ctxpkg path"
+            )
         if migration_provenance is not None and (
             migration_provenance.checkpoint_id != checkpoint.checkpoint_id
             or migration_provenance.state_digest != checkpoint.state_digest
@@ -321,7 +347,9 @@ class LocalCheckpointPackageEngine:
             "checkpoint inspect response",
         )
         if response["schema_version"] != _INSPECT_SCHEMA:
-            raise WorkspaceIncompatibleError("Engine checkpoint inspect schema is unsupported")
+            raise WorkspaceIncompatibleError(
+                "Engine checkpoint inspect schema is unsupported"
+            )
         package = _exact(
             response["package"],
             (
@@ -338,9 +366,16 @@ class LocalCheckpointPackageEngine:
             "checkpoint package identity",
         )
         if package["schema_version"] != 2 or package["kind"] != "context":
-            raise WorkspaceIncompatibleError("checkpoint package is not additive ctxpkg v2")
-        if not isinstance(package["layers"], list) or package["layers"].count("checkpoint") != 1:
-            raise WorkspaceIncompatibleError("checkpoint package layer is missing or duplicated")
+            raise WorkspaceIncompatibleError(
+                "checkpoint package is not additive ctxpkg v2"
+            )
+        if (
+            not isinstance(package["layers"], list)
+            or package["layers"].count("checkpoint") != 1
+        ):
+            raise WorkspaceIncompatibleError(
+                "checkpoint package layer is missing or duplicated"
+            )
         for name in ("package_digest", "content_hash"):
             digest = package[name]
             if (
@@ -350,10 +385,14 @@ class LocalCheckpointPackageEngine:
                 or any(char not in "0123456789abcdef" for char in digest[7:])
             ):
                 raise WorkspaceIncompatibleError("checkpoint package digest is invalid")
-        if not isinstance(package["name"], str) or not isinstance(package["version"], str):
+        if not isinstance(package["name"], str) or not isinstance(
+            package["version"], str
+        ):
             raise WorkspaceIncompatibleError("checkpoint package identity is invalid")
         if package["signature_state"] not in {"signed_valid", "unsigned"}:
-            raise WorkspaceIncompatibleError("checkpoint package signature state is invalid")
+            raise WorkspaceIncompatibleError(
+                "checkpoint package signature state is invalid"
+            )
         signer = package["signer_public_key"]
         if (
             package["signature_state"] == "signed_valid"
@@ -363,19 +402,28 @@ class LocalCheckpointPackageEngine:
                 or any(char not in "0123456789abcdef" for char in signer)
             )
         ) or (package["signature_state"] == "unsigned" and signer is not None):
-            raise WorkspaceIncompatibleError("checkpoint package signer identity is invalid")
+            raise WorkspaceIncompatibleError(
+                "checkpoint package signer identity is invalid"
+            )
         portable_raw = response["checkpoint"]
         if not isinstance(portable_raw, Mapping):
             raise WorkspaceIncompatibleError("portable checkpoint envelope is invalid")
         portable = _exact(
             portable_raw,
-            ("schema_version", "checkpoint", "migration_provenance", "non_portable_fields")
+            (
+                "schema_version",
+                "checkpoint",
+                "migration_provenance",
+                "non_portable_fields",
+            )
             if "migration_provenance" in portable_raw
             else ("schema_version", "checkpoint", "non_portable_fields"),
             "portable checkpoint envelope",
         )
         if portable["schema_version"] != _PACKAGE_ENVELOPE_SCHEMA:
-            raise WorkspaceIncompatibleError("portable checkpoint schema is unsupported")
+            raise WorkspaceIncompatibleError(
+                "portable checkpoint schema is unsupported"
+            )
         checkpoint = ContextCheckpointV2.from_dict(portable["checkpoint"])
         declared = portable["non_portable_fields"]
         expected = _non_portable_fields(checkpoint.to_dict())
@@ -384,11 +432,18 @@ class LocalCheckpointPackageEngine:
             or any(not isinstance(item, str) for item in declared)
             or tuple(declared) != expected
         ):
-            raise WorkspaceIncompatibleError("non-portable checkpoint fields are misclassified")
+            raise WorkspaceIncompatibleError(
+                "non-portable checkpoint fields are misclassified"
+            )
         migration = None
         if portable.get("migration_provenance") is not None:
-            migration = SnapshotV1MigrationProvenance.from_dict(portable["migration_provenance"])
-            if migration.checkpoint_id != checkpoint.checkpoint_id or migration.state_digest != checkpoint.state_digest:
+            migration = SnapshotV1MigrationProvenance.from_dict(
+                portable["migration_provenance"]
+            )
+            if (
+                migration.checkpoint_id != checkpoint.checkpoint_id
+                or migration.state_digest != checkpoint.state_digest
+            ):
                 raise WorkspaceConflictError()
         return CheckpointPackageInspection(
             str(path),
@@ -434,12 +489,19 @@ class LocalCheckpointPackageEngine:
             or not isinstance(response["artifact_digest"], str)
             or len(response["artifact_digest"]) != 71
             or not response["artifact_digest"].startswith("sha256:")
-            or any(char not in "0123456789abcdef" for char in response["artifact_digest"][7:])
+            or any(
+                char not in "0123456789abcdef"
+                for char in response["artifact_digest"][7:]
+            )
             or not isinstance(response["signer_public_key"], str)
             or len(response["signer_public_key"]) != 64
-            or any(char not in "0123456789abcdef" for char in response["signer_public_key"])
+            or any(
+                char not in "0123456789abcdef" for char in response["signer_public_key"]
+            )
         ):
-            raise WorkspaceIncompatibleError("SnapshotV1 verification result is invalid")
+            raise WorkspaceIncompatibleError(
+                "SnapshotV1 verification result is invalid"
+            )
         return SnapshotV1Inspection(
             response["snapshot_id"],
             response["artifact_digest"],
@@ -460,7 +522,10 @@ def seal_checkpoint_package(
 ) -> CheckpointPackageInspection:
     if checkpoint.workspace_id != workspace.workspace_id:
         raise WorkspaceConflictError()
-    if workspace.get_checkpoint(checkpoint.checkpoint_id).to_dict() != checkpoint.to_dict():
+    if (
+        workspace.get_checkpoint(checkpoint.checkpoint_id).to_dict()
+        != checkpoint.to_dict()
+    ):
         raise WorkspaceConflictError()
     selected = engine or LocalCheckpointPackageEngine()
     inspection = selected.seal(

@@ -1,6 +1,6 @@
 # LeanCTX SDK v1 Public Surface Manifest
 
-This manifest is the allowlist for `thinkery-leanctx-sdk` 1.0.0. Public import tests and
+This manifest is the allowlist for `thinkery-leanctx-sdk` 1.1.0. Public import tests and
 wheel inspection must agree with it before release. Anything not listed is
 Internal unless a later version updates this file deliberately.
 
@@ -17,6 +17,21 @@ Internal unless a later version updates this file deliberately.
 Status: Stable. These are the only product primitives covered by the v1
 five-primitive compatibility promise.
 
+## Stable Agent Tools
+
+| Symbol | Module | Status | Since | Compatibility | Owner |
+| --- | --- | --- | --- | --- | --- |
+| `AgentContext` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `AsyncAgentContext` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `AgentPermissions` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `ExecutionPolicy` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `ReadMode` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `ToolResult` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+| `AgentMetrics` | `leanctx_sdk` | STABLE | 1.1.0 | SemVer | SDK API owner |
+
+These symbols implement the separate Agent Tools Interface. They do not add
+Product primitives to the five-primitive lifecycle contract.
+
 ## Stable supporting surface
 
 These root exports are public support contracts for the five primitives:
@@ -26,14 +41,17 @@ These root exports are public support contracts for the five primitives:
   `HostOutcome`, `Integrity`, `RecoveredSource`, `SessionState`.
 - Engine adapters: `EngineClient`, `SubprocessEngineClient`.
 - Version constants: `ENGINE_INTERFACE_VERSION`, `SCHEMA_VERSION`,
-  `TRANSPORT_VERSION`; package version: `__version__`.
+  `TRANSPORT_VERSION`, `AGENT_TOOLS_INTERFACE_VERSION`,
+  `AGENT_TOOLS_SCHEMA_VERSION`, `AGENT_TOOLS_TRANSPORT_VERSION`,
+  `SUPPORTED_AGENT_TOOLS_ENGINE_VERSION`; package version: `__version__`.
 - Base and operational errors: `SDKError`, `ArtifactIntegrityError`,
   `CompatibilityError`, `ConfigurationError`, `EngineError`,
   `EngineExecutionError`, `EngineProtocolError`, `EngineRejected`,
   `EngineTimeout`, `EngineUnavailable`, `FrameworkCompatibilityError`,
   `FrameworkIntegrationError`, `PolicyAdmissionError`,
   `RecoveryUnavailableError`, `SessionStateError`, `SourceUnavailableError`,
-  `UnsupportedEngineError`, `ValidationError`.
+  `UnsupportedEngineError`, `ValidationError`, `EngineCrashed`,
+  `AgentPermissionError`, `UnsupportedCapabilityError`.
 
 Status: Stable supporting API. Changes follow SemVer but these symbols are not
 additional product primitives.
@@ -89,7 +107,8 @@ Versioned record names remain schema identifiers, not separate stability tiers.
 
 ## Release invariants
 
-1. Root `__all__` equals Stable primitives plus Stable supporting surface.
+1. Root `__all__` equals Stable primitives, Agent Tools, and Stable supporting
+   surface.
 2. Preview `__all__` equals the Preview namespace list above.
 3. Stable imports never depend on Preview modules.
 4. Public modules never import private research or Cloud implementation.

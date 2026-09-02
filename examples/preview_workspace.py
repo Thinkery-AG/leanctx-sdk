@@ -31,9 +31,9 @@ def main() -> None:
             base,
             event_id="00000000-0000-4000-8000-000000000012",
         )
-        assert tuple(entry.entry_id for entry in reopened.project_context().entries) == (
-            entry_id,
-        )
+        assert tuple(
+            entry.entry_id for entry in reopened.project_context().entries
+        ) == (entry_id,)
         child = reopened.fork(
             "child",
             from_checkpoint=base,

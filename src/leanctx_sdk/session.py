@@ -157,7 +157,9 @@ class ContextSession:
             )
             if self._plan is not None:
                 if self._plan.plan_id != candidate.plan_id:
-                    raise SessionStateError("a session cannot replace its Product intent")
+                    raise SessionStateError(
+                        "a session cannot replace its Product intent"
+                    )
                 return self._plan
             self._plan = candidate
             self._state = SessionState.PLANNED.value
@@ -171,8 +173,14 @@ class ContextSession:
         freshness: str = "reuse",
     ) -> Optional[ContextView]:
         with self._lock:
-            if self._state in {SessionState.COMPLETED.value, SessionState.ABORTED.value, SessionState.CLOSED.value}:
-                raise SessionStateError("prepare is not legal after terminal completion")
+            if self._state in {
+                SessionState.COMPLETED.value,
+                SessionState.ABORTED.value,
+                SessionState.CLOSED.value,
+            }:
+                raise SessionStateError(
+                    "prepare is not legal after terminal completion"
+                )
             if self._prepared:
                 return self._view
             if self._plan is None:
@@ -217,7 +225,9 @@ class ContextSession:
     ) -> ContextReceipt:
         with self._lock:
             if self._state == SessionState.COMPLETED.value:
-                if self._receipt is None or not self._same_completion(self._receipt, outcome, usage):
+                if self._receipt is None or not self._same_completion(
+                    self._receipt, outcome, usage
+                ):
                     raise SessionStateError("conflicting repeated complete")
                 return self._receipt
             if self._state in {SessionState.ABORTED.value, SessionState.CLOSED.value}:
@@ -231,7 +241,9 @@ class ContextSession:
                 HostOutcome.COMPLETED.value,
                 HostOutcome.FAILED.value,
             }:
-                raise ValidationError("complete outcome must be an explicit non-aborted host outcome")
+                raise ValidationError(
+                    "complete outcome must be an explicit non-aborted host outcome"
+                )
             receipt = self._make_receipt(
                 outcome=outcome,
                 host_result=host_result,
@@ -252,7 +264,10 @@ class ContextSession:
                     raise SessionStateError("aborted session has no receipt")
                 return self._receipt
             if self._state == SessionState.CLOSED.value:
-                if self._receipt is not None and self._receipt.outcome == HostOutcome.ABORTED.value:
+                if (
+                    self._receipt is not None
+                    and self._receipt.outcome == HostOutcome.ABORTED.value
+                ):
                     return self._receipt
                 raise SessionStateError("closed session has no abort receipt")
             if self._state == SessionState.COMPLETED.value:
@@ -277,7 +292,9 @@ class ContextSession:
                 SessionState.COMPLETED.value,
                 SessionState.ABORTED.value,
             }:
-                raise SessionStateError("recover requires an executing or terminal session")
+                raise SessionStateError(
+                    "recover requires an executing or terminal session"
+                )
             selected = view if view is not None else self._view
             if selected is None or self._plan is None:
                 raise RecoveryUnavailableError(
@@ -285,7 +302,10 @@ class ContextSession:
                 )
             current_view = self._view
             if selected is not current_view:
-                if current_view is None or selected.recovery_binding() != current_view.recovery_binding():
+                if (
+                    current_view is None
+                    or selected.recovery_binding() != current_view.recovery_binding()
+                ):
                     raise RecoveryUnavailableError(
                         "recovery view is not bound to this session"
                     )
@@ -319,7 +339,10 @@ class ContextSession:
         with self._lock:
             if self._state == SessionState.CLOSED.value:
                 return
-            if self._state not in {SessionState.COMPLETED.value, SessionState.ABORTED.value}:
+            if self._state not in {
+                SessionState.COMPLETED.value,
+                SessionState.ABORTED.value,
+            }:
                 raise SessionStateError("close requires a terminal receipt")
             self._state = SessionState.CLOSED.value
 
@@ -359,7 +382,11 @@ class ContextSession:
         host_exception_type: Optional[str],
         host_exception: Optional[BaseException],
     ) -> ContextReceipt:
-        integrity = self._view.integrity_status.value if self._view is not None else Integrity.UNSEALED.value
+        integrity = (
+            self._view.integrity_status.value
+            if self._view is not None
+            else Integrity.UNSEALED.value
+        )
         if self._view is None:
             integrity = Integrity.UNSEALED.value
         return ContextReceipt(
@@ -377,11 +404,17 @@ class ContextSession:
         )
 
     @staticmethod
-    def _same_completion(receipt: ContextReceipt, outcome: str, usage: Optional[Mapping[str, object]]) -> bool:
+    def _same_completion(
+        receipt: ContextReceipt, outcome: str, usage: Optional[Mapping[str, object]]
+    ) -> bool:
         if outcome != receipt.outcome:
             return False
         try:
-            left = canonical_bytes(_plain(receipt.usage)) if receipt.usage is not None else None
+            left = (
+                canonical_bytes(_plain(receipt.usage))
+                if receipt.usage is not None
+                else None
+            )
             right = canonical_bytes(_plain(usage)) if usage is not None else None
         except ValidationError:
             return False

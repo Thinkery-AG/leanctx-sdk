@@ -77,8 +77,10 @@ class WorkspaceSensitiveDataError(WorkspaceError):
     code = "workspace_sensitive_data"
 
     def __init__(self, field_name="value"):
-        if not isinstance(field_name, str) or not field_name or any(
-            not (char.isalnum() or char in "._-") for char in field_name
+        if (
+            not isinstance(field_name, str)
+            or not field_name
+            or any(not (char.isalnum() or char in "._-") for char in field_name)
         ):
             field_name = "value"
         self.field_name = field_name
@@ -138,6 +140,31 @@ class EngineTimeout(EngineError):
     retryable = True
     degrade_allowed = True
     abort_required = False
+
+
+class EngineCrashed(EngineError):
+    """The persistent Agent Tools Engine process exited unexpectedly."""
+
+    code = "engine_crashed"
+    guidance = (
+        "create a new AgentContext; mutation and execution calls are never retried"
+    )
+
+
+class AgentPermissionError(EngineError):
+    """The immutable AgentContext policy rejected a tool call."""
+
+    code = "agent_permission_denied"
+    guidance = "create a new AgentContext with the required explicit permission"
+    configuration_fix = True
+
+
+class UnsupportedCapabilityError(EngineError):
+    """The connected Engine did not negotiate the requested capability."""
+
+    code = "unsupported_capability"
+    guidance = "install a compatible Engine or choose a negotiated capability"
+    version_change = True
 
 
 class EngineProtocolError(EngineError):

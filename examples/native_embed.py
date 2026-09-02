@@ -2,7 +2,12 @@
 
 from typing import Callable, Tuple
 
-from leanctx_sdk import ContextReceipt, ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import (
+    ContextReceipt,
+    ContextSession,
+    ContextSource,
+    SubprocessEngineClient,
+)
 from leanctx_sdk.integrations.native_embed import abort, complete, prepare
 
 

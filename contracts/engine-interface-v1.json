@@ -1,0 +1,63 @@
+{
+  "contract": "leanctx-engine-interface",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "transport_version": 1,
+  "wire": {
+    "encoding": "UTF-8 JSON",
+    "canonicalization": "keys sorted by Unicode code point; compact separators; portable numbers are safe integers excluding negative zero",
+    "unknown_fields": "reject",
+    "duplicate_fields": "reject"
+  },
+  "limits": {
+    "request_bytes": 65536,
+    "response_bytes": 16777216,
+    "stderr_bytes": 65536,
+    "text_bytes": 8388608,
+    "path_bytes": 4096,
+    "ref_bytes": 512,
+    "refs": 32,
+    "measurements": 32,
+    "timeout_seconds": [0.1, 120]
+  },
+  "operations": {
+    "context-view": {
+      "request_keys": ["schema_version", "transport_version", "engine_interface_version", "path", "mode"],
+      "mode": "aggressive",
+      "records": "invocation and observation required"
+    },
+    "recover": {
+      "request_keys": ["schema_version", "transport_version", "engine_interface_version", "path", "recovery_ref", "source_ref", "source_digest"],
+      "records": "invocation and observation must be null"
+    }
+  },
+  "response": {
+    "top_level_keys": ["schema_version", "transport_version", "engine_interface_version", "view", "invocation", "observation", "recovery"],
+    "required_view_keys": ["text", "output_ref", "output_digest"],
+    "required_recovery_keys": ["recovery_ref", "source_ref", "source_digest"]
+  },
+  "hash_bindings": {
+    "output_ref": "output:<sha256 hex without prefix>",
+    "output_digest": "sha256:<64 lowercase hex>",
+    "plan_id": "plan:sha256:<canonical intent sha256>",
+    "recovery_source": "recovery.source_digest must equal recovered text sha256"
+  },
+  "process": {
+    "shell": false,
+    "argv": true,
+    "environment_allowlist": ["LANG", "LC_ALL", "PYTHONHASHSEED", "TZ"],
+    "temporary_files": "0600 beneath project root; always removed",
+    "path_lookup": "non-empty PATH entries only; executable and regular file required"
+  },
+  "typed_failures": {
+    "unsafe_root|source_outside_root|source_symlink|policy_rejected": "PolicyAdmissionError",
+    "source_unavailable": "SourceUnavailableError",
+    "unsupported_mode": "UnsupportedEngineError",
+    "other_nonzero": "EngineExecutionError"
+  },
+  "conformance": {
+    "contract_fixture": "fixtures/sdk-v1/contract.json",
+    "serialization_hashes": "fixtures/sdk-v1/serialization-sha256.json",
+    "engine_success": "fixtures/engine-interface-v1/r1-success.json"
+  }
+}

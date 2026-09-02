@@ -46,7 +46,16 @@ def main() -> None:
     parser.add_argument("--project-root", type=Path, required=True)
     parser.add_argument("--path", required=True)
     args = parser.parse_args()
-    print(json.dumps(run(args.engine.resolve(strict=True), args.project_root.resolve(strict=True), args.path), sort_keys=True))
+    print(
+        json.dumps(
+            run(
+                args.engine.resolve(strict=True),
+                args.project_root.resolve(strict=True),
+                args.path,
+            ),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

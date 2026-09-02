@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 (release candidate)
+
+- Stable PR #8 Agent Tools contract with explicit read/write/execute policy,
+  persistent Engine sessions, metrics, reconnect, and typed failures.
+- Language-native SDK previews for Python, TypeScript, Go, Rust, Java/Kotlin,
+  and .NET with shared Product/Engine wire fingerprints.
+- Fixed fresh-process `bind_source` → `attach_session` for forked Workspaces
+  without persisting machine-local source paths.
+- Extended the tested Python contract through CPython 3.14 and enforced Ruff
+  formatting plus complementary ty/mypy checks in the release gate.
+- Publication remains locked to verified LeanCTX Engine 3.10.1 artifacts.
+
 ## 1.0.0
 
 ### Stable

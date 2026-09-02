@@ -136,9 +136,12 @@ def _package_pin():
 
 def _rehash_checkpoint_envelope(value):
     unsigned = {key: item for key, item in value.items() if key != "envelope_digest"}
-    value["envelope_digest"] = "sha256:" + hashlib.sha256(
-        b"leanctx.checkpoint.envelope.v2\n" + canonical_bytes(unsigned)
-    ).hexdigest()
+    value["envelope_digest"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"leanctx.checkpoint.envelope.v2\n" + canonical_bytes(unsigned)
+        ).hexdigest()
+    )
 
 
 def _planned_session(
@@ -206,12 +209,18 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaises(WorkspaceValidationError):
             SourceFreshness("2026-08-26T00:00:00Z", "current", "2026-08-25T00:00:00Z")
         with self.assertRaises(WorkspaceValidationError):
-            ContextWorkspace.create(tempfile.gettempdir(), "x", workspace_id="../escape")
+            ContextWorkspace.create(
+                tempfile.gettempdir(), "x", workspace_id="../escape"
+            )
         with tempfile.TemporaryDirectory() as root:
             workspace = ContextWorkspace.create(root, "fixture")
             with self.assertRaises(WorkspaceSensitiveDataError) as raised:
                 workspace.commit_context(
-                    [ProjectContextEntry(str(uuid.uuid4()), "facts", "api_key = secret")]
+                    [
+                        ProjectContextEntry(
+                            str(uuid.uuid4()), "facts", "api_key = secret"
+                        )
+                    ]
                 )
         self.assertEqual(str(raised.exception), "workspace_sensitive_data:value")
 
@@ -246,13 +255,18 @@ class WorkspaceTests(unittest.TestCase):
                 receipt_refs=(engine_receipt.receipt_link.receipt_ref,),
                 recovery_refs=(engine_receipt.recovery_ref,),
             )
-            self.assertEqual(receipt.engine_receipt_refs, (engine_receipt.receipt_link.receipt_ref,))
+            self.assertEqual(
+                receipt.engine_receipt_refs, (engine_receipt.receipt_link.receipt_ref,)
+            )
             context = reopened.project_context()
             self.assertEqual(context.entries, (expected,))
             self.assertEqual(context.filtered_count, 0)
             self.assertEqual(context.omitted_by_bounds, 0)
             reopened.complete()
-            self.assertEqual(ContextWorkspace.open(root, workspace.workspace_id).status().lifecycle, "completed")
+            self.assertEqual(
+                ContextWorkspace.open(root, workspace.workspace_id).status().lifecycle,
+                "completed",
+            )
             with self.assertRaises(WorkspaceLifecycleError):
                 reopened.commit_context(
                     [ProjectContextEntry(str(uuid.uuid4()), "facts", "late")]
@@ -273,7 +287,9 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaises(WorkspacePolicyError):
                 workspace.tighten_policy(WorkspacePolicy(max_events=1))
             with self.assertRaises(WorkspacePolicyError):
-                workspace.tighten_policy(WorkspacePolicy(allowed_categories=("decisions",)))
+                workspace.tighten_policy(
+                    WorkspacePolicy(allowed_categories=("decisions",))
+                )
 
     def test_checkpoint_is_immutable_and_restore_is_append_only(self):
         with tempfile.TemporaryDirectory() as root:
@@ -328,7 +344,9 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(checkpoint_event.read_bytes(), checkpoint_bytes)
 
             reopened = ContextWorkspace.open(root, workspace.workspace_id)
-            self.assertEqual(reopened.get_checkpoint(checkpoint.checkpoint_id), checkpoint)
+            self.assertEqual(
+                reopened.get_checkpoint(checkpoint.checkpoint_id), checkpoint
+            )
             first_restore_head = reopened.status().state_digest
             reopened.restore(checkpoint)
             self.assertEqual(
@@ -401,7 +419,11 @@ class WorkspaceTests(unittest.TestCase):
                     {"recovery_refs": ["receipt:sha256:" + "2" * 64]}
                 ),
                 lambda value: value.update(
-                    {"package_pins": [{"name": "forged", "digest": "sha256:" + "3" * 64}]}
+                    {
+                        "package_pins": [
+                            {"name": "forged", "digest": "sha256:" + "3" * 64}
+                        ]
+                    }
                 ),
                 lambda value: value.update(
                     {"package_lock_digest": "sha256:" + "4" * 64}
@@ -421,8 +443,7 @@ class WorkspaceTests(unittest.TestCase):
             checkpoint = workspace.checkpoint()
             oversized = checkpoint.to_dict()
             oversized["recovery_refs"] = [
-                "recovery:sha256:" + f"{index:064x}"
-                for index in range(4097)
+                "recovery:sha256:" + f"{index:064x}" for index in range(4097)
             ]
             with self.assertRaises(WorkspacePolicyError):
                 ContextCheckpointV2.from_dict(oversized)
@@ -452,15 +473,25 @@ class WorkspaceTests(unittest.TestCase):
     def test_replay_rejects_corrupt_and_unknown_schema(self):
         with tempfile.TemporaryDirectory() as root:
             workspace = ContextWorkspace.create(root, "fixture")
-            event_path = next((Path(root) / "workspaces" / workspace.workspace_id / "events").glob("*.json"))
+            event_path = next(
+                (Path(root) / "workspaces" / workspace.workspace_id / "events").glob(
+                    "*.json"
+                )
+            )
             record = json.loads(event_path.read_text(encoding="utf-8"))
             record["schema_version"] = "leanctx.workspace-event/v99"
-            event_path.write_text(json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
+            event_path.write_text(
+                json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8"
+            )
             with self.assertRaises(WorkspaceIncompatibleError):
                 ContextWorkspace.open(root, workspace.workspace_id)
 
             other = ContextWorkspace.create(root, "other")
-            other_event = next((Path(root) / "workspaces" / other.workspace_id / "events").glob("*.json"))
+            other_event = next(
+                (Path(root) / "workspaces" / other.workspace_id / "events").glob(
+                    "*.json"
+                )
+            )
             other_event.write_bytes(b"truncated\n")
             with self.assertRaises(WorkspaceCorruptError):
                 ContextWorkspace.open(root, other.workspace_id)
@@ -567,7 +598,10 @@ class WorkspaceTests(unittest.TestCase):
             event_path = next(events.glob("*.json"))
             twin = events / ".event-crash-twin"
             os.link(event_path, twin)
-            self.assertEqual(ContextWorkspace.open(root, workspace.workspace_id).status().health, "healthy")
+            self.assertEqual(
+                ContextWorkspace.open(root, workspace.workspace_id).status().health,
+                "healthy",
+            )
             twin.unlink()
             arbitrary = events / "not-an-event"
             os.link(event_path, arbitrary)
@@ -635,9 +669,13 @@ class WorkspaceTests(unittest.TestCase):
             session, _ = _planned_session(root)
             first_id = str(uuid.uuid4())
             second_id = str(uuid.uuid4())
-            workspace.attach_session(session, source_ids=["source-1"], event_id=first_id)
+            workspace.attach_session(
+                session, source_ids=["source-1"], event_id=first_id
+            )
             with self.assertRaises(WorkspaceConflictError):
-                workspace.attach_session(session, source_ids=["source-1"], event_id=second_id)
+                workspace.attach_session(
+                    session, source_ids=["source-1"], event_id=second_id
+                )
 
     def test_forged_trust_and_caller_lineage_are_rejected(self):
         with self.assertRaises(WorkspaceValidationError):
@@ -718,7 +756,9 @@ class WorkspaceTests(unittest.TestCase):
                 evidence_receipts=(evidence,),
             )
             self.assertEqual(receipt.source_ids, ("source-1",))
-            persisted = ContextWorkspace.open(root, workspace.workspace_id)._read_state()
+            persisted = ContextWorkspace.open(
+                root, workspace.workspace_id
+            )._read_state()
             stored = persisted.sources["source-1"]
             self.assertEqual(stored.trust.level, "verified")
             self.assertEqual(
@@ -737,7 +777,9 @@ class WorkspaceTests(unittest.TestCase):
             updated = ContextWorkspace.open(root, workspace.workspace_id)._read_state()
             self.assertEqual(updated.sources["source-1"].trust.level, "verified")
 
-    def test_commit_context_requires_exact_attached_session_and_derives_provenance(self):
+    def test_commit_context_requires_exact_attached_session_and_derives_provenance(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as root:
             workspace = ContextWorkspace.create(root, "fixture")
             workspace.attach_source(_anchor(root, path="source.txt"))
@@ -847,9 +889,12 @@ class WorkspaceTests(unittest.TestCase):
                 provenance = record["payload"]["provenance"]
                 provenance["receipt_refs"] = [forged_ref]
                 provenance["receipt_proof"]["receipt_link"]["receipt_ref"] = forged_ref
-                provenance["receipt_proof_digest"] = "sha256:" + hashlib.sha256(
-                    canonical_bytes(provenance["receipt_proof"])
-                ).hexdigest()
+                provenance["receipt_proof_digest"] = (
+                    "sha256:"
+                    + hashlib.sha256(
+                        canonical_bytes(provenance["receipt_proof"])
+                    ).hexdigest()
+                )
 
             _rewrite_event(workspace, forge, kind="context_committed")
             with self.assertRaises(WorkspaceIncompatibleError):
@@ -959,7 +1004,10 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(len(tuple(events.glob("*.json"))), 2)
 
     def test_checkpoint_package_seal_and_fresh_seed_preserve_logical_state(self):
-        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as seed_root:
+        with (
+            tempfile.TemporaryDirectory() as source_root,
+            tempfile.TemporaryDirectory() as seed_root,
+        ):
             source = ContextWorkspace.create(source_root, "source")
             source.pin_package(_package_pin())
             checkpoint = source.checkpoint()
@@ -1001,7 +1049,10 @@ class WorkspaceTests(unittest.TestCase):
             self.assertIsNotNone(checkpoint.package_lock_digest)
 
     def test_trusted_signed_seed_preserves_verified_source_trust(self):
-        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as seed_root:
+        with (
+            tempfile.TemporaryDirectory() as source_root,
+            tempfile.TemporaryDirectory() as seed_root,
+        ):
             Path(source_root, "source.txt").write_text("source\n", encoding="utf-8")
             source = ContextWorkspace.create(source_root, "source")
             source.attach_source(_anchor(source_root))
@@ -1042,7 +1093,10 @@ class WorkspaceTests(unittest.TestCase):
             )
 
     def test_checkpoint_package_admission_keeps_signature_and_trust_separate(self):
-        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as target:
+        with (
+            tempfile.TemporaryDirectory() as source_root,
+            tempfile.TemporaryDirectory() as target,
+        ):
             checkpoint = ContextWorkspace.create(source_root, "source").checkpoint()
             signed_engine = _CheckpointPackageEngine(_package_inspection(checkpoint))
             with self.assertRaises(WorkspacePolicyError):
@@ -1053,7 +1107,10 @@ class WorkspaceTests(unittest.TestCase):
                     engine=signed_engine,
                 )
 
-        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as target:
+        with (
+            tempfile.TemporaryDirectory() as source_root,
+            tempfile.TemporaryDirectory() as target,
+        ):
             checkpoint = ContextWorkspace.create(source_root, "source").checkpoint()
             unsigned_engine = _CheckpointPackageEngine(
                 _package_inspection(checkpoint, signed=False)
@@ -1074,7 +1131,9 @@ class WorkspaceTests(unittest.TestCase):
             )
             self.assertEqual(seeded.workspace_id, checkpoint.workspace_id)
 
-    def test_checkpoint_package_bridge_rejects_symlinks_and_invalid_crypto_identity(self):
+    def test_checkpoint_package_bridge_rejects_symlinks_and_invalid_crypto_identity(
+        self,
+    ):
         from leanctx_sdk import checkpoint_package as package_module
 
         self.assertEqual(
@@ -1188,9 +1247,7 @@ class WorkspaceTests(unittest.TestCase):
                     workspace,
                     snapshot_path,
                     engine=engine,
-                    limitations=(
-                        "SnapshotV1 has no Workspace policy or package lock",
-                    ),
+                    limitations=("SnapshotV1 has no Workspace policy or package lock",),
                 )
                 checkpoint = migrated.checkpoint
                 migration = migrated.provenance

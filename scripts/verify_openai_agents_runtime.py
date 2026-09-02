@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import inspect
 import json
 import tempfile
 from pathlib import Path
 
-from agents import Agent, Model, ModelResponse, Usage, set_tracing_disabled
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
-from leanctx_sdk.integrations.openai_agents import OpenAIAgentsAdapter
+from agents import (
+    Agent,
+    Model,
+    ModelResponse,
+    RunContextWrapper,
+    Usage,
+    set_tracing_disabled,
+)
+from leanctx_sdk import (
+    AgentContext,
+    ContextSession,
+    ContextSource,
+    SubprocessEngineClient,
+)
+from leanctx_sdk.integrations.openai_agents import OpenAIAgentsAdapter, openai_tools
 from openai.types.responses import ResponseOutputMessage, ResponseOutputText
 
 
@@ -87,7 +100,9 @@ def verify(engine: Path) -> dict[str, object]:
             failure.run_sync("caller-input")
         except RuntimeError as caught:
             if caught is not error:
-                raise AssertionError("real Runner exception identity changed") from caught
+                raise AssertionError(
+                    "real Runner exception identity changed"
+                ) from caught
         else:
             raise AssertionError("real Runner failure did not propagate")
         if failure.receipt is None or failure.receipt.exception is not error:
@@ -96,12 +111,61 @@ def verify(engine: Path) -> dict[str, object]:
         if "provider-owned secret" in serialized:
             raise AssertionError("abort receipt serialized exception text")
 
+        (root / "agent-tools.txt").write_text(
+            "AGENT_TOOLS_RUNTIME_FACT=verified\n", encoding="utf-8"
+        )
+        with AgentContext(
+            root,
+            task="Find AGENT_TOOLS_RUNTIME_FACT",
+            engine_binary=engine,
+        ) as context:
+            tools = {tool.name: tool for tool in openai_tools(context)}
+            required = {"leanctx_read", "leanctx_search", "leanctx_tree"}
+            if not required.issubset(tools):
+                raise AssertionError("OpenAI function-tool surface is incomplete")
+            wrapper = RunContextWrapper(context=None)
+            search_result = asyncio.run(
+                tools["leanctx_search"].on_invoke_tool(
+                    wrapper,
+                    json.dumps(
+                        {
+                            "pattern": "AGENT_TOOLS_RUNTIME_FACT",
+                            "path": ".",
+                            "max_results": 20,
+                        },
+                        sort_keys=True,
+                    ),
+                )
+            )
+            if "AGENT_TOOLS_RUNTIME_FACT" not in str(search_result):
+                raise AssertionError("real OpenAI function tool lost Engine context")
+            read_result = asyncio.run(
+                tools["leanctx_read"].on_invoke_tool(
+                    wrapper,
+                    json.dumps(
+                        {"path": "agent-tools.txt", "mode": "full"},
+                        sort_keys=True,
+                    ),
+                )
+            )
+            if "AGENT_TOOLS_RUNTIME_FACT" not in str(read_result):
+                raise AssertionError("real OpenAI read tool lost Engine context")
+            tree_result = asyncio.run(
+                tools["leanctx_tree"].on_invoke_tool(
+                    wrapper,
+                    json.dumps({"path": ".", "depth": 2}, sort_keys=True),
+                )
+            )
+            if "agent-tools.txt" not in str(tree_result):
+                raise AssertionError("real OpenAI tree tool lost Engine context")
+
         sdk_path = Path(inspect.getfile(ContextSession)).resolve()
         if "site-packages" not in sdk_path.parts:
             raise AssertionError("verification imported SDK from source tree")
         return {
             "abort_receipt_verified": failure.receipt.verify(),
             "real_agents_runner": True,
+            "real_agent_tools": sorted(required),
             "sdk_import": str(sdk_path),
             "status": "PASS",
             "success_receipt_verified": success.receipt.verify(),

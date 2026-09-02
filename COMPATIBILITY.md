@@ -1,10 +1,30 @@
 # Compatibility
 
+## Stable SDK 1.1.0
+
+SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
+contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
+`1.0.0`, schema `1`, and transport `1` before exposing any tool.
+
+| Component | Declared scope | Release status |
+| --- | --- | --- |
+| Python | CPython 3.9–3.14 | supported |
+| SDK wheel | pure Python, `py3-none-any` | release candidate |
+| Agent Tools Engine | `v3.10.1` | required for `AgentContext`; not yet published |
+| Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
+| OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
+
+The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras become
+installable only when their exact 3.10.1 companion Engine packages are
+published. Until then, source checkouts must pass `engine_binary=` explicitly.
+No compatibility is inferred from a newer Engine or an executable found on
+`PATH`.
+
 ## Stable SDK 1.0.0
 
 | Component | Declared scope | Release status |
 | --- | --- | --- |
-| Python | CPython 3.9–3.12 | supported |
+| Python | CPython 3.9–3.14 | supported |
 | SDK wheel | pure Python, `py3-none-any` | release artifact |
 | Local Engine | `v3.10.0`, commit `5b6920216177b01f48694efff1d6be9505665263` | supported public release |
 | Engine protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |

@@ -40,7 +40,10 @@ def check_files(repository: Path, files: Iterable[Path]) -> dict[str, object]:
     checked = 0
     for relative in sorted(files, key=lambda value: value.as_posix().casefold()):
         name = PurePosixPath(relative.as_posix()).as_posix()
-        if name.startswith(_FORBIDDEN_PREFIXES) or PurePosixPath(name).name in _FORBIDDEN_NAMES:
+        if (
+            name.startswith(_FORBIDDEN_PREFIXES)
+            or PurePosixPath(name).name in _FORBIDDEN_NAMES
+        ):
             raise PublicReleaseGuardError(f"forbidden public-source path: {name}")
         path = repository / relative
         if not path.is_file() or path.is_symlink():
@@ -73,7 +76,9 @@ def main() -> None:
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     args = parser.parse_args()
     repository = args.repository.resolve(strict=True)
-    print(json.dumps(check_files(repository, tracked_files(repository)), sort_keys=True))
+    print(
+        json.dumps(check_files(repository, tracked_files(repository)), sort_keys=True)
+    )
 
 
 if __name__ == "__main__":
