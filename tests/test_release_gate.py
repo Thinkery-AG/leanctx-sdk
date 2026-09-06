@@ -331,21 +331,22 @@ class ReleaseGateTests(unittest.TestCase):
         for action_ref in action_refs:
             self.assertRegex(action_ref, r"^[0-9a-f]{40}$")
         for required in (
-            "ENGINE_COMMIT: 5b6920216177b01f48694efff1d6be9505665263",
+            "ENGINE_COMMIT: 4a76710a6c792229f170a66fdda1f4a0a64f47ee",
             "AGENT_TOOLS_ENGINE_VERSION: 3.10.1",
-            "ENGINE_VERSION: 3.10.0",
-            "ENGINE_TAG: v3.10.0",
+            "ENGINE_VERSION: 3.10.1",
+            "ENGINE_TAG: v3.10.1",
             "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
-            "ENGINE_LINUX_ARCHIVE_SHA256: f5ad20cbf3eba9ff3024348cc0abe71199f47ae0e13d5554bfeb6345154928e0",
-            "ENGINE_MACOS_ARCHIVE_SHA256: ecd773971d118a19a3de723e82d9f0831c8e1543094d350b3861bcaa75dc6035",
-            "ENGINE_CHECKSUMS_SHA256: 0fab38178ac0cbb4b1f807c602f77bc738082672f627fe02448b8be8e7f5d8e4",
+            "ENGINE_LINUX_ARCHIVE_SHA256: dae5bde18c58b7976b98f967f261bbdece8d3072dda23e6509f3da7d581b5c58",
+            "ENGINE_MACOS_ARCHIVE_SHA256: 25a14a6bc597739c8f5e8a8d18e85e38f89711e4fcb82bdd648b060d201360fd",
+            "ENGINE_CHECKSUMS_SHA256: 86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170",
+            "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.1",
             "PYTHONPATH: src:.",
             "static-quality:",
             "source-secret-scan:",
             "engine-artifact:",
             "engine-macos-artifact:",
-            "ENGINE_LINUX_X86_64_SHA256: 735f60243cf4030ee6bbb292f06fb23742483fd4c857aac91e02914b3a80ac03",
-            "ENGINE_MACOS_ARM64_SHA256: 8f7787ccc6376f1d34b8d342fbc916bd082673e6797ea384e6e10edc3641b4eb",
+            "ENGINE_LINUX_X86_64_SHA256: 0385c8169a4b20df84dc0f1e8b32788c3b7a402cb0b5ff484d391f8cd67a5bbc",
+            "ENGINE_MACOS_ARM64_SHA256: 00e08272eb443ab9c9539c58ec24cd0d9ae02d789ec0944ab56919e24a39fa23",
             "cosign verify-blob",
             "runs-on: macos-26",
             "engine-linux-x86_64-",
@@ -490,25 +491,25 @@ class ReleaseGateTests(unittest.TestCase):
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
             "sdk_commit": "a" * 40,
-            "sdk_version": "1.0.0",
+            "sdk_version": "1.1.0",
             "wheel_sha256": "b" * 64,
-            "engine_commit": "c" * 40,
-            "engine_version": "3.10.0",
-            "engine_tag": "v3.10.0",
-            "engine_linux_sha256": "d" * 64,
-            "engine_macos_sha256": "e" * 64,
+            "engine_commit": "4a76710a6c792229f170a66fdda1f4a0a64f47ee",
+            "engine_version": "3.10.1",
+            "engine_tag": "v3.10.1",
+            "engine_linux_sha256": "0385c8169a4b20df84dc0f1e8b32788c3b7a402cb0b5ff484d391f8cd67a5bbc",
+            "engine_macos_sha256": "00e08272eb443ab9c9539c58ec24cd0d9ae02d789ec0944ab56919e24a39fa23",
             "engine_release_repository": "yvgude/lean-ctx",
             "engine_release_url": (
-                "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0"
+                "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1"
             ),
             "engine_linux_asset": "lean-ctx-x86_64-unknown-linux-gnu.tar.gz",
             "engine_macos_asset": "lean-ctx-aarch64-apple-darwin.tar.gz",
-            "engine_linux_archive_sha256": "6" * 64,
-            "engine_macos_archive_sha256": "7" * 64,
-            "engine_checksums_sha256": "8" * 64,
+            "engine_linux_archive_sha256": "dae5bde18c58b7976b98f967f261bbdece8d3072dda23e6509f3da7d581b5c58",
+            "engine_macos_archive_sha256": "25a14a6bc597739c8f5e8a8d18e85e38f89711e4fcb82bdd648b060d201360fd",
+            "engine_checksums_sha256": "86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170",
             "engine_cosign_identity": (
                 "https://github.com/yvgude/lean-ctx/.github/workflows/"
-                "release.yml@refs/tags/v3.10.0"
+                "release.yml@refs/tags/v3.10.1"
             ),
             "dependency_manifest_sha256": "f" * 64,
             "dependency_policy_sha256": "1" * 64,
@@ -537,7 +538,10 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertIn(values["framework_version"], manifest)
             self.assertIn(values["release_workflow"], manifest)
             self.assertIn(values["engine_release_url"], manifest)
+            self.assertIn(values["engine_commit"], manifest)
             self.assertIn(values["engine_linux_archive_sha256"], manifest)
+            self.assertIn(values["engine_macos_archive_sha256"], manifest)
+            self.assertIn(values["engine_checksums_sha256"], manifest)
             license_status = (output / "LICENSE-STATUS.md").read_text(encoding="utf-8")
             self.assertIn("CUSTOM_LICENSE_TEXT_APPROVED", license_status)
             self.assertIn(values["license_sha256"], license_status)
@@ -547,12 +551,19 @@ class ReleaseGateTests(unittest.TestCase):
                 "Custom-license product policy and exact release text", decision_gate
             )
             self.assertNotIn("All ten authority rows remain", decision_gate)
+            publish_status = (output / "PUBLISH-STATUS.md").read_text(encoding="utf-8")
+            self.assertIn("exact `v1.1.0` tag", publish_status)
+            self.assertNotIn("v1.0.0", publish_status)
 
             blocked = dict(values, publication_authorization="PENDING")
             blocked_output = Path(root) / "blocked"
             with self.assertRaisesRegex(ValueError, "publication authorization"):
                 generate(blocked_output, blocked)
             self.assertFalse(blocked_output.exists())
+
+            tampered_engine = dict(values, engine_commit="c" * 40)
+            with self.assertRaisesRegex(ValueError, "exact engine_commit"):
+                generate(Path(root) / "tampered-engine", tampered_engine)
 
 
 if __name__ == "__main__":

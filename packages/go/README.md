@@ -4,9 +4,8 @@ The Go module `github.com/Thinkery-AG/leanctx-sdk-go` implements LeanCTX SDK
 1.1.0. It provides the five stable Product primitives, a strict Engine
 Interface v1 subprocess adapter, and the persistent Agent Tools 1.1 client.
 
-The 1.1.0 release is currently unpublished/private and requires a compatible
-LeanCTX Engine for subprocess operation. Agent Tools negotiation requires
-Engine Tools Interface support `3.10.1`.
+The 1.1.0 module is a source preview and is not registry-published. Subprocess
+operation requires the published LeanCTX Engine 3.10.1.
 
 ```go
 import leanctx "github.com/Thinkery-AG/leanctx-sdk-go"

@@ -44,6 +44,6 @@ The five SDK 1.0 lifecycle primitives and Engine Interface v1 are unchanged.
 Agent Tools requires LeanCTX Engine 3.10.1 with interface `1.0.0`, schema `1`,
 and transport `1`.
 
-The Engine 3.10.1 artifacts and companion packages must be published before any
-1.1 SDK is generally available. Until then, use a source-built compatible
-Engine through the language-specific binary-path option.
+Engine 3.10.1 and its companion packages are published. Python SDK 1.1 can
+install the certified Engine through its agent extras; every language SDK also
+accepts an explicit compatible Engine binary path.
