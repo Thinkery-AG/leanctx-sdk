@@ -1,7 +1,7 @@
 # LeanCTX Go SDK 1.1.0
 
-Status: unpublished/private release note. Publication remains gated on the
-Engine 3.10.1 companion and the SDK conformance checks.
+Status: source preview. Engine 3.10.1 is available; registry publication remains
+subject to a separate package promotion gate.
 
 This package adds the stable Go surface for the five Product primitives,
 strict Engine Interface v1 subprocess operation, and Agent Tools 1.1

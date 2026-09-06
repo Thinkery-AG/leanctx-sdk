@@ -31,9 +31,8 @@ project-jailed files, cache, search, patches, approved commands
 
 ## Install
 
-The 1.1 source tree is a release candidate until the exact Engine 3.10.1
-companion wheels are published. The release gate must not publish the SDK first.
-After both artifacts are available, the one-command install is:
+Engine 3.10.1 and its companion wheels are published and cryptographically
+bound by the SDK release gate. Install the Python SDK and Engine together with:
 
 Standard Engine:
 
@@ -53,8 +52,8 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 ## Language SDKs
 
 All SDK 1.1 previews implement the five stable Product primitives, Engine
-Interface v1, and PR #8 Agent Tools 1.1 contract. They live in this repository
-and remain publication-locked until verified Engine 3.10.1 artifacts exist.
+Interface v1, and PR #8 Agent Tools 1.1 contract. Engine 3.10.1 satisfies their
+runtime dependency; non-Python registry publication remains a separate gate.
 
 | Runtime | Package source | Package identity |
 | --- | --- | --- |

@@ -9,16 +9,29 @@ contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 | Component | Declared scope | Release status |
 | --- | --- | --- |
 | Python | CPython 3.9–3.14 | supported |
-| SDK wheel | pure Python, `py3-none-any` | release candidate |
-| Agent Tools Engine | `v3.10.1` | required for `AgentContext`; not yet published |
+| SDK wheel | pure Python, `py3-none-any` | release artifact |
+| Agent Tools Engine | `v3.10.1` | published; required for `AgentContext` |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
 
-The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras become
-installable only when their exact 3.10.1 companion Engine packages are
-published. Until then, source checkouts must pass `engine_binary=` explicitly.
-No compatibility is inferred from a newer Engine or an executable found on
-`PATH`.
+The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras install
+their exact 3.10.1 companion Engine packages. Source checkouts may instead pass
+`engine_binary=` explicitly. No compatibility is inferred from a newer Engine
+or an executable found on `PATH`.
+
+The supported Agent Tools Engine release is
+[`v3.10.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1).
+The tag resolves to commit
+`4a76710a6c792229f170a66fdda1f4a0a64f47ee`.
+Its signed `SHA256SUMS` has SHA-256
+`86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170`.
+Release CI verifies the Sigstore identity
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.1`.
+
+| Platform | Release archive SHA-256 | Extracted binary SHA-256 |
+| --- | --- | --- |
+| Linux x86_64 GNU | `dae5bde18c58b7976b98f967f261bbdece8d3072dda23e6509f3da7d581b5c58` | `0385c8169a4b20df84dc0f1e8b32788c3b7a402cb0b5ff484d391f8cd67a5bbc` |
+| macOS arm64 | `25a14a6bc597739c8f5e8a8d18e85e38f89711e4fcb82bdd648b060d201360fd` | `00e08272eb443ab9c9539c58ec24cd0d9ae02d789ec0944ab56919e24a39fa23` |
 
 ## Stable SDK 1.0.0
 

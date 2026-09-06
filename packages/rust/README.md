@@ -21,10 +21,10 @@ context.close()?;
 # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
 ```
 
-Agent Tools requires Engine 3.10.1 and negotiates the exact v1 capability
-set. The package remains `publish = false` until that Engine release is
-available. See the repository contracts and `PUBLIC-SURFACE-MANIFEST.md` for
-the frozen wire and public API contracts.
+Agent Tools requires the published Engine 3.10.1 and negotiates the exact v1
+capability set. The package remains `publish = false` pending its own registry
+promotion gate. See the repository contracts and
+`PUBLIC-SURFACE-MANIFEST.md` for the frozen wire and public API contracts.
 
 License and commercial-use terms are in `LICENSE` and
 `COMMERCIAL-LICENSE.md`; dependency notices are in `THIRD_PARTY_NOTICES`.

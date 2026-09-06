@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 (release candidate)
+## 1.1.0
 
 - Stable PR #8 Agent Tools contract with explicit read/write/execute policy,
   persistent Engine sessions, metrics, reconnect, and typed failures.
@@ -11,7 +11,7 @@
   changed after binding and bindings stale after a durable source update.
 - Extended the tested Python contract through CPython 3.14 and enforced Ruff
   formatting plus complementary ty/mypy checks in the release gate.
-- Publication remains locked to verified LeanCTX Engine 3.10.1 artifacts.
+- Release provenance is bound to verified LeanCTX Engine 3.10.1 artifacts.
 
 ## 1.0.0
 

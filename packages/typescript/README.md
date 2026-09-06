@@ -22,7 +22,7 @@ try {
 }
 ```
 
-Agent Tools requires the not-yet-published LeanCTX Engine 3.10.1. The package
-must not be published until that signed Engine release and Python SDK 1.1 are
-available. The five Product primitives remain independently compatible with
-Engine Interface v1 and provider-independent.
+Agent Tools requires the published LeanCTX Engine 3.10.1. This package remains
+a source preview until its own registry promotion gate is complete. The five
+Product primitives remain independently compatible with Engine Interface v1
+and provider-independent.

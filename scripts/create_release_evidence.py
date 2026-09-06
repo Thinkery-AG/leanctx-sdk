@@ -24,25 +24,41 @@ REQUIRED_FILES = (
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ENGINE_COMMIT = "4a76710a6c792229f170a66fdda1f4a0a64f47ee"
+_ENGINE_LINUX_SHA256 = (
+    "0385c8169a4b20df84dc0f1e8b32788c3b7a402cb0b5ff484d391f8cd67a5bbc"
+)
+_ENGINE_MACOS_SHA256 = (
+    "00e08272eb443ab9c9539c58ec24cd0d9ae02d789ec0944ab56919e24a39fa23"
+)
+_ENGINE_LINUX_ARCHIVE_SHA256 = (
+    "dae5bde18c58b7976b98f967f261bbdece8d3072dda23e6509f3da7d581b5c58"
+)
+_ENGINE_MACOS_ARCHIVE_SHA256 = (
+    "25a14a6bc597739c8f5e8a8d18e85e38f89711e4fcb82bdd648b060d201360fd"
+)
+_ENGINE_CHECKSUMS_SHA256 = (
+    "86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170"
+)
 
 
 def _validate(values: dict[str, str]) -> None:
     if values.get("publication_authorization") != "APPROVED":
         raise ValueError("final evidence requires explicit publication authorization")
-    if values.get("sdk_version") != "1.0.0":
-        raise ValueError("final evidence requires SDK version 1.0.0")
+    if values.get("sdk_version") != "1.1.0":
+        raise ValueError("final evidence requires SDK version 1.1.0")
     if (
-        values.get("engine_version") != "3.10.0"
-        or values.get("engine_tag") != "v3.10.0"
+        values.get("engine_version") != "3.10.1"
+        or values.get("engine_tag") != "v3.10.1"
     ):
-        raise ValueError("final evidence requires Engine v3.10.0")
+        raise ValueError("final evidence requires Engine v3.10.1")
     if values.get("pypi_project") != "thinkery-leanctx-sdk":
         raise ValueError(
             "final evidence requires the thinkery-leanctx-sdk PyPI project"
         )
     if values.get("engine_release_repository") != "yvgude/lean-ctx":
         raise ValueError("final evidence requires the public Engine repository")
-    expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.0"
+    expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1"
     if values.get("engine_release_url") != expected_release_url:
         raise ValueError("final evidence requires the public Engine release URL")
     if values.get("engine_linux_asset") != "lean-ctx-x86_64-unknown-linux-gnu.tar.gz":
@@ -51,10 +67,21 @@ def _validate(values: dict[str, str]) -> None:
         raise ValueError("final evidence requires the supported macOS Engine asset")
     expected_cosign_identity = (
         "https://github.com/yvgude/lean-ctx/.github/workflows/"
-        "release.yml@refs/tags/v3.10.0"
+        "release.yml@refs/tags/v3.10.1"
     )
     if values.get("engine_cosign_identity") != expected_cosign_identity:
         raise ValueError("final evidence requires the Engine release signer identity")
+    exact_engine_values = {
+        "engine_commit": _ENGINE_COMMIT,
+        "engine_linux_sha256": _ENGINE_LINUX_SHA256,
+        "engine_macos_sha256": _ENGINE_MACOS_SHA256,
+        "engine_linux_archive_sha256": _ENGINE_LINUX_ARCHIVE_SHA256,
+        "engine_macos_archive_sha256": _ENGINE_MACOS_ARCHIVE_SHA256,
+        "engine_checksums_sha256": _ENGINE_CHECKSUMS_SHA256,
+    }
+    for key, expected in exact_engine_values.items():
+        if values.get(key) != expected:
+            raise ValueError(f"final evidence requires the exact {key}")
     if "/" not in values.get("public_repository", ""):
         raise ValueError("final evidence requires an owner/repository identity")
     for key in ("sdk_commit", "engine_commit"):
@@ -203,7 +230,7 @@ rejected. LICENSE SHA-256: `{license_sha256}`.
         "PUBLISH-STATUS.md": """# Publish status
 
 Repository: `{public_repository}`. PyPI project: `{pypi_project}`. Publication
-is available only from the exact `v1.0.0` tag after all technical gates and the
+is available only from the exact `v1.1.0` tag after all technical gates and the
 approved wheel-hash guard pass, using GitHub OIDC Trusted Publishing.
 """,
     }

@@ -14,5 +14,5 @@ Production code has no runtime dependencies. Engine processes use structured
 arguments, bounded streams, project-root containment, strict JSON validation,
 secure temporary policy files, and fail-closed process termination.
 
-Publication is disabled until the signed LeanCTX Engine 3.10.1 release and the
-corresponding Python SDK 1.1 release are available.
+Engine 3.10.1 is published. This package remains a source preview pending its
+own registry promotion gate.
