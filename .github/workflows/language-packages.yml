@@ -68,7 +68,7 @@ jobs:
           cd "$dir"
           npm init -y >/dev/null
           npm install "$GITHUB_WORKSPACE/packages/typescript/${{ steps.pack.outputs.file }}"
-          node -e "import('@thinkery-ag/leanctx-sdk').then(m => { if (m.__version__ !== '${{ needs.version-contract.outputs.version }}') process.exit(1) })"
+          node -e "import('@thinkery/leanctx-sdk').then(m => { if (m.__version__ !== '${{ needs.version-contract.outputs.version }}') process.exit(1) })"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: npm-${{ github.sha }}
