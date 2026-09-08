@@ -9,7 +9,7 @@ cross-SDK acceptance gate.
 | Language | Registry identity | Release tag |
 | --- | --- | --- |
 | Python | `thinkery-leanctx-sdk` | `vX.Y.Z` |
-| TypeScript | `@thinkery-ag/leanctx-sdk` | `packages/typescript/vX.Y.Z` |
+| TypeScript | `@thinkery/leanctx-sdk` | `packages/typescript/vX.Y.Z` |
 | Go | `github.com/Thinkery-AG/leanctx-sdk/packages/go` | `packages/go/vX.Y.Z` |
 | Rust | `thinkery-leanctx-sdk` | `packages/rust/vX.Y.Z` |
 | JVM | `com.thinkery.leanctx:leanctx-sdk` | `packages/jvm/vX.Y.Z` |

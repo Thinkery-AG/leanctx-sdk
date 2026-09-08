@@ -1,4 +1,4 @@
-# @thinkery-ag/leanctx-sdk
+# @thinkery/leanctx-sdk
 
 LeanCTX SDK 1.1 for Node.js and TypeScript. The package exposes the five
 stable lifecycle values (`ContextSession`, `ContextSource`, `ContextView`,
@@ -11,7 +11,7 @@ strict v1 JSON validation, and explicit process-tree termination. Write and
 execute capabilities require immutable, explicit permissions and allowlists.
 
 ```ts
-import { AgentContext } from "@thinkery-ag/leanctx-sdk";
+import { AgentContext } from "@thinkery/leanctx-sdk";
 
 const tools = await AgentContext.open(".", { task: "Inspect the API" });
 try {
