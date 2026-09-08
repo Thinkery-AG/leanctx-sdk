@@ -22,7 +22,7 @@ context.close()?;
 ```
 
 Agent Tools requires the published Engine 3.10.1 and negotiates the exact v1
-capability set. The package remains `publish = false` pending its own registry
+capability set. Registry releases are produced from the monorepo's cross-SDK
 promotion gate. See the repository contracts and
 `PUBLIC-SURFACE-MANIFEST.md` for the frozen wire and public API contracts.
 

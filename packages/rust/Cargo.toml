@@ -7,7 +7,6 @@ description = "Source-available Rust SDK for governed LeanCTX context and Agent 
 license-file = "LICENSE"
 repository = "https://github.com/thinkery-ag/leanctx-sdk"
 readme = "README.md"
-publish = false
 keywords = ["leanctx", "sdk", "agent-tools"]
 categories = ["api-bindings", "development-tools"]
 

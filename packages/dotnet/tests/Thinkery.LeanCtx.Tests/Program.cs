@@ -188,6 +188,8 @@ internal static class Program
         var client = new SubprocessEngineClient(fake, timeout: 5);
         var view = client.ContextView(new ContextPlan("s", "t", "inspect", source));
         True(view.Verify());
+        Throws<EngineProtocolError>(() => client.Recover(
+            root.Path, "../source.txt", view.RecoveryRef!, view.SourceRef, view.SourceDigest));
         var recovered = client.Recover(root.Path, "source.txt", view.RecoveryRef!, view.SourceRef, view.SourceDigest);
         Equal("engine fixture\n", recovered.Text);
     }

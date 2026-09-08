@@ -10,6 +10,11 @@ contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 | --- | --- | --- |
 | Python | CPython 3.9–3.14 | supported |
 | SDK wheel | pure Python, `py3-none-any` | release artifact |
+| TypeScript | Node.js 22+ | supported |
+| Go | Go 1.24+ | supported monorepo module |
+| Rust | Rust 1.76+ and stable | supported |
+| JVM | Java 21 / Kotlin 2.1 | supported |
+| .NET | .NET 8+ | supported |
 | Agent Tools Engine | `v3.10.1` | published; required for `AgentContext` |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
@@ -73,6 +78,7 @@ routing, and generalized framework orchestration are not shipped.
 
 ## Platform limits
 
-Windows, macOS x86_64, other Linux architectures, other Python ABI closures,
-alternate frameworks, Cloud, and alternate Engine majors require separate
-evidence. Provider credentials and live model calls remain host-owned.
+Engine binary availability remains limited to the certified platforms listed
+above. Other Engine architectures, alternate frameworks, Cloud, and alternate
+Engine majors require separate evidence. Provider credentials and live model
+calls remain host-owned.

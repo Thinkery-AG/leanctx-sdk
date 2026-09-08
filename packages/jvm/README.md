@@ -14,5 +14,5 @@ Production code has no runtime dependencies. Engine processes use structured
 arguments, bounded streams, project-root containment, strict JSON validation,
 secure temporary policy files, and fail-closed process termination.
 
-Engine 3.10.1 is published. This package remains a source preview pending its
-own registry promotion gate.
+Engine 3.10.1 is published. Maven releases are produced from the monorepo's
+cross-SDK promotion gate.
