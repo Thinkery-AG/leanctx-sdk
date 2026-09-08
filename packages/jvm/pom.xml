@@ -166,6 +166,10 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-gpg-plugin</artifactId>
             <version>3.2.7</version>
+            <configuration>
+              <!-- Central cannot resolve signatures made by a signing subkey. -->
+              <keyname>1D0E1DB40367ED485C35A6E48A9F3EA0A09DA8A0!</keyname>
+            </configuration>
             <executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions>
           </plugin>
           <plugin>
