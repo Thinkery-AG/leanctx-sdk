@@ -243,6 +243,9 @@ jobs:
     needs: [version-contract, cross-sdk]
     runs-on: ubuntu-latest
     environment: nuget
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -252,6 +255,9 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet pack Thinkery.LeanCtx.csproj -c Release -o "$RUNNER_TEMP/nuget"
         working-directory: packages/dotnet
-      - run: dotnet nuget push "$RUNNER_TEMP"/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      - name: Exchange GitHub OIDC token for a temporary NuGet API key
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        with:
+          user: thinkery
+      - run: dotnet nuget push "$RUNNER_TEMP"/nuget/*.nupkg --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
