@@ -62,7 +62,7 @@ every registry artifact from the same commit.
 | Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery/leanctx-sdk` |
 | Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk/packages/go` |
 | Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
-| Java 21 / Kotlin 2.1 | `packages/jvm` | `com.thinkery.leanctx:leanctx-sdk` |
+| Java 21 / Kotlin 2.1 | `packages/jvm` | `com.leanctx:leanctx-sdk` |
 | .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
 
 Each package includes language-native tests against the same canonical
