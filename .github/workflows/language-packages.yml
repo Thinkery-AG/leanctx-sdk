@@ -231,6 +231,13 @@ jobs:
           server-password: MAVEN_CENTRAL_TOKEN
           gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Publish the signing public key
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$fingerprint"
+          gpg --batch --keyserver keyserver.ubuntu.com --send-keys "$fingerprint"
       - run: mvn --batch-mode --no-transfer-progress -Prelease-central deploy
         working-directory: packages/jvm
         env:
