@@ -460,10 +460,16 @@ public sealed class SubprocessEngineClient : EngineClient
             WireJson.Utf8(value, "path").Length > WireJson.MaxPathBytes ||
             Path.IsPathRooted(value) || value.Any(character => character < 0x20))
             throw Protocol("path must be a rooted relative path");
-        var normalized = ContextSource.NormalizeRelative(Path.GetFullPath(value, "/"));
-        if (normalized is "." or ".." || normalized.StartsWith("../", StringComparison.Ordinal))
+        var validationRoot = Path.GetFullPath(Path.Combine(
+            Path.GetTempPath(), "leanctx-sdk-path-validation-root"));
+        var candidate = Path.GetFullPath(value, validationRoot);
+        if (!ContextSource.Contained(candidate, validationRoot))
             throw Protocol("path escapes project root");
-        return normalized;
+        var relative = ContextSource.NormalizeRelative(
+            Path.GetRelativePath(validationRoot, candidate));
+        if (relative is "." or ".." || relative.StartsWith("../", StringComparison.Ordinal))
+            throw Protocol("path escapes project root");
+        return relative;
     }
 
     private static ContextView BuildView(ContextSource source, ParsedEngineResponse parsed)
@@ -560,16 +566,16 @@ public sealed class SubprocessEngineClient : EngineClient
         WireJson.RequireExactKeys(engine, EngineKeys, "invocation.engine");
         WireJson.RequireExactKeys(operation, OperationKeys, "invocation.operation");
         WireJson.RequireExactKeys(policy, PolicyKeys, "invocation.policy_admission");
-        var engineId = WireJson.RequiredString(engine, "engine.engine_id");
-        var engineVersion = WireJson.RequiredString(engine, "engine.engine_version");
+        var engineId = WireJson.RequiredString(engine, "engine_id");
+        var engineVersion = WireJson.RequiredString(engine, "engine_version");
         if (engineId != "lean-ctx-local" || !IsSemVer(engineVersion) ||
             !engineVersion.StartsWith("3.", StringComparison.Ordinal))
             throw new UnsupportedEngineError("unsupported Engine identity");
-        var capabilityId = WireJson.RequiredString(operation, "operation.capability_id");
-        var capabilityVersion = WireJson.RequiredString(operation, "operation.capability_version");
+        var capabilityId = WireJson.RequiredString(operation, "capability_id");
+        var capabilityVersion = WireJson.RequiredString(operation, "capability_version");
         if (capabilityId != "capability://leanctx/context-optimization" || capabilityVersion != "1.0.0")
             throw new UnsupportedEngineError("unsupported Engine capability");
-        var decision = WireJson.RequiredString(policy, "policy_admission.decision");
+        var decision = WireJson.RequiredString(policy, "decision");
         if (decision is not "admitted" and not "rejected")
             throw Protocol("unknown policy decision");
         var invocationId = WireJson.RequiredString(item, "invocation_id");
@@ -599,7 +605,7 @@ public sealed class SubprocessEngineClient : EngineClient
             ["source_refs"] = sourceRefs,
             ["policy_admission"] = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                ["policy_ref"] = WireJson.RequiredRef(policy, "policy_admission.policy_ref"),
+                ["policy_ref"] = WireJson.RequiredRef(policy, "policy_ref"),
                 ["decision"] = decision,
             },
         });
@@ -679,7 +685,7 @@ public sealed class SubprocessEngineClient : EngineClient
         if (!ProtocolText.TryFailureCode(codeText, out var code))
             throw Protocol("unknown Engine failure code");
         var recoveryRef = item.GetValueOrDefault("recovery_ref") is null
-            ? null : WireJson.RequiredRef(item, "failure.recovery_ref");
+            ? null : WireJson.RequiredRef(item, "recovery_ref");
         try
         {
             return new ContextFailure(code, WireJson.RequiredBool(item, "retryable_by_host"), recoveryRef);
@@ -692,16 +698,16 @@ public sealed class SubprocessEngineClient : EngineClient
         string invocationId)
     {
         WireJson.RequireExactKeys(item, ReceiptLinkKeys, "receipt_link");
-        var digest = WireJson.RequiredDigest(item, "receipt_link.receipt_digest");
-        var receiptRef = WireJson.RequiredRef(item, "receipt_link.receipt_ref");
+        var digest = WireJson.RequiredDigest(item, "receipt_digest");
+        var receiptRef = WireJson.RequiredRef(item, "receipt_ref");
         if (receiptRef != $"receipt:{digest}" ||
-            WireJson.RequiredString(item, "receipt_link.invocation_id") != invocationId)
+            WireJson.RequiredString(item, "invocation_id") != invocationId)
             throw Protocol("receipt_link binding mismatch");
         try
         {
             return new ContextReceiptLink(
-                checked((int)WireJson.RequiredInteger(item, "receipt_link.schema_version")),
-                WireJson.RequiredRef(item, "receipt_link.receipt_id"),
+                checked((int)WireJson.RequiredInteger(item, "schema_version")),
+                WireJson.RequiredRef(item, "receipt_id"),
                 receiptRef,
                 digest,
                 invocationId);

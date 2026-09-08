@@ -1,11 +1,19 @@
 {
   "name": "@thinkery-ag/leanctx-sdk",
   "version": "1.1.0",
-  "private": true,
+  "private": false,
   "description": "Node.js TypeScript SDK for governed LeanCTX context and Agent Tools",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Thinkery AG",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thinkery-AG/leanctx-sdk.git",
+    "directory": "packages/typescript"
+  },
+  "homepage": "https://github.com/Thinkery-AG/leanctx-sdk#readme",
+  "bugs": "https://github.com/Thinkery-AG/leanctx-sdk/issues",
+  "publishConfig": { "access": "public", "provenance": true },
   "engines": { "node": ">=22" },
   "files": ["dist", "README.md", "LICENSE", "COMMERCIAL-LICENSE.md", "THIRD_PARTY_NOTICES"],
   "main": "./dist/index.js",

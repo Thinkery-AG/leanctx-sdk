@@ -18,7 +18,6 @@
     <maven.compiler.parameters>true</maven.compiler.parameters>
     <junit.version>5.11.4</junit.version>
     <kotlin.version>2.1.0</kotlin.version>
-    <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
 
   <licenses>
@@ -28,6 +27,27 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
+  <url>https://github.com/Thinkery-AG/leanctx-sdk</url>
+  <scm>
+    <connection>scm:git:https://github.com/Thinkery-AG/leanctx-sdk.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/Thinkery-AG/leanctx-sdk.git</developerConnection>
+    <url>https://github.com/Thinkery-AG/leanctx-sdk</url>
+    <tag>HEAD</tag>
+  </scm>
+  <developers>
+    <developer>
+      <name>Thinkery AG</name>
+      <organization>Thinkery AG</organization>
+      <organizationUrl>https://thinkery.ch</organizationUrl>
+    </developer>
+  </developers>
+  <distributionManagement>
+    <repository>
+      <id>central</id>
+      <name>Maven Central</name>
+      <url>https://central.sonatype.com/api/v1/publisher</url>
+    </repository>
+  </distributionManagement>
 
   <dependencies>
     <!-- Test-only: production code uses the Java 21 standard library only. -->
@@ -125,4 +145,42 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>release-central</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.11.2</version>
+            <executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.8.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

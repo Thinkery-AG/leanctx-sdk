@@ -1,3 +1,3 @@
-module github.com/Thinkery-AG/leanctx-sdk-go
+module github.com/Thinkery-AG/leanctx-sdk/packages/go
 
 go 1.24

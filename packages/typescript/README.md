@@ -22,7 +22,7 @@ try {
 }
 ```
 
-Agent Tools requires the published LeanCTX Engine 3.10.1. This package remains
-a source preview until its own registry promotion gate is complete. The five
-Product primitives remain independently compatible with Engine Interface v1
-and provider-independent.
+Agent Tools requires the published LeanCTX Engine 3.10.1. Registry releases are
+produced from the same commit and cross-SDK release gate as every other LeanCTX
+SDK. The five Product primitives remain independently compatible with Engine
+Interface v1 and provider-independent.

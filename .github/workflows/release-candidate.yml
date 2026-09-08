@@ -242,7 +242,7 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet restore tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --locked-mode
       - run: dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-restore
-      - run: dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-build 2>&1 | tee ../../dotnet-sdk.log
+      - run: set -o pipefail; dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-build 2>&1 | tee ../../dotnet-sdk.log
       - run: dotnet pack Thinkery.LeanCtx.csproj --configuration Release --no-build --output "$RUNNER_TEMP/nuget"
       - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.1.0.nupkg | tee ../../dotnet-package-contents.txt
       - run: grep -F LICENSE ../../dotnet-package-contents.txt

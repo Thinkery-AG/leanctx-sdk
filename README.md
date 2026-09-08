@@ -51,15 +51,16 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 
 ## Language SDKs
 
-All SDK 1.1 previews implement the five stable Product primitives, Engine
+All SDK 1.1 packages implement the five stable Product primitives, Engine
 Interface v1, and PR #8 Agent Tools 1.1 contract. Engine 3.10.1 satisfies their
-runtime dependency; non-Python registry publication remains a separate gate.
+runtime dependency. One cross-SDK gate builds, installs, verifies, and promotes
+every registry artifact from the same commit.
 
 | Runtime | Package source | Package identity |
 | --- | --- | --- |
 | Python 3.9–3.14 | repository root | `thinkery-leanctx-sdk` |
 | Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery-ag/leanctx-sdk` |
-| Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk-go` |
+| Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk/packages/go` |
 | Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
 | Java 21 / Kotlin 2.1 | `packages/jvm` | `com.thinkery.leanctx:leanctx-sdk` |
 | .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
@@ -69,6 +70,16 @@ serialization fixture, strict protocol validation, explicit execution policy,
 package-content checks, and source-available license notices. The release
 workflow requires every language job before pull-request validation or
 publication provenance can pass. The Engine remains a separate local binary.
+
+Registry releases use language-scoped tags from the same commit:
+`packages/typescript/vX.Y.Z`, `packages/go/vX.Y.Z`,
+`packages/rust/vX.Y.Z`, `packages/jvm/vX.Y.Z`, and
+`packages/dotnet/vX.Y.Z`. See
+[`docs/LANGUAGE-PACKAGES.md`](docs/LANGUAGE-PACKAGES.md).
+
+Go follows the standard monorepo module convention and is tagged
+`packages/go/vX.Y.Z`. Registry-backed packages use their native registries:
+PyPI, npm, crates.io, Maven Central, and NuGet.
 
 ## Five-minute custom agent
 

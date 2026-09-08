@@ -1,0 +1,257 @@
+name: Language package release
+
+on:
+  pull_request:
+    paths:
+      - "packages/**"
+      - "contracts/**"
+      - "fixtures/**"
+      - ".github/workflows/language-packages.yml"
+  push:
+    tags:
+      - "packages/typescript/v*"
+      - "packages/go/v*"
+      - "packages/rust/v*"
+      - "packages/jvm/v*"
+      - "packages/dotnet/v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: language-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-contract:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=""
+          case "$GITHUB_REF" in
+            refs/tags/*) expected="${GITHUB_REF##*/v}" ;;
+          esac
+          args=(--repository . --github-output "$GITHUB_OUTPUT")
+          test -z "$expected" || args+=(--expected "$expected")
+          python3 scripts/check_language_versions.py "${args[@]}"
+
+  typescript:
+    needs: version-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/typescript
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/typescript/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - id: pack
+        run: echo "file=$(npm pack --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].filename))')" >> "$GITHUB_OUTPUT"
+      - run: |
+          dir="$(mktemp -d)"
+          cd "$dir"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/packages/typescript/${{ steps.pack.outputs.file }}"
+          node -e "import('@thinkery-ag/leanctx-sdk').then(m => { if (m.__version__ !== '${{ needs.version-contract.outputs.version }}') process.exit(1) })"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-${{ github.sha }}
+          path: packages/typescript/*.tgz
+          if-no-files-found: error
+
+  go:
+    needs: version-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/go
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: packages/go/go.mod
+          cache: false
+      - run: go test ./...
+      - run: go vet ./...
+      - run: test "$(go list -m)" = github.com/Thinkery-AG/leanctx-sdk/packages/go
+
+  rust:
+    needs: version-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/rust
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.76.0 --profile minimal --component clippy,rustfmt
+      - run: cargo +1.76.0 fmt --check
+      - run: cargo +1.76.0 test --locked
+      - run: cargo +1.76.0 clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo +1.76.0 package --locked
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: crate-${{ github.sha }}
+          path: packages/rust/target/package/*.crate
+          if-no-files-found: error
+
+  jvm:
+    needs: version-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/jvm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: mvn --batch-mode --no-transfer-progress verify
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maven-${{ github.sha }}
+          path: packages/jvm/target/leanctx-sdk-*.jar
+          if-no-files-found: error
+
+  dotnet:
+    needs: version-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dotnet
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --locked-mode
+      - run: dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj -c Release --no-restore
+      - run: dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj -c Release --no-build
+      - run: dotnet pack Thinkery.LeanCtx.csproj -c Release --no-build -o "$RUNNER_TEMP/nuget"
+      - run: |
+          dir="$(mktemp -d)"
+          dotnet new console -o "$dir" --framework net8.0
+          dotnet add "$dir" package Thinkery.LeanCtx --version "${{ needs.version-contract.outputs.version }}" --source "$RUNNER_TEMP/nuget"
+          printf 'using Thinkery.LeanCtx; Console.WriteLine(Constants.__version__);\n' > "$dir/Program.cs"
+          dotnet run --project "$dir"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nuget-${{ github.sha }}
+          path: ${{ runner.temp }}/nuget/*
+          if-no-files-found: error
+
+  cross-sdk:
+    if: always()
+    needs: [typescript, go, rust, jvm, dotnet]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          test "${{ needs.typescript.result }}" = success
+          test "${{ needs.go.result }}" = success
+          test "${{ needs.rust.result }}" = success
+          test "${{ needs.jvm.result }}" = success
+          test "${{ needs.dotnet.result }}" = success
+
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/packages/typescript/v')
+    needs: [version-contract, cross-sdk]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@latest
+      - run: npm ci --ignore-scripts && npm test
+        working-directory: packages/typescript
+      - run: npm publish --access public --provenance
+        working-directory: packages/typescript
+
+  publish-rust:
+    if: startsWith(github.ref, 'refs/tags/packages/rust/v')
+    needs: [version-contract, cross-sdk]
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: cargo publish --locked --token "$CARGO_REGISTRY_TOKEN"
+        working-directory: packages/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-jvm:
+    if: startsWith(github.ref, 'refs/tags/packages/jvm/v')
+    needs: [version-contract, cross-sdk]
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - run: mvn --batch-mode --no-transfer-progress -Prelease-central deploy
+        working-directory: packages/jvm
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+  publish-dotnet:
+    if: startsWith(github.ref, 'refs/tags/packages/dotnet/v')
+    needs: [version-contract, cross-sdk]
+    runs-on: ubuntu-latest
+    environment: nuget
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet pack Thinkery.LeanCtx.csproj -c Release -o "$RUNNER_TEMP/nuget"
+        working-directory: packages/dotnet
+      - run: dotnet nuget push "$RUNNER_TEMP"/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
