@@ -40,6 +40,10 @@ The configured tenant is an expected response binding, never a tenant override
 in the request. Results include the persisted governance revision and canonical
 source plan. The SDK rejects another tenant or unrequested source references.
 
+`context_materialize(request, source_ids, expected_governance_revision, expected_binding_digest, planning_evaluation_time=None)` calls the additive authenticated `POST /v1/engine/context-materialize` contract. It reuses the tenant, source, governance and binding joins, and validates the nested plan with the existing source-plan parser, including additive plan extensions. The optional evaluation-time value is a canonical UTC-second identity echo for retention-aware planning; it is not authentication, provenance, or a receipt.
+
+The SDK validates the exact materialization envelope, UTF-8 content bound (1 MiB), and SHA-256 content digest. `materialized_token_count` is only a bounded host-reported metric: the SDK does not recompute it, bill it, or treat materialization as execution or a receipt. The method returns the server's materialized context and validated plan; it does not add a second ledger or outcome authority.
+
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
 POST retries are disabled. Responses are bounded; socket I/O and the connected

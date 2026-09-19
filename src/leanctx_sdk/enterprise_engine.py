@@ -37,8 +37,10 @@ from .errors import (
     ValidationError,
 )
 from .planning import (
+    ENGINE_INTERFACE_VERSION,
     MAX_ENGINE_SOURCE_PLAN_SOURCES,
     EnginePlanningRequest,
+    _timestamp,
     parse_source_plan,
 )
 from .protocol import (
@@ -46,6 +48,7 @@ from .protocol import (
     MAX_RESPONSE_BYTES,
     MAX_TEXT_BYTES,
     canonical_bytes,
+    sha256_digest,
     strict_json_loads,
     validate_digest,
     validate_ref,
@@ -53,10 +56,13 @@ from .protocol import (
 
 
 _ENGINE_PATH = "/v1/engine/context-plan"
+_MATERIALIZATION_PATH = "/v1/engine/context-materialize"
 _CONTEXT_READ_PATH = "/v1/tools/call"
 _SCHEMA_VERSION = 1
 _MAX_REQUEST_BYTES = 64 * 1024
 _MAX_RESPONSE_BYTES = 1024 * 1024
+_MAX_MATERIALIZED_CONTENT_BYTES = 1024 * 1024
+_MAX_MATERIALIZATION_RESPONSE_BYTES = _MAX_RESPONSE_BYTES + _MAX_MATERIALIZED_CONTENT_BYTES
 _MAX_CREDENTIAL_BYTES = 4096
 _MAX_URL_BYTES = 4096
 _MAX_TIMEOUT_SECONDS = 120.0
@@ -212,6 +218,53 @@ def _validate_u64(value: Any, field_name: str) -> int:
     ):
         _protocol_error(f"{field_name} must be an unsigned 64-bit integer")
     return value
+
+
+def _validate_input_u64(value: Any, field_name: str) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= _MAX_U64
+    ):
+        _validation_error(f"{field_name} must be an unsigned 64-bit integer")
+    return value
+
+
+def _validate_source_scope(
+    plan: Mapping[str, object], source_ids: Tuple[str, ...]
+) -> None:
+    requested = set(source_ids)
+    plan_value = cast(Mapping[str, Any], plan)
+    result = cast(Mapping[str, Any], plan_value["result"])
+    result_plan = cast(Mapping[str, Any], result["plan"])
+    selections = cast(Sequence[Mapping[str, Any]], result_plan["selections"])
+    for selection in selections:
+        if (
+            selection["source_ref"] not in requested
+            or selection["provider"] not in requested
+        ):
+            _protocol_error("Enterprise Engine selection is outside requested sources")
+    bindings = cast(Sequence[Mapping[str, Any]], plan_value["source_bindings"])
+    for binding in bindings:
+        if (
+            binding["object_ref"] not in requested
+            or binding["source_id"] not in requested
+        ):
+            _protocol_error("Enterprise Engine source binding is outside requested sources")
+        if binding["permission"] != "permitted":
+            _protocol_error("Enterprise Engine selected source is not permitted")
+
+
+def _validate_materialized_content(value: Any) -> tuple[str, bytes]:
+    if not isinstance(value, str):
+        _protocol_error("Enterprise Engine materialized content is not a string")
+    try:
+        encoded = value.encode("utf-8", "strict")
+    except UnicodeEncodeError as exc:
+        _protocol_error("Enterprise Engine materialized content is not valid UTF-8", exc)
+    if len(encoded) > _MAX_MATERIALIZED_CONTENT_BYTES:
+        _protocol_error("Enterprise Engine materialized content exceeds its byte bound")
+    return value, encoded
 
 
 def _interrupt(connection: _Connection, connected_socket: socket.socket) -> None:
@@ -555,6 +608,190 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
         raw = self._post(payload)
         return self._parse_response(raw, request, normalized_ids)
 
+    def context_materialize(
+        self,
+        request: EnginePlanningRequest,
+        source_ids: Sequence[str],
+        expected_governance_revision: int,
+        expected_binding_digest: str,
+        *,
+        planning_evaluation_time: Optional[str] = None,
+    ) -> Mapping[str, object]:
+        """Materialize a previously bound source plan without claiming execution."""
+        if not isinstance(request, EnginePlanningRequest):
+            _validation_error("context_materialize requires EnginePlanningRequest")
+        normalized_ids = _source_ids(source_ids)
+        governance_revision = _validate_input_u64(
+            expected_governance_revision, "expected_governance_revision"
+        )
+        try:
+            binding_digest = validate_digest(
+                expected_binding_digest, "expected_binding_digest"
+            )
+        except ValidationError as exc:
+            _validation_error("expected_binding_digest is invalid", exc)
+        body: dict[str, object] = {
+            "planning": dict(request.to_dict()),
+            "source_ids": list(normalized_ids),
+            "expected_governance_revision": governance_revision,
+            "expected_binding_digest": binding_digest,
+        }
+        if planning_evaluation_time is not None:
+            body["planning_evaluation_time"] = _timestamp(
+                planning_evaluation_time, "planning_evaluation_time"
+            )
+        payload = canonical_bytes(body)
+        if len(payload) > _MAX_REQUEST_BYTES:
+            _validation_error(
+                "Enterprise Engine materialization request exceeds its byte bound"
+            )
+        raw = self._post_json(
+            _MATERIALIZATION_PATH,
+            payload,
+            _MAX_MATERIALIZATION_RESPONSE_BYTES,
+            "Enterprise Engine materialization",
+            "materialization request",
+        )
+        return self._parse_materialization_response(
+            raw,
+            request,
+            normalized_ids,
+            governance_revision,
+            binding_digest,
+        )
+
+    def _parse_materialization_response(
+        self,
+        raw: bytes,
+        request: EnginePlanningRequest,
+        source_ids: Tuple[str, ...],
+        expected_governance_revision: int,
+        expected_binding_digest: str,
+    ) -> Mapping[str, object]:
+        try:
+            value = strict_json_loads(
+                raw, label="Enterprise Engine materialization response"
+            )
+        except ValidationError as exc:
+            _protocol_error(
+                "Enterprise Engine materialization response is not valid JSON", exc
+            )
+        if not isinstance(value, Mapping) or set(value) != {
+            "schema_version",
+            "tenant_id",
+            "governance_revision",
+            "materialization",
+        }:
+            _protocol_error(
+                "Enterprise Engine materialization response fields do not match the v1 contract"
+            )
+        if (
+            isinstance(value["schema_version"], bool)
+            or not isinstance(value["schema_version"], int)
+            or value["schema_version"] != _SCHEMA_VERSION
+        ):
+            _protocol_error(
+                "Enterprise Engine materialization response schema_version is unsupported"
+            )
+        try:
+            tenant_id = _canonical_uuid(value["tenant_id"], "tenant_id")
+        except ValidationError as exc:
+            _protocol_error(
+                "Enterprise Engine materialization response tenant_id is invalid", exc
+            )
+        if tenant_id != self._tenant_id:
+            _protocol_error(
+                "Enterprise Engine materialization response tenant binding does not match"
+            )
+        governance_revision = _validate_u64(
+            value["governance_revision"], "governance_revision"
+        )
+        if governance_revision != expected_governance_revision:
+            _protocol_error(
+                "Enterprise Engine materialization governance revision does not match"
+            )
+        materialization = value["materialization"]
+        if not isinstance(materialization, Mapping) or set(materialization) != {
+            "schema_version",
+            "transport_version",
+            "engine_interface_version",
+            "plan",
+            "materialized_digest",
+            "materialized_token_count",
+            "content",
+        }:
+            _protocol_error(
+                "Enterprise Engine materialization fields do not match the v1 contract"
+            )
+        for field_name in ("schema_version", "transport_version"):
+            field_value = materialization[field_name]
+            if (
+                isinstance(field_value, bool)
+                or not isinstance(field_value, int)
+                or field_value != _SCHEMA_VERSION
+            ):
+                _protocol_error(
+                    f"Enterprise Engine materialization {field_name} is unsupported"
+                )
+        if materialization["engine_interface_version"] != ENGINE_INTERFACE_VERSION:
+            _protocol_error(
+                "Enterprise Engine materialization engine_interface_version is unsupported"
+            )
+        try:
+            plan_raw = canonical_bytes(materialization["plan"])
+        except ValidationError as exc:
+            _protocol_error(
+                "Enterprise Engine materialization plan is not canonical JSON", exc
+            )
+        try:
+            plan = parse_source_plan(plan_raw, request)
+        except ValidationError as exc:
+            _protocol_error(
+                "Enterprise Engine materialization source plan failed validation", exc
+            )
+        _validate_source_scope(plan, source_ids)
+        if plan["binding_digest"] != expected_binding_digest:
+            _protocol_error(
+                "Enterprise Engine materialization binding digest does not match"
+            )
+        try:
+            materialized_digest = validate_digest(
+                materialization["materialized_digest"], "materialized_digest"
+            )
+        except ValidationError as exc:
+            _protocol_error("Enterprise Engine materialized digest is invalid", exc)
+        materialized_token_count = _validate_u64(
+            materialization["materialized_token_count"],
+            "materialized_token_count",
+        )
+        result = cast(Mapping[str, Any], plan["result"])
+        result_plan = cast(Mapping[str, Any], result["plan"])
+        if materialized_token_count > result_plan["budget_tokens"]:
+            _protocol_error(
+                "Enterprise Engine materialized token metric exceeds the plan budget"
+            )
+        content, encoded_content = _validate_materialized_content(
+            materialization["content"]
+        )
+        if sha256_digest(encoded_content) != materialized_digest:
+            _protocol_error(
+                "Enterprise Engine materialized content digest does not match"
+            )
+        return {
+            "schema_version": _SCHEMA_VERSION,
+            "tenant_id": tenant_id,
+            "governance_revision": governance_revision,
+            "materialization": {
+                "schema_version": _SCHEMA_VERSION,
+                "transport_version": _SCHEMA_VERSION,
+                "engine_interface_version": ENGINE_INTERFACE_VERSION,
+                "plan": plan,
+                "materialized_digest": materialized_digest,
+                "materialized_token_count": materialized_token_count,
+                "content": content,
+            },
+        }
+
     def _parse_response(
         self,
         raw: bytes,
@@ -594,30 +831,7 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
             plan = parse_source_plan(plan_raw, request)
         except ValidationError as exc:
             _protocol_error("Enterprise Engine source plan failed validation", exc)
-        requested = set(source_ids)
-        plan_value = cast(Mapping[str, Any], plan)
-        result = cast(Mapping[str, Any], plan_value["result"])
-        result_plan = cast(Mapping[str, Any], result["plan"])
-        selections = cast(Sequence[Mapping[str, Any]], result_plan["selections"])
-        for selection in selections:
-            if (
-                selection["source_ref"] not in requested
-                or selection["provider"] not in requested
-            ):
-                _protocol_error(
-                    "Enterprise Engine selection is outside requested sources"
-                )
-        bindings = cast(Sequence[Mapping[str, Any]], plan_value["source_bindings"])
-        for binding in bindings:
-            if (
-                binding["object_ref"] not in requested
-                or binding["source_id"] not in requested
-            ):
-                _protocol_error(
-                    "Enterprise Engine source binding is outside requested sources"
-                )
-            if binding["permission"] != "permitted":
-                _protocol_error("Enterprise Engine selected source is not permitted")
+        _validate_source_scope(plan, source_ids)
         return {
             "schema_version": _SCHEMA_VERSION,
             "tenant_id": tenant_id,
