@@ -16,11 +16,11 @@ def _request():
     return EnginePlanningRequest("task-1", "invoice ledger", 512, 64)
 
 
-def _source(object_ref="object-1", content="invoice payload"):
+def _source(object_ref="object-1", content="invoice payload", source_id="source-1"):
     return EngineSource(
         {
             "object_ref": object_ref,
-            "source_id": "source-1",
+            "source_id": source_id,
             "source_type": "filesystem",
             "content_digest": sha256_digest(content.encode("utf-8")),
         },
@@ -28,7 +28,7 @@ def _source(object_ref="object-1", content="invoice payload"):
     )
 
 
-def _plan(request, source):
+def _plan(request, source, *, extensions=None):
     unsigned = {
         "schema_version": 1,
         "context_plan_id": "plan-1",
@@ -45,17 +45,19 @@ def _plan(request, source):
             }
         ],
     }
+    if extensions is not None:
+        unsigned.update(extensions)
     plan = dict(unsigned)
     plan["projection_digest"] = sha256_digest(canonical_bytes(unsigned))
     return plan
 
 
-def _source_response(request, source):
+def _source_response(request, source, *, plan_extensions=None):
     result = {
         "schema_version": 1,
         "transport_version": 1,
         "engine_interface_version": "1.0.0",
-        "plan": _plan(request, source),
+        "plan": _plan(request, source, extensions=plan_extensions),
     }
     return {
         "result": result,
@@ -142,6 +144,42 @@ class EnginePlanningTests(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             parse_source_plan(canonical_bytes(mismatch), request, [source])
+
+    def test_source_plan_preserves_lineage_extension_and_binds_its_digest(self):
+        # Synthetic wire fixture: preservation/integrity, not source admission proof.
+        request = _request()
+        source = _source()
+        equivalent = _source("object-2", source.content, source_id="source-2")
+        lineage = {
+            "source_lineage_v1": {
+                "schema_version": 1,
+                "groups": [
+                    {
+                        "selected_ref": source.descriptor["object_ref"],
+                        "equivalent_sources": [
+                            dict(source.descriptor),
+                            dict(equivalent.descriptor),
+                        ],
+                    }
+                ],
+            }
+        }
+        response = _source_response(request, source, plan_extensions=lineage)
+        parsed = parse_source_plan(canonical_bytes(response), request, [source, equivalent])
+        self.assertEqual(
+            parsed["result"]["plan"]["source_lineage_v1"],
+            lineage["source_lineage_v1"],
+        )
+
+        tampered = dict(response)
+        tampered["result"] = dict(response["result"])
+        tampered["result"]["plan"] = dict(response["result"]["plan"])
+        tampered["result"]["plan"]["source_lineage_v1"] = {
+            "schema_version": 1,
+            "groups": [],
+        }
+        with self.assertRaises(ValidationError):
+            parse_source_plan(canonical_bytes(tampered), request, [source, equivalent])
 
     def test_source_plan_requires_the_projection_digest(self):
         request = _request()
