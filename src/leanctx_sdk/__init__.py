@@ -1,9 +1,11 @@
+# SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 """LeanCTX SDK Stable v1 public surface.
 
 The five Product primitives are ContextSession, ContextSource, ContextView,
 ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 ``leanctx_sdk.preview`` and are outside the Stable compatibility guarantee.
 SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
+The v4 integration adds planning-only types documented in docs/ENGINE-PLANNING.md.
 """
 
 __version__ = "1.1.0"
@@ -21,7 +23,8 @@ from .agent import (
     SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
     ToolResult,
 )
-from .engine import EngineClient, SubprocessEngineClient
+from .engine import EngineClient, EnginePlanningClient, SubprocessEngineClient
+from .planning import EnginePlanningRequest, EngineSource
 from .errors import (
     AgentPermissionError,
     ArtifactIntegrityError,
@@ -89,6 +92,9 @@ __all__ = [
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
     "EngineClient",
+    "EnginePlanningClient",
+    "EnginePlanningRequest",
+    "EngineSource",
     "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
