@@ -17,6 +17,8 @@ export {
 } from "./agent.js";
 export { SubprocessEngineClient } from "./engine.js";
 export type { EngineClient } from "./engine.js";
+export { EngineContextClient } from "./context.js";
+export type { EngineContextClientOptions, EngineContextReadResult } from "./context.js";
 export {
   AgentPermissionError,
   ArtifactIntegrityError,

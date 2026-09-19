@@ -37,7 +37,7 @@ test("root exports equal the 1.1 Stable allowlist", async () => {
     "ContextView", "ContextPlan", "ContextReceipt", "ContextFailure",
     "ContextMeasurement", "ContextReceiptLink", "EngineStatus", "FailureCode",
     "Freshness", "HostOutcome", "Integrity", "RecoveredSource", "SessionState",
-    "SubprocessEngineClient", "SDKError", "ArtifactIntegrityError",
+    "SubprocessEngineClient", "EngineContextClient", "SDKError", "ArtifactIntegrityError",
     "CompatibilityError", "ConfigurationError", "EngineError", "EngineExecutionError",
     "EngineProtocolError", "EngineRejected", "EngineTimeout", "EngineUnavailable",
     "FrameworkCompatibilityError", "FrameworkIntegrationError", "PolicyAdmissionError",
