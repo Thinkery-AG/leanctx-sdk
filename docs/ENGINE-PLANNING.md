@@ -30,7 +30,24 @@ planning requests on stdin, without a temporary source-body file. Existing
 context-view/recover transport remains compatible. Responses must match the
 task, budget, projection digest and selected-source bindings; failures are typed.
 
-This is planning, not a signed admission or execution receipt. It is not yet the
-six-language SDK parity, Enterprise HTTP client, deployment, Windows transport,
-or installed-channel acceptance proof. Existing SDK license terms remain in
+## Standalone Enterprise planning
+
+`EnterpriseEngineClient(base_url, credential, tenant_id)` calls the authenticated
+`POST /v1/engine/context-plan` contract at Enterprise commit `cff624549b`.
+`context_plan(request, source_ids)` supplies at most 64 non-nil UUID source IDs;
+the credential is a bearer header and tenant authorization remains server-owned.
+The configured tenant is an expected response binding, never a tenant override
+in the request. Results include the persisted governance revision and canonical
+source plan. The SDK rejects another tenant or unrequested source references.
+
+HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
+loopback IPs for local tests only. Redirects, environment proxies and automatic
+POST retries are disabled. Responses are bounded; socket I/O and the connected
+request have a deadline. The operating system's DNS resolver is not cancellable
+by this synchronous standard-library client, so lookup time is not covered by a
+hard wall-clock guarantee. Supply a reachable controlled endpoint.
+
+This remains planning, not a signed admission or execution receipt. Neither
+client's component checks establish six-language SDK parity, Windows transport,
+deployment or installed-channel acceptance. Existing SDK license terms remain in
 `LICENSE`; new source headers reference `LicenseRef-LeanCTX-SDK-Source-1.0`.

@@ -24,6 +24,7 @@ from .agent import (
     ToolResult,
 )
 from .engine import EngineClient, EnginePlanningClient, SubprocessEngineClient
+from .enterprise_engine import EnterpriseEngineClient
 from .planning import EnginePlanningRequest, EngineSource
 from .errors import (
     AgentPermissionError,
@@ -95,6 +96,7 @@ __all__ = [
     "EnginePlanningClient",
     "EnginePlanningRequest",
     "EngineSource",
+    "EnterpriseEngineClient",
     "EngineCrashed",
     "EngineError",
     "EngineExecutionError",

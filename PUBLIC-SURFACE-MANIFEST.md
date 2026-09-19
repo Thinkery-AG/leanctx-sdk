@@ -70,6 +70,10 @@ primitives or execution receipts. Existing injected `EngineClient` implementatio
 gain no new required methods. They are not present in published 1.1.0 artifacts;
 release compatibility remains gated by the Engine-first acceptance plan.
 
+`EnterpriseEngineClient` is the separate authenticated HTTP planning consumer.
+Its tenant expectation and source-ID request are not the local process protocol;
+it does not extend `EngineClient` or implement server authorization.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

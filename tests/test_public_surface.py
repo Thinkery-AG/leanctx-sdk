@@ -42,6 +42,7 @@ ROOT_EXPORTS = {
     "EnginePlanningClient",
     "EnginePlanningRequest",
     "EngineSource",
+    "EnterpriseEngineClient",
     "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
