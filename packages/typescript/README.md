@@ -53,3 +53,40 @@ metadata does **not** verify the receipt's signature, prove task acceptance, or
 provide Enterprise tenant authorization. Full receipt verification remains a
 separate responsibility. This additive v4 candidate is not a claim that the
 published 3.10.1 Engine supports this boundary.
+
+## Explicit Engine source planning and materialization
+
+`EngineSourcePlanningClient` is the additive local CLI adapter for
+`context-plan-sources` and `context-materialize-sources`:
+
+```ts
+import {
+  EnginePlanningRequest,
+  EngineSource,
+  EngineSourcePlanningClient,
+  SubprocessEngineClient,
+} from "@thinkery/leanctx-sdk";
+
+const client = new EngineSourcePlanningClient(new SubprocessEngineClient({ engineBinary: "lean-ctx" }));
+const request = new EnginePlanningRequest("invoice-task", "invoice ledger", 512);
+const planned = await client.contextPlanSources(projectRoot, request, [source]);
+const evaluationTime = (
+  planned.result.plan.context_plan_evaluation_v1 as { evaluation_time?: string } | undefined
+)?.evaluation_time;
+const materialized = await client.contextMaterializeSources(
+  projectRoot,
+  request,
+  [source],
+  planned.binding_digest,
+  evaluationTime,
+);
+```
+
+Source bodies are sent through bounded stdin (`--json-file -`), never a temporary
+request file. The request is capped at 1 MiB, each source body at 64 KiB, and the
+response at 2 MiB. DTOs validate UTF-8, source content digests, selected-source
+joins, projection/binding digests, budget bounds, and the optional second-precision
+retention epoch. The epoch is an unsigned replay hint, not authorization or
+provenance. Materialized token count is a bounded Engine report; this client does
+not treat it as billing, compression savings, execution, acceptance, or a receipt.
+The existing `EngineClient` context-view/recover interface is unchanged.

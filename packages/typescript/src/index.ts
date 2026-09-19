@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** LeanCTX SDK Stable v1 and additive Agent Tools v1.1 surface. */
 
 export const __version__ = "1.1.0" as const;
@@ -15,8 +16,37 @@ export {
   ReadMode,
   ToolResult,
 } from "./agent.js";
-export { SubprocessEngineClient } from "./engine.js";
-export type { EngineClient } from "./engine.js";
+export {
+  MAX_SOURCE_REQUEST_BYTES,
+  MAX_SOURCE_RESPONSE_BYTES,
+  SubprocessEngineClient,
+} from "./engine.js";
+export type { EngineClient, SourceOperation } from "./engine.js";
+export {
+  EnginePlanningRequest,
+  EngineSource,
+  EngineSourcePlanningClient,
+  MAX_ENGINE_CONTEXT_PLAN_CANDIDATES,
+  MAX_ENGINE_CONTEXT_PLAN_QUERY_BYTES,
+  MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES,
+  MAX_ENGINE_CONTEXT_PLAN_TOKENS,
+  MAX_ENGINE_SOURCE_CONTENT_BYTES,
+  MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES,
+  MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
+  MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES,
+  MAX_ENGINE_SOURCE_PLAN_SOURCES,
+  parseMaterialization,
+  parseSourcePlan,
+} from "./planning.js";
+export type {
+  EngineContextPlan,
+  EngineContextSourceMaterialization,
+  EngineSourceDescriptor,
+  EngineSourceDescriptorInput,
+  EngineSourcePlan,
+  EngineSourcePlanResult,
+  EngineSourceSelection,
+} from "./planning.js";
 export { EngineContextClient } from "./context.js";
 export type { EngineContextClientOptions, EngineContextReadResult } from "./context.js";
 export {

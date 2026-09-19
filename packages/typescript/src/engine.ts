@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** Strict subprocess client for Engine Interface v1. */
 
 import { accessSync, closeSync, constants, fchmodSync, fsyncSync, openSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -46,6 +47,15 @@ import {
   validateOutputRef,
   validateRef,
 } from "./protocol.js";
+
+export const MAX_SOURCE_REQUEST_BYTES = 1024 * 1024;
+export const MAX_SOURCE_RESPONSE_BYTES = 2 * 1024 * 1024;
+export type SourceOperation = "context-plan-sources" | "context-materialize-sources";
+
+const SOURCE_OPERATIONS = new Set<SourceOperation>([
+  "context-plan-sources",
+  "context-materialize-sources",
+]);
 
 export interface EngineClient {
   contextView(plan: ContextPlan): Promise<ContextView> | ContextView;
@@ -321,6 +331,32 @@ export class SubprocessEngineClient implements EngineClient {
     return result;
   }
 
+  async contextPlanSources(
+    projectRoot: string,
+    request: import("./planning.js").EnginePlanningRequest,
+    sources: ReadonlyArray<import("./planning.js").EngineSource>,
+  ): Promise<import("./planning.js").EngineSourcePlan> {
+    const { EngineSourcePlanningClient } = await import("./planning.js");
+    return new EngineSourcePlanningClient(this).contextPlanSources(projectRoot, request, sources);
+  }
+
+  async contextMaterializeSources(
+    projectRoot: string,
+    request: import("./planning.js").EnginePlanningRequest,
+    sources: ReadonlyArray<import("./planning.js").EngineSource>,
+    expectedBindingDigest: string,
+    planningEvaluationTime?: string,
+  ): Promise<import("./planning.js").EngineContextSourceMaterialization> {
+    const { EngineSourcePlanningClient } = await import("./planning.js");
+    return new EngineSourcePlanningClient(this).contextMaterializeSources(
+      projectRoot,
+      request,
+      sources,
+      expectedBindingDigest,
+      planningEvaluationTime,
+    );
+  }
+
   async recover(projectRoot: string, pathValue: string, recoveryRef: string, sourceRef: string, sourceDigest: string): Promise<RecoveredSource> {
     const root = this.validateRoot(projectRoot);
     const path = safeRelativePath(pathValue);
@@ -379,13 +415,44 @@ export class SubprocessEngineClient implements EngineClient {
     }
   }
 
-  private async run(operation: string, projectRoot: string, requestPath: string): Promise<Buffer> {
+  /** Execute only the bounded source operations; planning owns their DTO validation. */
+  async sourceOperation(
+    operation: SourceOperation,
+    projectRoot: string,
+    request: Record<string, unknown>,
+  ): Promise<Buffer> {
+    if (!SOURCE_OPERATIONS.has(operation)) {
+      throw new ValidationError("unsupported Engine source operation");
+    }
+    const root = this.validateRoot(projectRoot);
+    const payload = canonicalBytes(request);
+    if (payload.byteLength > MAX_SOURCE_REQUEST_BYTES) {
+      throw new EngineProtocolError("Engine source request exceeds the bound");
+    }
+    return this.run(operation, root, undefined, payload, MAX_SOURCE_RESPONSE_BYTES);
+  }
+
+  private async run(
+    operation: string,
+    projectRoot: string,
+    requestPath: string | undefined,
+    stdinPayload?: Buffer,
+    maxOutputBytes = MAX_RESPONSE_BYTES,
+  ): Promise<Buffer> {
     const binary = this.resolveBinary();
-    const argv = [binary, "engine", operation, "--project-root", projectRoot, "--json-file", requestPath];
+    const jsonFile = stdinPayload === undefined ? requestPath : "-";
+    if (jsonFile === undefined) throw new EngineProtocolError("Engine request input is missing");
+    const argv = [binary, "engine", operation, "--project-root", projectRoot, "--json-file", jsonFile];
     const env = { LC_ALL: "C", LANG: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
     let child: ChildProcess;
     try {
-      child = spawn(binary, argv.slice(1), { cwd: projectRoot, env, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(binary, argv.slice(1), {
+        cwd: projectRoot,
+        env,
+        shell: false,
+        detached: process.platform !== "win32",
+        stdio: [stdinPayload === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      });
     } catch (error) { throw new EngineUnavailable("Engine process could not be started", { cause: error }); }
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -402,7 +469,7 @@ export class SubprocessEngineClient implements EngineClient {
       child.stdout?.on("data", (chunk: Buffer) => {
         if (settled) return;
         stdoutBytes += chunk.byteLength;
-        if (stdoutBytes > MAX_RESPONSE_BYTES) {
+        if (stdoutBytes > maxOutputBytes) {
           settled = true;
           clearTimeout(timer);
           terminateProcess(child);
@@ -425,6 +492,13 @@ export class SubprocessEngineClient implements EngineClient {
         clearTimeout(timer);
         rejectPromise(new EngineUnavailable("Engine process could not be started", { cause: error }));
       });
+      child.stdin?.once("error", (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        terminateProcess(child);
+        rejectPromise(new EngineUnavailable("Engine process request could not be sent", { cause: error }));
+      });
       child.once("close", (code) => {
         if (settled) return;
         settled = true;
@@ -444,6 +518,7 @@ export class SubprocessEngineClient implements EngineClient {
         }
         resolvePromise(Buffer.concat(stdout));
       });
+      if (stdinPayload !== undefined) child.stdin?.end(stdinPayload);
     });
   }
 
