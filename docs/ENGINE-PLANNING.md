@@ -47,7 +47,24 @@ request have a deadline. The operating system's DNS resolver is not cancellable
 by this synchronous standard-library client, so lookup time is not covered by a
 hard wall-clock guarantee. Supply a reachable controlled endpoint.
 
-This remains planning, not a signed admission or execution receipt. Neither
-client's component checks establish six-language SDK parity, Windows transport,
-deployment or installed-channel acceptance. Existing SDK license terms remain in
-`LICENSE`; new source headers reference `LicenseRef-LeanCTX-SDK-Source-1.0`.
+## Guarded Engine context read
+
+`EngineContextClient(base_url, credential).context_read(path)` uses the same
+bounded authenticated transport for `POST /v1/tools/call`, requesting exactly
+the guarded Engine v1 single-path aggressive `ctx_read` operation. The host
+owns project-root/path-jail enforcement and signer configuration; the SDK sends
+no signer secret, tenant override, or receipt configuration.
+
+The result is an `EngineContextReadResult` containing the returned text, the
+host's canonical receipt metadata, and the complete raw JSON response. The SDK
+requires `receipt_ref == "id:" + receipt_digest`, a schema version of `1`,
+`outcome == "unknown"`, and `delivery == "native_engine_view"`; unknown raw
+response fields are preserved. The current HTTP host exposes receipt metadata
+only, not a receipt-artifact fetch route or signed receipt bytes, so the SDK does
+not claim signature verification or response-level tenant binding.
+
+`EnterpriseEngineClient` remains planning-only; `EngineContextClient` is the
+separate guarded read surface. Neither client's component checks establish
+six-language SDK parity, Windows transport, deployment or installed-channel
+acceptance. Existing SDK license terms remain in `LICENSE`; new source headers
+reference `LicenseRef-LeanCTX-SDK-Source-1.0`.

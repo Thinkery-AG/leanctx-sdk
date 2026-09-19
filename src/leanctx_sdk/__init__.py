@@ -5,7 +5,8 @@ The five Product primitives are ContextSession, ContextSource, ContextView,
 ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 ``leanctx_sdk.preview`` and are outside the Stable compatibility guarantee.
 SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
-The v4 integration adds planning-only types documented in docs/ENGINE-PLANNING.md.
+The v4 integration adds planning and guarded context-read types documented in
+docs/ENGINE-PLANNING.md.
 """
 
 __version__ = "1.1.0"
@@ -24,7 +25,11 @@ from .agent import (
     ToolResult,
 )
 from .engine import EngineClient, EnginePlanningClient, SubprocessEngineClient
-from .enterprise_engine import EnterpriseEngineClient
+from .enterprise_engine import (
+    EngineContextClient,
+    EngineContextReadResult,
+    EnterpriseEngineClient,
+)
 from .planning import EnginePlanningRequest, EngineSource
 from .errors import (
     AgentPermissionError,
@@ -92,6 +97,8 @@ __all__ = [
     "ContextSource",
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
+    "EngineContextClient",
+    "EngineContextReadResult",
     "EngineClient",
     "EnginePlanningClient",
     "EnginePlanningRequest",
