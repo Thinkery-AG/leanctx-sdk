@@ -60,6 +60,16 @@ The supporting symbols are exported from `leanctx_sdk` and inherit the same
 owner. Their protocol/schema versions remain explicit; they do not authorize
 Cloud, scheduler, or private-service behavior.
 
+## Unreleased v4 planning additions
+
+The unreleased v4 integration also adds `EnginePlanningClient`,
+`EnginePlanningRequest`, and `EngineSource` at the package root, plus
+`SubprocessEngineClient.context_plan` and `.context_plan_sources`. These consume
+the canonical public Engine planning contract and are not additional lifecycle
+primitives or execution receipts. Existing injected `EngineClient` implementations
+gain no new required methods. They are not present in published 1.1.0 artifacts;
+release compatibility remains gated by the Engine-first acceptance plan.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not
@@ -107,8 +117,8 @@ Versioned record names remain schema identifiers, not separate stability tiers.
 
 ## Release invariants
 
-1. Root `__all__` equals Stable primitives, Agent Tools, and Stable supporting
-   surface.
+1. Root `__all__` equals Stable primitives, Agent Tools, Stable supporting
+   surface, and the explicitly listed unreleased v4 planning additions.
 2. Preview `__all__` equals the Preview namespace list above.
 3. Stable imports never depend on Preview modules.
 4. Public modules never import private research or Cloud implementation.

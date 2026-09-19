@@ -142,6 +142,7 @@ The five SDK 1.0 lifecycle primitives remain available unchanged:
 See:
 
 - [Custom agents](docs/CUSTOM-AGENTS.md)
+- [Unreleased v4 Engine planning](docs/ENGINE-PLANNING.md)
 - [Quickstart](docs/QUICKSTART.md)
 - [Compatibility](COMPATIBILITY.md)
 - [Security](SECURITY.md)
