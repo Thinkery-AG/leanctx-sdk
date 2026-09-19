@@ -188,12 +188,12 @@ function extensionValue(value: unknown, depth = 0): void {
 }
 
 function extensions(value: JsonRecord, reserved: ReadonlySet<string>): JsonRecord {
-  const result: JsonRecord = {};
+  const result = Object.create(null) as JsonRecord;
   for (const [key, nested] of Object.entries(value)) {
     if (reserved.has(key)) continue;
     validText(key, "extension key", MAX_IDENTIFIER_BYTES);
     extensionValue(nested);
-    result[key] = nested;
+    defineDataProperty(result, key, nested);
   }
   if (Object.keys(result).length > MAX_PROTOCOL_ITEMS) error("extensions exceed their field bound");
   return result;
@@ -367,6 +367,21 @@ function hasOwn(value: JsonRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function defineDataProperty(target: JsonRecord, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function assignDataProperties(target: JsonRecord, source: JsonRecord): void {
+  for (const [key, value] of Object.entries(source)) {
+    defineDataProperty(target, key, value);
+  }
+}
+
 function recordAt(value: unknown, path: readonly string[]): JsonRecord | null {
   let current: unknown = value;
   for (const key of path) {
@@ -523,7 +538,7 @@ function parseEvidence(value: unknown, fieldName: string): JsonRecord {
   if (raw.media_type !== undefined && raw.media_type !== null) {
     result.media_type = validText(raw.media_type, fieldName + ".media_type", MAX_IDENTIFIER_BYTES);
   }
-  Object.assign(result, extra);
+  assignDataProperties(result, extra);
   return result;
 }
 
@@ -553,7 +568,7 @@ function parsePlan(value: unknown): EngineContextPlan {
   if (raw.provider_stats !== undefined) {
     const stats = object(raw.provider_stats, "plan.provider_stats");
     if (Object.keys(stats).length > MAX_PROTOCOL_ITEMS) error("plan.provider_stats exceeds its item bound");
-    const normalized: JsonRecord = {};
+    const normalized = Object.create(null) as JsonRecord;
     for (const [provider, value] of Object.entries(stats)) {
       const providerName = validText(provider, "plan.provider_stats key", MAX_IDENTIFIER_BYTES);
       const entry = object(value, "plan.provider_stats entry");
@@ -561,11 +576,11 @@ function parsePlan(value: unknown): EngineContextPlan {
       const offered = integer(entry.candidates_offered, "plan.provider_stats.candidates_offered", 0, MAX_U64);
       const selected = integer(entry.candidates_selected, "plan.provider_stats.candidates_selected", 0, MAX_U64);
       if (selected > offered) error("plan.provider_stats selected exceeds offered");
-      normalized[providerName] = {
+      defineDataProperty(normalized, providerName, {
         candidates_offered: offered,
         candidates_selected: selected,
         tokens_used: integer(entry.tokens_used, "plan.provider_stats.tokens_used", 0, MAX_U64),
-      };
+      });
     }
     if (Object.keys(normalized).length > 0) result.provider_stats = normalized;
   }
@@ -582,7 +597,7 @@ function parsePlan(value: unknown): EngineContextPlan {
     const evidence = raw.evidence.map((item, index) => parseEvidence(item, "plan.evidence[" + index + "]"));
     if (evidence.length > 0) result.evidence = evidence;
   }
-  Object.assign(result, extra);
+  assignDataProperties(result, extra);
   if (result.projection_digest !== undefined) {
     const unsigned = { ...result };
     delete unsigned.projection_digest;

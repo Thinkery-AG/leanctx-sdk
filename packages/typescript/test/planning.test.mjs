@@ -92,6 +92,35 @@ function sourcePlan(sources = [source], planFields = {}) {
   };
 }
 
+function defineOwn(object, key, value) {
+  Object.defineProperty(object, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return object;
+}
+
+function protoPlan(reseal) {
+  const plan = sourcePlan();
+  defineOwn(plan.result.plan, "__proto__", { marker: "extension-data" });
+  const providerStats = {};
+  defineOwn(providerStats, "__proto__", {
+    candidates_offered: 1,
+    candidates_selected: 1,
+    tokens_used: 4,
+  });
+  plan.result.plan.provider_stats = providerStats;
+  if (reseal) {
+    const unsigned = { ...plan.result.plan };
+    delete unsigned.projection_digest;
+    plan.result.plan.projection_digest = sha256Digest(canonicalBytes(unsigned));
+    plan.binding_digest = sha256Digest(canonicalBytes([plan.result, plan.source_bindings]));
+  }
+  return plan;
+}
+
 function responses() {
   const plan = sourcePlan();
   const materializedContent = "## leanctx-source-v1\nfile\nsource-file\n" + source.descriptor.content_digest + "\n" + content;
@@ -251,6 +280,22 @@ test("extension numeric syntax remains outside protocol integer paths", () => {
     parseSourcePlan(raw, request, [source]).result.plan.context_plan_evaluation_v1.schema_version,
     1,
   );
+});
+
+test("source plan preserves __proto__ data and rejects stale hashes", () => {
+  const stale = protoPlan(false);
+  assert.equal(Object.prototype.leanctxProtoPolluted, undefined);
+  assert.throws(
+    () => parseSourcePlan(JSON.stringify(stale), request, [source]),
+    ValidationError,
+  );
+
+  const parsed = parseSourcePlan(JSON.stringify(protoPlan(true)), request, [source]);
+  assert.equal(Object.prototype.leanctxProtoPolluted, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(parsed.result.plan, "__proto__"), true);
+  assert.equal(parsed.result.plan["__proto__"].marker, "extension-data");
+  assert.equal(Object.prototype.hasOwnProperty.call(parsed.result.plan.provider_stats, "__proto__"), true);
+  assert.equal(parsed.result.plan.provider_stats["__proto__"].candidates_offered, 1);
 });
 
 test("source input validation fails before process launch", async () => {
