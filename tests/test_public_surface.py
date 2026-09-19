@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-# v4: extend the exact export allowlist with the additive public planning seam.
+# v4: exact additive planning and guarded context-read export allowlist.
 import importlib.util
 import os
 from pathlib import Path
@@ -39,6 +39,8 @@ ROOT_EXPORTS = {
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
     "EngineClient",
+    "EngineContextClient",
+    "EngineContextReadResult",
     "EnginePlanningClient",
     "EnginePlanningRequest",
     "EngineSource",
