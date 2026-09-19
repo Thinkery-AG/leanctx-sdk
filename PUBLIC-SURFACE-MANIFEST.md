@@ -81,6 +81,13 @@ they do not obtain signer credentials, fetch signed receipt bytes, or establish
 cryptographic verification or task acceptance. These are unreleased supporting
 adapters, not new lifecycle primitives or published 1.1.0 promises.
 
+The Go package's corresponding unreleased supporting surface is
+`NewEngineContextClient`, `EngineContextClientOptions`, `EngineContextClient`,
+`EngineContextReadResult`, and methods `ContextRead`/`ContextReadContext`.
+It consumes `contracts/guarded-context-read-v1.json` without extending the
+existing Go `EngineClient` interface. This addition does not claim planning or
+guarded-read parity across all SDK languages.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

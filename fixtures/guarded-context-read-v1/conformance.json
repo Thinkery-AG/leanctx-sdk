@@ -1,0 +1,41 @@
+{
+  "purpose": "Synthetic wire conformance only; not a signed receipt or runtime proof",
+  "request": {
+    "name": "ctx_read",
+    "arguments": {
+      "path": "src/context.rs",
+      "mode": "aggressive",
+      "engine_interface": "v1"
+    }
+  },
+  "response": {
+    "result": {
+      "content": [{"type": "text", "text": "pub fn retained_context() {}", "extension": "preserve"}],
+      "isError": false,
+      "_meta": {
+        "canonical_receipt": {
+          "schema_version": 1,
+          "receipt_id": "fixture-invocation-identity",
+          "receipt_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "receipt_ref": "id:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "outcome": "unknown",
+          "delivery": "native_engine_view"
+        },
+        "extension": {"preserve": true}
+      },
+      "extension": [1, 2, 3]
+    }
+  },
+  "invalid_receipt_overrides": [
+    {"schema_version": true},
+    {"schema_version": 1.0},
+    {"schema_version": 1e0},
+    {"schema_version": 2},
+    {"receipt_ref": "id:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    {"receipt_digest": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"receipt_id": "bad\nref"},
+    {"context_decision_ref": null},
+    {"outcome": "accepted"},
+    {"delivery": "other"}
+  ]
+}

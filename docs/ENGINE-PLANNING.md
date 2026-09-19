@@ -63,6 +63,18 @@ response fields are preserved. The current HTTP host exposes receipt metadata
 only, not a receipt-artifact fetch route or signed receipt bytes, so the SDK does
 not claim signature verification or response-level tenant binding.
 
+The language-neutral SDK projection is recorded in
+`contracts/guarded-context-read-v1.json`; its synthetic conformance fixture is
+`fixtures/guarded-context-read-v1/conformance.json`. These describe the existing
+Engine tool boundary, not a new Engine protocol or a signed runtime receipt.
+Python and Go consume the same fixture; passing it does not prove a deployment.
+
+The Go package exposes `NewEngineContextClient(baseURL, credential, options...)`
+with `EngineContextClientOptions{AllowLoopbackHTTP: true}` for explicit local
+tests. `ContextRead(path)` and `ContextReadContext(ctx, path)` return text,
+canonical receipt metadata and the raw response. The additive HTTP adapter does
+not add required methods to the existing Go `EngineClient` interface.
+
 `EnterpriseEngineClient` remains planning-only; `EngineContextClient` is the
 separate guarded read surface. Neither client's component checks establish
 six-language SDK parity, Windows transport, deployment or installed-channel
