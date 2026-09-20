@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package leanctx
 
 import (
@@ -411,15 +412,7 @@ func encodeCanonical(out *bytes.Buffer, value any) error {
 			out.WriteString("false")
 		}
 	case string:
-		encoded, err := json.Marshal(item)
-		if err != nil {
-			return err
-		}
-		// encoding/json HTML-escapes characters that Python/Node leave alone.
-		encoded = bytes.ReplaceAll(encoded, []byte(`\u003c`), []byte("<"))
-		encoded = bytes.ReplaceAll(encoded, []byte(`\u003e`), []byte(">"))
-		encoded = bytes.ReplaceAll(encoded, []byte(`\u0026`), []byte("&"))
-		out.Write(encoded)
+		writeCanonicalString(out, item)
 	case int64:
 		if item < -maxSafeInteger || item > maxSafeInteger {
 			return fmt.Errorf("unsafe integer")
@@ -473,6 +466,39 @@ func encodeCanonical(out *bytes.Buffer, value any) error {
 		return fmt.Errorf("unsupported normalized value %T", value)
 	}
 	return nil
+}
+
+// Encode UTF-8 directly: replacing escape substrings after json.Marshal would
+// also rewrite literal backslash-u text and break cross-language digest identity.
+func writeCanonicalString(out *bytes.Buffer, value string) {
+	const hex = "0123456789abcdef"
+	out.WriteByte('"')
+	for _, character := range value {
+		switch character {
+		case '"', '\\':
+			out.WriteByte('\\')
+			out.WriteRune(character)
+		case '\b':
+			out.WriteString(`\b`)
+		case '\f':
+			out.WriteString(`\f`)
+		case '\n':
+			out.WriteString(`\n`)
+		case '\r':
+			out.WriteString(`\r`)
+		case '\t':
+			out.WriteString(`\t`)
+		default:
+			if character < 0x20 {
+				out.WriteString(`\u00`)
+				out.WriteByte(hex[character>>4])
+				out.WriteByte(hex[character&0xf])
+			} else {
+				out.WriteRune(character)
+			}
+		}
+	}
+	out.WriteByte('"')
 }
 
 func sortCodePoints(keys []string) {
