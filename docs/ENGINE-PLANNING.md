@@ -114,6 +114,16 @@ accepted outcome, billing authority or automatic POST retry is added. A transpor
 failure may follow an already-dispatched attempt; do not retry under a new task
 identity without resolving the original attempt.
 
+TypeScript exposes the same provider boundary through
+`EnterpriseEngineClient.providerExecute(task, plan, request, sourceIds,
+expectedGovernanceRevision, expectedBindingDigest, {maxOutputTokens,
+planningEvaluationTime?})`. It reuses the existing authenticated transport and
+task/plan validators; local-native execution retains its separate guard. Wire
+versions and usage/cost counters must use JSON integer tokens, not decimal or
+exponent notation. JavaScript counters are restricted to safe integers. The
+same unknown-acceptance, host-owned digest and no-retry limitations apply; this
+addition does not establish parity for other SDK languages.
+
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
 POST retries are disabled. Responses are bounded; socket I/O and the connected

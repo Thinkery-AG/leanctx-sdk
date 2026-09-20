@@ -180,7 +180,7 @@ export function validatePlanningEvaluationTime(value: unknown): string {
 const TASK_REQUIRED = new Set(["schema_version", "task_id", "trace_id", "project_id", "session_id", "agent_id", "complexity", "created_at"]);
 const TASK_OPTIONAL = ["parent_task_id", "tenant_id", "intent", "task_class", "risk_class", "quality_requirement_milli", "cost_budget_micros", "latency_budget_ms", "data_classification", "region_policy_ref", "model_policy_ref", "context_state_ref", "outcome_contract_ref"];
 
-function validateTask(value: unknown, request: EnginePlanningRequest, tenantId: string, protocol = false): JsonRecord {
+export function validateTask(value: unknown, request: EnginePlanningRequest, tenantId: string, protocol = false): JsonRecord {
   const raw = record(value, "task", protocol);
   for (const key of TASK_REQUIRED) if (!(key in raw)) fail("task is missing a required field", protocol);
   exactVersion(raw.schema_version, "task.schema_version", SCHEMA_VERSION, protocol);
@@ -214,7 +214,7 @@ function validateTask(value: unknown, request: EnginePlanningRequest, tenantId: 
 
 const PLAN_REQUIRED = new Set(["schema_version", "plan_id", "task_id", "context_budget_tokens", "context_strategy", "knowledge_refs", "capability_ids", "model", "provider", "reasoning_allocation_milli", "max_retries", "fallback_refs", "stop_condition", "expected_cost_micros", "expected_quality_milli", "expected_latency_ms"]);
 
-function validatePlan(value: unknown, taskId: string, protocol = false, allowContextPlanId = false): JsonRecord {
+export function validatePlan(value: unknown, taskId: string, protocol = false, allowContextPlanId = false): JsonRecord {
   const raw = record(value, "plan", protocol);
   for (const key of PLAN_REQUIRED) if (!(key in raw)) fail("plan is missing a required field", protocol);
   exactVersion(raw.schema_version, "plan.schema_version", SCHEMA_VERSION, protocol);

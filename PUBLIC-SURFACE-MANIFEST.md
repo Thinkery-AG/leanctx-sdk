@@ -79,6 +79,10 @@ boundary. It validates explicit provider plans, output integrity and usage/cost
 provenance; the host owns egress authorization, dispatch and wallet settlement.
 It creates no receipt, signer trust or accepted-outcome claim and never retries
 the POST automatically. See `docs/ENGINE-PLANNING.md` for exact bounds and limits.
+TypeScript adds `EnterpriseEngineClient.providerExecute` on the same provider
+contract without adding required methods to the existing Engine client interface
+or new package-root exports. Its response types are inferred from the method;
+the supporting parser module is not an additional public lifecycle surface.
 Execution validates the original task/plan, source/output digests and unknown
 receipt projection. The v2 method additionally preserves the exact
 `receipt_document_json` string (whose UTF-8 bytes are the signed document) and

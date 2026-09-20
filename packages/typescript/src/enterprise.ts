@@ -12,6 +12,7 @@ import { ConfigurationError, EngineProtocolError, ValidationError } from "./erro
 import {
   MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
   MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES,
+  SCHEMA_VERSION,
   EnginePlanningRequest,
   parseSourcePlan,
   type EngineSourcePlan,
@@ -27,9 +28,17 @@ import {
   validateSourcePlanScope,
   type EngineSourceExecutionV2,
 } from "./source_execution.js";
+import {
+  MAX_ENGINE_PROVIDER_EXECUTION_REQUEST_BYTES,
+  MAX_ENGINE_PROVIDER_EXECUTION_RESPONSE_BYTES,
+  parseProviderExecutionResponse,
+  validateProviderExecutionRequest,
+  type EngineProviderExecutionResponse,
+} from "./provider_execution.js";
 import { canonicalBytes, strictJsonLoads, validateDigest } from "./protocol.js";
 
 const CONTEXT_PLAN_PATH = "/v1/engine/context-plan";
+const PROVIDER_EXECUTION_PATH = "/v1/engine/provider-execute";
 const EXECUTION_V2_PATH = "/v2/engine/context-execute";
 const MAX_U64 = Number.MAX_SAFE_INTEGER;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -122,6 +131,11 @@ export type ContextExecuteV2Options = Readonly<{
   planningEvaluationTime?: string;
 }>;
 
+export type ProviderExecuteOptions = Readonly<{
+  maxOutputTokens: number;
+  planningEvaluationTime?: string;
+}>;
+
 function configuredUuid(value: unknown, fieldName: string): string {
   if (
     typeof value !== "string" ||
@@ -151,6 +165,7 @@ export class EnterpriseEngineClient {
   readonly timeout: number;
   private readonly endpoint: URL;
   private readonly planEndpoint: URL;
+  private readonly providerEndpoint: URL;
   private readonly credential: string;
 
   constructor(
@@ -165,6 +180,7 @@ export class EnterpriseEngineClient {
     const allowLoopbackHttp = options.allowLoopbackHttp ?? false;
     this.endpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, EXECUTION_V2_PATH);
     this.planEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, CONTEXT_PLAN_PATH);
+    this.providerEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, PROVIDER_EXECUTION_PATH);
     this.credential = _validateCredential(credential);
     this.timeout = _validateTimeout(options.timeout ?? 30);
     this.baseUrl = baseUrl;
@@ -206,6 +222,72 @@ export class EnterpriseEngineClient {
       "Enterprise source planning",
     );
     return parseEnterpriseSourcePlanResponse(raw, request, normalizedIds, this.tenantId);
+  }
+
+  /**
+   * Execute one concrete provider plan using host-owned admission and dispatch.
+   * The response remains a provider projection with unknown acceptance.
+   */
+  async providerExecute(
+    task: Readonly<Record<string, unknown>>,
+    plan: Readonly<Record<string, unknown>>,
+    request: EnginePlanningRequest,
+    sourceIds: readonly string[],
+    expectedGovernanceRevision: number,
+    expectedBindingDigest: string,
+    options: ProviderExecuteOptions,
+  ): Promise<EngineProviderExecutionResponse> {
+    const normalizedIds = normalizeSourceIds(sourceIds);
+    const normalized = validateProviderExecutionRequest(
+      task,
+      plan,
+      request,
+      this.tenantId,
+      options.maxOutputTokens,
+    );
+    const governanceRevision = inputU64(
+      expectedGovernanceRevision,
+      "expected_governance_revision",
+    );
+    const bindingDigest = validateDigest(expectedBindingDigest, "expected_binding_digest");
+    const planningEvaluationTime = options.planningEvaluationTime === undefined
+      ? undefined
+      : validatePlanningEvaluationTime(options.planningEvaluationTime);
+    const materialization: Record<string, unknown> = {
+      planning: request.toDict(),
+      source_ids: [...normalizedIds],
+      expected_governance_revision: governanceRevision,
+      expected_binding_digest: bindingDigest,
+    };
+    if (planningEvaluationTime !== undefined) {
+      materialization.planning_evaluation_time = planningEvaluationTime;
+    }
+    const payload = canonicalBytes({
+      schema_version: SCHEMA_VERSION,
+      task: normalized.task,
+      plan: normalized.plan,
+      materialization,
+      max_output_tokens: normalized.maxOutputTokens,
+    });
+    if (payload.byteLength > MAX_ENGINE_PROVIDER_EXECUTION_REQUEST_BYTES) {
+      throw new ValidationError(
+        "Enterprise Engine provider execution request exceeds its byte bound",
+      );
+    }
+    const raw = await _postJson(
+      this.providerEndpoint,
+      this.credential,
+      payload,
+      this.timeout,
+      MAX_ENGINE_PROVIDER_EXECUTION_RESPONSE_BYTES,
+      "Enterprise provider execution",
+    );
+    return parseProviderExecutionResponse(
+      raw,
+      normalized.task,
+      normalized.plan,
+      this.tenantId,
+    );
   }
 
   /**
