@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ import {
 import { parseResponse } from "../dist/engine.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
 
-test("root exports equal the 1.1 Stable allowlist", async () => {
+test("root exports equal the accepted v4 integration-candidate allowlist", async () => {
   const module = await import("../dist/index.js");
   const expected = [
     "AGENT_TOOLS_INTERFACE_VERSION", "AGENT_TOOLS_SCHEMA_VERSION",
@@ -37,7 +38,18 @@ test("root exports equal the 1.1 Stable allowlist", async () => {
     "ContextView", "ContextPlan", "ContextReceipt", "ContextFailure",
     "ContextMeasurement", "ContextReceiptLink", "EngineStatus", "FailureCode",
     "Freshness", "HostOutcome", "Integrity", "RecoveredSource", "SessionState",
-    "SubprocessEngineClient", "EngineContextClient", "SDKError", "ArtifactIntegrityError",
+    "SubprocessEngineClient", "EngineContextClient", "EnterpriseEngineClient",
+    "EnginePlanningRequest", "EngineSource", "EngineSourcePlanningClient",
+    "MAX_ENGINE_CONTEXT_PLAN_CANDIDATES", "MAX_ENGINE_CONTEXT_PLAN_QUERY_BYTES",
+    "MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES", "MAX_ENGINE_CONTEXT_PLAN_TOKENS",
+    "MAX_ENGINE_SOURCE_CONTENT_BYTES", "MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES",
+    "MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES", "MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES",
+    "MAX_ENGINE_SOURCE_PLAN_SOURCES", "parseMaterialization", "parseSourcePlan",
+    "MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES",
+    "MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES",
+    "MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES", "parseSourceExecutionV2Response",
+    "MAX_SOURCE_REQUEST_BYTES", "MAX_SOURCE_RESPONSE_BYTES",
+    "SDKError", "ArtifactIntegrityError",
     "CompatibilityError", "ConfigurationError", "EngineError", "EngineExecutionError",
     "EngineProtocolError", "EngineRejected", "EngineTimeout", "EngineUnavailable",
     "FrameworkCompatibilityError", "FrameworkIntegrationError", "PolicyAdmissionError",
