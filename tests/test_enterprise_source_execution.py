@@ -201,6 +201,56 @@ def _execution_v2_response(
 
 
 class EnterpriseSourceExecutionTests(unittest.TestCase):
+    def test_rejects_unicode_controls_before_network(self) -> None:
+        binding_digest = cast(str, _source_plan()["binding_digest"])
+        controls = (*range(0x20), *range(0x7F, 0xA0))
+        with _server(lambda _handler, _body: _Reply(500)) as server:
+            client = _client(server)
+            for execute in (client.context_execute, client.context_execute_v2):
+                for codepoint in controls:
+                    with self.subTest(operation=execute.__name__, codepoint=codepoint):
+                        with self.assertRaises(ValidationError):
+                            execute(
+                                {**TASK, "trace_id": "trace-" + chr(codepoint)},
+                                PLAN,
+                                REQUEST,
+                                [SOURCE_ID],
+                                7,
+                                binding_digest,
+                            )
+            self.assertEqual(server.calls, 0)
+
+    def test_rejects_response_control_ids_and_preserves_unicode(self) -> None:
+        binding_digest = cast(str, _source_plan()["binding_digest"])
+        for engine_id in (
+            "engine-\x7f",
+            "engine-\x80",
+            "engine-\x9f",
+            "Zürich-日本-🚀",
+        ):
+            with self.subTest(engine_id=ascii(engine_id)):
+                response = json.loads(_execution_response())
+                response["execution"]["invocation"]["engine"]["engine_id"] = engine_id
+                payload = canonical_bytes(response)
+                with _server(
+                    lambda _handler, _body, payload=payload: _Reply(200, body=payload)
+                ) as server:
+                    if engine_id.startswith("engine-"):
+                        with self.assertRaisesRegex(
+                            EngineProtocolError, "control character"
+                        ):
+                            _client(server).context_execute(
+                                TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
+                            )
+                    else:
+                        result = _client(server).context_execute(
+                            TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
+                        )
+                        execution = cast(Mapping[str, Any], result["execution"])
+                        self.assertEqual(
+                            execution["invocation"]["engine"]["engine_id"], engine_id
+                        )
+
     def test_executes_and_returns_digest_bound_unknown_receipt_projection(self) -> None:
         source_plan = _source_plan()
         binding_digest = cast(str, source_plan["binding_digest"])

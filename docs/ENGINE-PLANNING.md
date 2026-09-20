@@ -60,6 +60,12 @@ bytes are capped at1 MiB and response bytes at3 MiB. No POST is automatically
 retried: failed disclosure may follow a durable attempt, so do not assume a
 failure means execution never occurred. A fresh task is a new attempt.
 
+Opaque task, plan and invocation strings reject Unicode control characters
+(C0, DEL and C1) consistently with the Engine. Invalid request identifiers fail
+before HTTP dispatch; invalid response identifiers raise `EngineProtocolError`.
+Ordinary Unicode text and exact serialized receipt bytes remain supported;
+the receipt carrier does not become a second signer or receipt authority.
+
 The v1 canonical receipt remains an `unknown` outcome projection, not full signed
 bytes or independent signature verification. Source execution does not imply
 model invocation, accepted learning or provider billing. Opt-in Engine v2 signed

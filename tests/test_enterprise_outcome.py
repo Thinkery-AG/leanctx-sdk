@@ -155,6 +155,36 @@ def _response(
 
 
 class EnterpriseOutcomeTests(unittest.TestCase):
+    def test_rejects_control_task_ids_before_network(self) -> None:
+        controls = (*range(0x20), *range(0x7F, 0xA0))
+        signals = [{"signal_type": "human_acceptance", "value": {"boolean": True}}]
+        with _server(lambda _body: _response()) as server:
+            client = _client(server)
+            for codepoint in controls:
+                with self.subTest(codepoint=codepoint):
+                    with self.assertRaises(ValidationError):
+                        client.context_outcome(
+                            "task-" + chr(codepoint),
+                            RECEIPT_DIGEST,
+                            DECISION_DIGEST,
+                            signals,
+                        )
+            self.assertEqual(server.calls, 0)
+
+    def test_serialized_receipt_is_not_revalidated_as_an_opaque_id(self) -> None:
+        # Structural carrier fixture only: signer verification remains external.
+        document = json.loads(RECEIPT_DOCUMENT)
+        document["signature"] += "\u0085"
+        receipt = canonical_json(document)
+        with _server(lambda _body: _response(receipt_document_json=receipt)) as server:
+            result = _client(server).context_outcome(
+                "enterprise-task",
+                RECEIPT_DIGEST,
+                DECISION_DIGEST,
+                [{"signal_type": "human_acceptance", "value": {"boolean": True}}],
+            )
+        self.assertEqual(result["outcome"]["receipt_document_json"], receipt)
+
     def test_context_outcome_preserves_document_and_server_owned_fields(self) -> None:
         signals = [
             {"signal_type": "human_acceptance", "value": {"boolean": True}},

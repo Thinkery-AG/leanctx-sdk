@@ -13,7 +13,12 @@ from typing import Any, Mapping, NoReturn, Sequence, Tuple, cast
 
 from .engine import _parse_observation, _parse_view
 from .errors import EngineProtocolError, ValidationError
-from .planning import ENGINE_INTERFACE_VERSION, EnginePlanningRequest, parse_source_plan
+from .planning import (
+    ENGINE_INTERFACE_VERSION,
+    EnginePlanningRequest,
+    _is_control,
+    parse_source_plan,
+)
 from .protocol import (
     MAX_REF_BYTES,
     MAX_REFS,
@@ -153,6 +158,7 @@ def _text(
     maximum: int = MAX_REF_BYTES,
     protocol: bool,
     printable: bool = False,
+    controls: bool = True,
 ) -> str:
     if not isinstance(value, str):
         _fail(f"{field} must be a string", protocol=protocol)
@@ -162,7 +168,7 @@ def _text(
         _fail(f"{field} is not valid UTF-8", protocol=protocol)
     if not encoded or len(encoded) > maximum or "\x00" in value:
         _fail(f"{field} exceeds its byte bound", protocol=protocol)
-    if any(ord(char) < 0x20 for char in value):
+    if controls and _is_control(value):
         _fail(f"{field} contains a control character", protocol=protocol)
     if printable and any(not 0x20 <= ord(char) <= 0x7E for char in value):
         _fail(f"{field} must be printable ASCII", protocol=protocol)
@@ -1026,6 +1032,9 @@ def parse_engine_outcome_response(
         "outcome.receipt_document_json",
         maximum=_MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES,
         protocol=True,
+        # This is serialized JSON, not an opaque identifier; its exact bytes
+        # are checked below without taking over receipt/signature authority.
+        controls=False,
     )
     receipt_document_bytes = receipt_document_json.encode("utf-8", "strict")
     if sha256_digest(receipt_document_bytes) != successor_digest:
