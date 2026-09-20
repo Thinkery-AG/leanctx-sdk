@@ -57,8 +57,12 @@ from .protocol import (
 from .source_execution import (
     _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES,
     _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES,
+    _MAX_ENGINE_OUTCOME_REQUEST_BYTES,
+    _MAX_ENGINE_OUTCOME_RESPONSE_BYTES,
+    parse_engine_outcome_response,
     parse_source_execution_response,
     parse_source_execution_v2_response,
+    validate_outcome_request,
     validate_execution_request,
 )
 
@@ -67,6 +71,7 @@ _ENGINE_PATH = "/v1/engine/context-plan"
 _MATERIALIZATION_PATH = "/v1/engine/context-materialize"
 _EXECUTION_PATH = "/v1/engine/context-execute"
 _EXECUTION_V2_PATH = "/v2/engine/context-execute"
+_OUTCOME_PATH = "/v1/engine/context-outcome"
 _CONTEXT_READ_PATH = "/v1/tools/call"
 _SCHEMA_VERSION = 1
 _MAX_REQUEST_BYTES = 64 * 1024
@@ -816,6 +821,45 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
             governance_revision,
             binding_digest,
             planning_evaluation_time,
+        )
+
+    def context_outcome(
+        self,
+        task_id: str,
+        receipt_digest: str,
+        context_decision_digest: str,
+        signals: Sequence[Mapping[str, object]],
+    ) -> Mapping[str, object]:
+        """Carry one authenticated operator outcome to the Enterprise host.
+
+        The host binds tenant and agent identity from the authenticated
+        credential, and remains the authority for receipt signatures, outcome
+        evaluation and ledger mutation.  The SDK preserves the exact returned
+        receipt-document string but does not verify signer trust or claim
+        accepted learning, billing or accounting.
+        """
+        normalized = validate_outcome_request(
+            task_id,
+            receipt_digest,
+            context_decision_digest,
+            signals,
+        )
+        payload = canonical_bytes(normalized)
+        if len(payload) > _MAX_ENGINE_OUTCOME_REQUEST_BYTES:
+            _validation_error("Enterprise Engine outcome request exceeds its byte bound")
+        raw = self._post_json(
+            _OUTCOME_PATH,
+            payload,
+            _MAX_ENGINE_OUTCOME_RESPONSE_BYTES,
+            "Enterprise Engine outcome",
+            "outcome request",
+        )
+        return parse_engine_outcome_response(
+            raw,
+            task_id=task_id,
+            receipt_digest=receipt_digest,
+            context_decision_digest=context_decision_digest,
+            tenant_id=self._tenant_id,
         )
 
     def _parse_materialization_response(

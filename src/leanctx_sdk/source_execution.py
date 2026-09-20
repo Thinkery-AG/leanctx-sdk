@@ -36,6 +36,25 @@ _MAX_EXECUTION_VIEW_BYTES = 1024 * 1024
 _MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES = 1024 * 1024
 _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES = 4 * 1024 * 1024
 _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES = 64 * 1024
+_MAX_ENGINE_OUTCOME_REQUEST_BYTES = 1024 * 1024
+_MAX_ENGINE_OUTCOME_RESPONSE_BYTES = (
+    _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES
+    + _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES
+)
+_MAX_ENGINE_OUTCOME_SIGNAL_COUNT = 16
+_MAX_ENGINE_OUTCOME_SIGNAL_VALUE_U32 = (1 << 32) - 1
+_MAX_ENGINE_OUTCOME_TASK_BYTES = 256
+_OUTCOME_SIGNAL_TYPES = {
+    "build_success",
+    "tests_passing",
+    "lint_clean",
+    "typecheck_passing",
+    "human_acceptance",
+    "pr_merge",
+    "ci_passing",
+    "correction",
+    "rollback",
+}
 _MAX_LIST_ITEMS = 256
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 _LOCAL_NATIVE = "local-native"
@@ -776,8 +795,267 @@ def parse_source_execution_v2_response(
     }
 
 
+def _validate_outcome_signal(value: Any, index: int) -> dict[str, Any]:
+    field = f"signals[{index}]"
+    signal = _mapping(value, field, protocol=False)
+    if set(signal) != {"signal_type", "value"}:
+        raise ValidationError(f"{field} fields do not match the v1 contract")
+    signal_type = _text(
+        signal["signal_type"],
+        f"{field}.signal_type",
+        protocol=False,
+        printable=True,
+    )
+    if signal_type not in _OUTCOME_SIGNAL_TYPES:
+        raise ValidationError(f"{field}.signal_type is unsupported")
+    signal_value = signal["value"]
+    if signal_value == "unknown":
+        return {"signal_type": signal_type, "value": "unknown"}
+    if not isinstance(signal_value, Mapping):
+        raise ValidationError(f"{field}.value has an invalid shape")
+    signal_value = _mapping(signal_value, f"{field}.value", protocol=False)
+    if set(signal_value) == {"boolean"}:
+        boolean = signal_value["boolean"]
+        if not isinstance(boolean, bool):
+            raise ValidationError(f"{field}.value.boolean must be a boolean")
+        normalized_value: object = {"boolean": boolean}
+    elif set(signal_value) == {"count"}:
+        count = signal_value["count"]
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or not 0 <= count <= _MAX_ENGINE_OUTCOME_SIGNAL_VALUE_U32
+        ):
+            raise ValidationError(f"{field}.value.count must be a bounded integer")
+        normalized_value = {"count": count}
+    else:
+        raise ValidationError(f"{field}.value fields do not match the v1 contract")
+    return {"signal_type": signal_type, "value": normalized_value}
+
+
+def validate_outcome_request(
+    task_id: str,
+    receipt_digest: str,
+    context_decision_digest: str,
+    signals: Sequence[Mapping[str, object]],
+) -> Mapping[str, object]:
+    """Validate the caller-owned subset of the public outcome request."""
+    normalized_task_id = _text(
+        task_id,
+        "task_id",
+        maximum=_MAX_ENGINE_OUTCOME_TASK_BYTES,
+        protocol=False,
+    )
+    normalized_receipt_digest = validate_digest(receipt_digest, "receipt_digest")
+    normalized_decision_digest = validate_digest(
+        context_decision_digest, "context_decision_digest"
+    )
+    if isinstance(signals, (str, bytes, bytearray)) or not isinstance(signals, Sequence):
+        raise ValidationError("signals must be a bounded sequence")
+    if not 0 < len(signals) <= _MAX_ENGINE_OUTCOME_SIGNAL_COUNT:
+        raise ValidationError("signals must contain between 1 and 16 items")
+    normalized_signals = [
+        _validate_outcome_signal(signal, index) for index, signal in enumerate(signals)
+    ]
+    request = {
+        "task_id": normalized_task_id,
+        "receipt_digest": normalized_receipt_digest,
+        "context_decision_digest": normalized_decision_digest,
+        "signals": normalized_signals,
+    }
+    if len(canonical_bytes(request)) > _MAX_ENGINE_OUTCOME_REQUEST_BYTES:
+        raise ValidationError("Engine outcome request exceeds its byte bound")
+    return request
+
+
+def _validate_outcome_receipt_joins(
+    receipt_document_bytes: bytes,
+    *,
+    receipt_id: str,
+    acceptance: str,
+    task_id: str,
+    context_decision_digest: str,
+) -> None:
+    """Validate the public outcome DTO's selected document joins.
+
+    This intentionally checks only the wire-visible joins required by the
+    outcome protocol; canonical receipt parsing, signature admission, and
+    outcome evaluation remain HostReceiptAuthority responsibilities.
+    """
+    try:
+        document = strict_json_loads(
+            receipt_document_bytes,
+            label="Enterprise Engine outcome receipt document",
+        )
+    except (ValidationError, RecursionError) as exc:
+        raise EngineProtocolError(
+            "Enterprise Engine outcome receipt document is not valid JSON"
+        ) from exc
+    document = _mapping(
+        document,
+        "outcome.receipt_document_json",
+        protocol=True,
+    )
+    if set(document) != {"schema_version", "receipt_id", "lineage", "chain", "status",
+                         "values", "outcome", "evidence_refs", "issued_at", "signer", "signature"}:
+        raise EngineProtocolError("Enterprise Engine outcome receipt envelope is incomplete")
+    _exact_version(document["schema_version"], "receipt.schema_version", protocol=True)
+    try:
+        if canonical_bytes(document) != receipt_document_bytes:
+            raise EngineProtocolError("Enterprise Engine outcome receipt bytes are not canonical")
+        identity = {key: value for key, value in document.items()
+                    if key not in {"receipt_id", "signature"}}
+        if sha256_digest(canonical_bytes(identity)) != receipt_id:
+            raise EngineProtocolError("Enterprise Engine outcome receipt identity differs")
+    except (ValidationError, RecursionError) as exc:
+        raise EngineProtocolError("Enterprise Engine outcome receipt identity is invalid") from exc
+    if document.get("receipt_id") != receipt_id:
+        raise EngineProtocolError(
+            "Enterprise Engine outcome receipt id does not match the response"
+        )
+    outcome = document.get("outcome")
+    if not isinstance(outcome, Mapping) or outcome.get("state") != acceptance:
+        raise EngineProtocolError(
+            "Enterprise Engine outcome state does not match the response"
+        )
+    chain = document.get("chain")
+    if not isinstance(chain, Mapping):
+        raise EngineProtocolError("Enterprise Engine outcome receipt chain is invalid")
+    previous_receipt_id = chain.get("previous_receipt_id")
+    if not isinstance(previous_receipt_id, str):
+        raise EngineProtocolError("Enterprise Engine outcome receipt predecessor is missing")
+    try:
+        validate_digest(previous_receipt_id, "receipt.chain.previous_receipt_id")
+    except ValidationError as exc:
+        raise EngineProtocolError("Enterprise Engine outcome receipt predecessor is invalid") from exc
+    lineage = document.get("lineage")
+    if not isinstance(lineage, Mapping) or lineage.get("task_id") != task_id:
+        raise EngineProtocolError(
+            "Enterprise Engine outcome receipt task binding does not match"
+        )
+    evidence_refs = document.get("evidence_refs")
+    if not isinstance(evidence_refs, list):
+        raise EngineProtocolError(
+            "Enterprise Engine outcome receipt evidence references are invalid"
+        )
+    runtime_refs = [
+        reference
+        for reference in evidence_refs
+        if isinstance(reference, Mapping) and reference.get("kind") == "runtime"
+    ]
+    if not runtime_refs:
+        raise EngineProtocolError(
+            "Enterprise Engine outcome receipt has no runtime evidence"
+        )
+    expected_uri = _SOURCE_PLAN_EVIDENCE_PREFIX + context_decision_digest[7:]
+    if any(
+        reference.get("digest") != context_decision_digest
+        or reference.get("uri") != expected_uri
+        for reference in runtime_refs
+    ):
+        raise EngineProtocolError(
+            "Enterprise Engine outcome runtime evidence does not match"
+        )
+
+
+def parse_engine_outcome_response(
+    raw: bytes,
+    *,
+    task_id: str,
+    receipt_digest: str,
+    context_decision_digest: str,
+    tenant_id: str,
+) -> Mapping[str, object]:
+    """Validate the Enterprise outcome envelope without signer trust claims."""
+    if len(raw) > _MAX_ENGINE_OUTCOME_RESPONSE_BYTES:
+        raise EngineProtocolError("Enterprise Engine outcome response exceeds its byte bound")
+    try:
+        value = strict_json_loads(raw, label="Enterprise Engine outcome response")
+    except (ValidationError, RecursionError) as exc:
+        raise EngineProtocolError("Enterprise Engine outcome response is not valid JSON") from exc
+    if set(value) != {"schema_version", "tenant_id", "outcome"}:
+        raise EngineProtocolError("Enterprise Engine outcome response wrapper is invalid")
+    _exact_version(value["schema_version"], "response.schema_version", protocol=True)
+    if value["tenant_id"] != tenant_id:
+        raise EngineProtocolError("Enterprise Engine outcome tenant binding does not match")
+    outcome = _mapping(value["outcome"], "outcome", protocol=True)
+    expected_keys = {
+        "schema_version",
+        "receipt_id",
+        "receipt_digest",
+        "original_receipt_digest",
+        "acceptance",
+        "already_recorded",
+        "receipt_document_json",
+    }
+    if set(outcome) != expected_keys:
+        raise EngineProtocolError("Enterprise Engine outcome fields do not match the v1 contract")
+    _exact_version(outcome["schema_version"], "outcome.schema_version", protocol=True)
+    try:
+        normalized_task_id = _text(
+            task_id,
+            "task_id",
+            maximum=_MAX_ENGINE_OUTCOME_TASK_BYTES,
+            protocol=True,
+        )
+        normalized_receipt_digest = validate_digest(
+            receipt_digest, "receipt_digest"
+        )
+        normalized_decision_digest = validate_digest(
+            context_decision_digest, "context_decision_digest"
+        )
+        receipt_id = validate_digest(outcome["receipt_id"], "outcome.receipt_id")
+        successor_digest = validate_digest(
+            outcome["receipt_digest"], "outcome.receipt_digest"
+        )
+        original_digest = validate_digest(
+            outcome["original_receipt_digest"],
+            "outcome.original_receipt_digest",
+        )
+    except ValidationError as exc:
+        raise EngineProtocolError("Enterprise Engine outcome digest or task binding is invalid") from exc
+    if original_digest != normalized_receipt_digest:
+        raise EngineProtocolError("Enterprise Engine outcome original receipt does not match")
+    acceptance = outcome["acceptance"]
+    if not isinstance(acceptance, str) or acceptance not in {"accepted", "rejected"}:
+        raise EngineProtocolError("Enterprise Engine outcome acceptance is unsupported")
+    if not isinstance(outcome["already_recorded"], bool):
+        raise EngineProtocolError("Enterprise Engine outcome already_recorded must be a boolean")
+    receipt_document_json = _text(
+        outcome["receipt_document_json"],
+        "outcome.receipt_document_json",
+        maximum=_MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES,
+        protocol=True,
+    )
+    receipt_document_bytes = receipt_document_json.encode("utf-8", "strict")
+    if sha256_digest(receipt_document_bytes) != successor_digest:
+        raise EngineProtocolError("Enterprise Engine outcome receipt document digest does not match")
+    _validate_outcome_receipt_joins(
+        receipt_document_bytes,
+        receipt_id=receipt_id,
+        acceptance=acceptance,
+        task_id=normalized_task_id,
+        context_decision_digest=normalized_decision_digest,
+    )
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "tenant_id": tenant_id,
+        "outcome": {
+            "schema_version": _SCHEMA_VERSION,
+            "receipt_id": receipt_id,
+            "receipt_digest": successor_digest,
+            "original_receipt_digest": original_digest,
+            "acceptance": acceptance,
+            "already_recorded": outcome["already_recorded"],
+            "receipt_document_json": receipt_document_json,
+        },
+    }
+
+
 __all__ = [
+    "parse_engine_outcome_response",
     "parse_source_execution_response",
     "parse_source_execution_v2_response",
+    "validate_outcome_request",
     "validate_execution_request",
 ]
