@@ -70,7 +70,11 @@ primitives or execution receipts. Existing injected `EngineClient` implementatio
 gain no new required methods. They are not present in published 1.1.0 artifacts;
 release compatibility remains gated by the Engine-first acceptance plan.
 
-`EnterpriseEngineClient` is the separate authenticated HTTP planning consumer.
+`EnterpriseEngineClient` is the separate authenticated HTTP source consumer:
+`context_plan`, `context_materialize`, and additive `context_execute` use the
+versioned standalone Enterprise Engine routes. Execution validates the original
+task/plan, source/output digests and unknown receipt projection; it does not
+fetch or independently verify signed receipt documents or admit accepted learning.
 Its tenant expectation and source-ID request are not the local process protocol;
 it does not extend `EngineClient` or implement server authorization.
 

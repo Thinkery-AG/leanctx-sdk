@@ -38,6 +38,7 @@ from .errors import (
 )
 from .planning import (
     ENGINE_INTERFACE_VERSION,
+    MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
     MAX_ENGINE_SOURCE_PLAN_SOURCES,
     EnginePlanningRequest,
     _timestamp,
@@ -53,16 +54,26 @@ from .protocol import (
     validate_digest,
     validate_ref,
 )
+from .source_execution import (
+    parse_source_execution_response,
+    validate_execution_request,
+)
 
 
 _ENGINE_PATH = "/v1/engine/context-plan"
 _MATERIALIZATION_PATH = "/v1/engine/context-materialize"
+_EXECUTION_PATH = "/v1/engine/context-execute"
 _CONTEXT_READ_PATH = "/v1/tools/call"
 _SCHEMA_VERSION = 1
 _MAX_REQUEST_BYTES = 64 * 1024
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _MAX_MATERIALIZED_CONTENT_BYTES = 1024 * 1024
 _MAX_MATERIALIZATION_RESPONSE_BYTES = _MAX_RESPONSE_BYTES + _MAX_MATERIALIZED_CONTENT_BYTES
+# Source execution carries a bounded source plan and a bounded Engine view;
+# retain one additional protocol-response allowance for both envelopes.
+_MAX_EXECUTION_RESPONSE_BYTES = (
+    _MAX_RESPONSE_BYTES + _MAX_MATERIALIZED_CONTENT_BYTES + _MAX_RESPONSE_BYTES
+)
 _MAX_CREDENTIAL_BYTES = 4096
 _MAX_URL_BYTES = 4096
 _MAX_TIMEOUT_SECONDS = 120.0
@@ -658,6 +669,75 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
             normalized_ids,
             governance_revision,
             binding_digest,
+        )
+
+    def context_execute(
+        self,
+        task: Mapping[str, object],
+        plan: Mapping[str, object],
+        request: EnginePlanningRequest,
+        source_ids: Sequence[str],
+        expected_governance_revision: int,
+        expected_binding_digest: str,
+        *,
+        planning_evaluation_time: Optional[str] = None,
+    ) -> Mapping[str, object]:
+        """Execute one already-declared local-native source plan.
+
+        The Enterprise host remains the authority for tenant/source admission,
+        source bodies, and receipt persistence.  The SDK returns only the
+        digest-bound execution projection; its canonical receipt is explicitly
+        an ``unknown`` outcome and is not treated as a signature or acceptance
+        proof.
+        """
+        normalized_ids = _source_ids(source_ids)
+        normalized_task, normalized_plan = validate_execution_request(
+            task, plan, request, self._tenant_id
+        )
+        governance_revision = _validate_input_u64(
+            expected_governance_revision, "expected_governance_revision"
+        )
+        try:
+            binding_digest = validate_digest(
+                expected_binding_digest, "expected_binding_digest"
+            )
+        except ValidationError as exc:
+            _validation_error("expected_binding_digest is invalid", exc)
+        materialization: dict[str, object] = {
+            "planning": dict(request.to_dict()),
+            "source_ids": list(normalized_ids),
+            "expected_governance_revision": governance_revision,
+            "expected_binding_digest": binding_digest,
+        }
+        if planning_evaluation_time is not None:
+            materialization["planning_evaluation_time"] = _timestamp(
+                planning_evaluation_time, "planning_evaluation_time"
+            )
+        body = {
+            "task": normalized_task,
+            "plan": normalized_plan,
+            "materialization": materialization,
+        }
+        payload = canonical_bytes(body)
+        if len(payload) > MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES:
+            _validation_error("Enterprise Engine source execution request exceeds its byte bound")
+        raw = self._post_json(
+            _EXECUTION_PATH,
+            payload,
+            _MAX_EXECUTION_RESPONSE_BYTES,
+            "Enterprise Engine source execution",
+            "source execution request",
+        )
+        return parse_source_execution_response(
+            raw,
+            request,
+            normalized_ids,
+            normalized_task,
+            normalized_plan,
+            self._tenant_id,
+            governance_revision,
+            binding_digest,
+            planning_evaluation_time,
         )
 
     def _parse_materialization_response(

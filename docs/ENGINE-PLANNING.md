@@ -30,7 +30,7 @@ planning requests on stdin, without a temporary source-body file. Existing
 context-view/recover transport remains compatible. Responses must match the
 task, budget, projection digest and selected-source bindings; failures are typed.
 
-## Standalone Enterprise planning
+## Standalone Enterprise source operations
 
 `EnterpriseEngineClient(base_url, credential, tenant_id)` calls the authenticated
 `POST /v1/engine/context-plan` contract at Enterprise commit `cff624549b`.
@@ -43,6 +43,27 @@ source plan. The SDK rejects another tenant or unrequested source references.
 `context_materialize(request, source_ids, expected_governance_revision, expected_binding_digest, planning_evaluation_time=None)` calls the additive authenticated `POST /v1/engine/context-materialize` contract. It reuses the tenant, source, governance and binding joins, and validates the nested plan with the existing source-plan parser, including additive plan extensions. The optional evaluation-time value is a canonical UTC-second identity echo for retention-aware planning; it is not authentication, provenance, or a receipt.
 
 The SDK validates the exact materialization envelope, UTF-8 content bound (1 MiB), and SHA-256 content digest. `materialized_token_count` is only a bounded host-reported metric: the SDK does not recompute it, bill it, or treat materialization as execution or a receipt. The method returns the server's materialized context and validated plan; it does not add a second ledger or outcome authority.
+
+`context_execute(task, plan, request, source_ids, expected_governance_revision,
+expected_binding_digest, planning_evaluation_time=None)` calls
+`POST /v1/engine/context-execute` (Enterprise `90d54cf5c2` or compatible).
+The caller declares canonical public `TaskEnvelopeV1`/`ExecutionPlanV1` mappings
+for the local-native context capability. The task tenant must match the client's
+expected tenant; the agent must be the server-authenticated stable key/session ID.
+The server derives source bodies and owns signer configuration and admission.
+No signer secret, artifact path or caller-supplied source body is accepted here.
+
+The SDK verifies the exact declared plan, allowing only the Engine's context ID
+and decision-ref additions, and joins task/source/invocation/observation/output
+digests. Retention evaluation time is echoed and checked when supplied. Request
+bytes are capped at1 MiB and response bytes at3 MiB. No POST is automatically
+retried: failed disclosure may follow a durable attempt, so do not assume a
+failure means execution never occurred. A fresh task is a new attempt.
+
+The v1 canonical receipt remains an `unknown` outcome projection, not full signed
+bytes or independent signature verification. Source execution does not imply
+model invocation, accepted learning or provider billing. Opt-in Engine v2 signed
+delivery is a separate contract and is not silently negotiated by this method.
 
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
@@ -79,7 +100,8 @@ tests. `ContextRead(path)` and `ContextReadContext(ctx, path)` return text,
 canonical receipt metadata and the raw response. The additive HTTP adapter does
 not add required methods to the existing Go `EngineClient` interface.
 
-`EnterpriseEngineClient` remains planning-only; `EngineContextClient` is the
+`EnterpriseEngineClient` provides source planning/materialization/execution;
+`EngineContextClient` is the
 separate guarded read surface. Neither client's component checks establish
 six-language SDK parity, Windows transport, deployment or installed-channel
 acceptance. Existing SDK license terms remain in `LICENSE`; new source headers
