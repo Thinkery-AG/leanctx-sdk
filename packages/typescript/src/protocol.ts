@@ -184,7 +184,8 @@ function canonicalValue(value: unknown, stack: Set<unknown>): JsonValue {
     if (!isPlainObject(value)) {
       throw new ValidationError("value is not canonical JSON data");
     }
-    const result: { [key: string]: JsonValue } = {};
+    // Prototype-named JSON keys are data, never object setters.
+    const result: { [key: string]: JsonValue } = Object.create(null);
     for (const key of Object.keys(value).sort(compareUnicodeCodePoints)) {
       utf8(key, "canonical JSON key");
       result[key] = canonicalValue(value[key], stack);

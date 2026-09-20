@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { strictJsonLoads } from "../dist/protocol.js";
+import { canonicalJson, strictJsonLoads } from "../dist/protocol.js";
 
 test("strict JSON treats prototype-named keys as own data", () => {
   const parsed = strictJsonLoads('{"__proto__":{"allowed":true}}');
@@ -9,6 +9,13 @@ test("strict JSON treats prototype-named keys as own data", () => {
   assert.equal(Object.hasOwn(parsed, "__proto__"), true);
   assert.equal(parsed.allowed, undefined);
   assert.equal(JSON.stringify(parsed), '{"__proto__":{"allowed":true}}');
+});
+
+test("canonical JSON preserves prototype-named keys as own data", () => {
+  const encoded = '{"__proto__":{"allowed":true},"nested":[{"__proto__":7}]}';
+  const parsed = strictJsonLoads(encoded);
+  assert.equal(canonicalJson(parsed), encoded);
+  assert.equal(parsed.allowed, undefined);
 });
 
 test("strict integer lexemes apply only at the designated JSON path", () => {
