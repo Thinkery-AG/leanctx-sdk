@@ -47,7 +47,7 @@ function record(value: unknown, label: string): RecordValue {
 
 function text(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value) > maximum
-      || /[\u0000-\u001f]/u.test(value)) {
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) {
     throw new ValidationError(label + " exceeds its UTF-8 text bounds");
   }
   canonicalBytes(value); // Also rejects unpaired UTF-16 surrogates.

@@ -27,6 +27,7 @@ function receiptDocument({
   acceptance = "accepted",
   previousReceiptId = PREVIOUS_RECEIPT_ID,
   decisionDigest = DECISION_DIGEST,
+  signerKeyId = "fixture-only",
 } = {}) {
   const document = {
     schema_version: 1,
@@ -38,7 +39,7 @@ function receiptDocument({
     issued_at: "2026-09-20T00:00:00Z",
     signer: {
       algorithm: "ed25519",
-      key_id: "fixture-only",
+      key_id: signerKeyId,
       key_admission: "external_trust_store",
     },
     evidence_refs: [{
@@ -210,6 +211,8 @@ test("Enterprise contextOutcome rejects invalid request signals before HTTP", as
   const server = await loopback(JSON.stringify(response()));
   const cases = [
     ["empty task", "", RECEIPT_DIGEST, DECISION_DIGEST, SIGNALS],
+    ["DEL task", TASK_ID + String.fromCharCode(0x7f), RECEIPT_DIGEST, DECISION_DIGEST, SIGNALS],
+    ["C1 task", TASK_ID + String.fromCharCode(0x85), RECEIPT_DIGEST, DECISION_DIGEST, SIGNALS],
     ["invalid receipt digest", TASK_ID, "not-a-digest", DECISION_DIGEST, SIGNALS],
     ["invalid decision digest", TASK_ID, RECEIPT_DIGEST, "not-a-digest", SIGNALS],
     ["unknown signal", TASK_ID, RECEIPT_DIGEST, DECISION_DIGEST, [{ signal_type: "agent_completion", value: { boolean: true } }]],
@@ -275,6 +278,9 @@ test("Enterprise contextOutcome rejects strict envelope and receipt joins", asyn
       rebindDocument(value.outcome, " " + value.outcome.receipt_document_json, false);
       return JSON.stringify(value);
     }],
+    ["C1 document", () => JSON.stringify(response({
+      document: receiptDocument({ signerKeyId: "fixture-only" + String.fromCharCode(0x85) }),
+    }))],
     ["wrong task", () => {
       const value = response({ document: receiptDocument({ taskId: "other-task" }) });
       rebindDocument(value.outcome, value.outcome.receipt_document_json);
