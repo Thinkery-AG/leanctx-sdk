@@ -55,7 +55,10 @@ from .protocol import (
     validate_ref,
 )
 from .source_execution import (
+    _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES,
+    _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES,
     parse_source_execution_response,
+    parse_source_execution_v2_response,
     validate_execution_request,
 )
 
@@ -63,6 +66,7 @@ from .source_execution import (
 _ENGINE_PATH = "/v1/engine/context-plan"
 _MATERIALIZATION_PATH = "/v1/engine/context-materialize"
 _EXECUTION_PATH = "/v1/engine/context-execute"
+_EXECUTION_V2_PATH = "/v2/engine/context-execute"
 _CONTEXT_READ_PATH = "/v1/tools/call"
 _SCHEMA_VERSION = 1
 _MAX_REQUEST_BYTES = 64 * 1024
@@ -73,6 +77,10 @@ _MAX_MATERIALIZATION_RESPONSE_BYTES = _MAX_RESPONSE_BYTES + _MAX_MATERIALIZED_CO
 # retain one additional protocol-response allowance for both envelopes.
 _MAX_EXECUTION_RESPONSE_BYTES = (
     _MAX_RESPONSE_BYTES + _MAX_MATERIALIZED_CONTENT_BYTES + _MAX_RESPONSE_BYTES
+)
+_MAX_EXECUTION_V2_RESPONSE_BYTES = (
+    _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES
+    + _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES
 )
 _MAX_CREDENTIAL_BYTES = 4096
 _MAX_URL_BYTES = 4096
@@ -729,6 +737,76 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
             "source execution request",
         )
         return parse_source_execution_response(
+            raw,
+            request,
+            normalized_ids,
+            normalized_task,
+            normalized_plan,
+            self._tenant_id,
+            governance_revision,
+            binding_digest,
+            planning_evaluation_time,
+        )
+
+    def context_execute_v2(
+        self,
+        task: Mapping[str, object],
+        plan: Mapping[str, object],
+        request: EnginePlanningRequest,
+        source_ids: Sequence[str],
+        expected_governance_revision: int,
+        expected_binding_digest: str,
+        *,
+        planning_evaluation_time: Optional[str] = None,
+    ) -> Mapping[str, object]:
+        """Return the v2 execution projection and exact receipt document text.
+
+        The nested v1 execution remains the only SDK validation authority.  The
+        returned ``receipt_document_json`` is preserved as UTF-8 text so callers
+        can obtain the exact signed bytes; this method does not verify a signer,
+        admit a key, or claim an accepted outcome.
+        """
+        normalized_ids = _source_ids(source_ids)
+        normalized_task, normalized_plan = validate_execution_request(
+            task, plan, request, self._tenant_id
+        )
+        governance_revision = _validate_input_u64(
+            expected_governance_revision, "expected_governance_revision"
+        )
+        try:
+            binding_digest = validate_digest(
+                expected_binding_digest, "expected_binding_digest"
+            )
+        except ValidationError as exc:
+            _validation_error("expected_binding_digest is invalid", exc)
+        materialization: dict[str, object] = {
+            "planning": dict(request.to_dict()),
+            "source_ids": list(normalized_ids),
+            "expected_governance_revision": governance_revision,
+            "expected_binding_digest": binding_digest,
+        }
+        if planning_evaluation_time is not None:
+            materialization["planning_evaluation_time"] = _timestamp(
+                planning_evaluation_time, "planning_evaluation_time"
+            )
+        body = {
+            "task": normalized_task,
+            "plan": normalized_plan,
+            "materialization": materialization,
+        }
+        payload = canonical_bytes(body)
+        if len(payload) > MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES:
+            _validation_error(
+                "Enterprise Engine source execution request exceeds its byte bound"
+            )
+        raw = self._post_json(
+            _EXECUTION_V2_PATH,
+            payload,
+            _MAX_EXECUTION_V2_RESPONSE_BYTES,
+            "Enterprise Engine source execution v2",
+            "source execution v2 request",
+        )
+        return parse_source_execution_v2_response(
             raw,
             request,
             normalized_ids,

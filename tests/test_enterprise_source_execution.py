@@ -180,6 +180,26 @@ def _execution_response(
     ).encode("utf-8")
 
 
+def _execution_v2_response(
+    *,
+    receipt_document_json: str = '{"receipt":"signed-v2-document"}',
+    **kwargs: Any,
+) -> bytes:
+    response = cast(
+        dict[str, Any], json.loads(_execution_response(**kwargs).decode("utf-8"))
+    )
+    document_digest = sha256_digest(receipt_document_json.encode("utf-8"))
+    response["schema_version"] = 2
+    response["execution"]["canonical_receipt"]["receipt_digest"] = document_digest
+    response["execution"]["canonical_receipt"]["receipt_ref"] = "id:" + document_digest
+    response["execution"] = {
+        "schema_version": 2,
+        "execution": response["execution"],
+        "receipt_document_json": receipt_document_json,
+    }
+    return json.dumps(response, ensure_ascii=False).encode("utf-8")
+
+
 class EnterpriseSourceExecutionTests(unittest.TestCase):
     def test_executes_and_returns_digest_bound_unknown_receipt_projection(self) -> None:
         source_plan = _source_plan()
@@ -255,6 +275,73 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
         ) as server:
             with self.assertRaises(EngineProtocolError):
                 _client(server).context_execute(
+                    TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
+                )
+
+    def test_v2_preserves_exact_receipt_document_and_v1_projection(self) -> None:
+        source_plan = _source_plan()
+        binding_digest = cast(str, source_plan["binding_digest"])
+        document = '{"issued_at":"2026-09-20T12:34:56Z","note":"✓"}'
+        with _server(
+            lambda _handler, _body: _Reply(
+                200, body=_execution_v2_response(receipt_document_json=document)
+            )
+        ) as server:
+            result = _client(server).context_execute_v2(
+                TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
+            )
+        self.assertEqual(
+            set(result), {"schema_version", "tenant_id", "governance_revision", "execution"}
+        )
+        execution = cast(Mapping[str, Any], result["execution"])
+        self.assertEqual(set(execution), {"schema_version", "execution", "receipt_document_json"})
+        self.assertEqual(execution["schema_version"], 2)
+        self.assertEqual(execution["receipt_document_json"].encode("utf-8"), document.encode("utf-8"))
+        nested = cast(Mapping[str, Any], execution["execution"])
+        self.assertEqual(nested["schema_version"], 1)
+        self.assertEqual(
+            nested["canonical_receipt"]["receipt_digest"],
+            sha256_digest(document.encode("utf-8")),
+        )
+        self.assertEqual(server.calls, 1)
+
+    def test_v2_rejects_schema_and_receipt_digest_mutations(self) -> None:
+        source_plan = _source_plan()
+        binding_digest = cast(str, source_plan["binding_digest"])
+        valid = json.loads(_execution_v2_response().decode("utf-8"))
+        cases: list[tuple[str, dict[str, Any]]] = []
+        wrong_outer = json.loads(json.dumps(valid))
+        wrong_outer["schema_version"] = 1
+        cases.append(("outer schema", wrong_outer))
+        wrong_nested = json.loads(json.dumps(valid))
+        wrong_nested["execution"]["schema_version"] = 1
+        cases.append(("nested schema", wrong_nested))
+        wrong_digest = json.loads(json.dumps(valid))
+        wrong_digest["execution"]["receipt_document_json"] = '{"changed":true}'
+        cases.append(("receipt digest", wrong_digest))
+        for label, value in cases:
+            with self.subTest(label=label):
+                with _server(
+                    lambda _handler, _body, value=value: _Reply(
+                        200, body=json.dumps(value, ensure_ascii=False).encode("utf-8")
+                    )
+                ) as server:
+                    with self.assertRaises(EngineProtocolError):
+                        _client(server).context_execute_v2(
+                            TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
+                        )
+
+    def test_v2_rejects_oversized_receipt_document(self) -> None:
+        source_plan = _source_plan()
+        binding_digest = cast(str, source_plan["binding_digest"])
+        oversized = "x" * (1024 * 1024 + 1)
+        with _server(
+            lambda _handler, _body: _Reply(
+                200, body=_execution_v2_response(receipt_document_json=oversized)
+            )
+        ) as server:
+            with self.assertRaises(EngineProtocolError):
+                _client(server).context_execute_v2(
                     TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                 )
 

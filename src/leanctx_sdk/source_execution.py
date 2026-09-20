@@ -28,10 +28,14 @@ from .protocol import (
 
 _SCHEMA_VERSION = 1
 _TRANSPORT_VERSION = 1
+_V2_SCHEMA_VERSION = 2
 _MAX_U64 = (1 << 64) - 1
 _MAX_U32 = (1 << 32) - 1
 _MAX_TASK_BYTES = 16 * 1024
 _MAX_EXECUTION_VIEW_BYTES = 1024 * 1024
+_MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES = 1024 * 1024
+_MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES = 4 * 1024 * 1024
+_MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES = 64 * 1024
 _MAX_LIST_ITEMS = 256
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 _LOCAL_NATIVE = "local-native"
@@ -631,4 +635,149 @@ def parse_source_execution_response(
     }
 
 
-__all__ = ["parse_source_execution_response", "validate_execution_request"]
+def parse_source_execution_v2_response(
+    raw: bytes,
+    request: EnginePlanningRequest,
+    source_ids: Tuple[str, ...],
+    task: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    tenant_id: str,
+    expected_governance_revision: int,
+    expected_binding_digest: str,
+    planning_evaluation_time: str | None = None,
+) -> Mapping[str, object]:
+    """Parse v2 while preserving the exact signed receipt document string.
+
+    The nested execution is validated by the existing v1 parser.  This layer
+    checks only the additive v2 envelope and receipt-byte/digest join; it does
+    not parse or cryptographically verify the signed ReceiptDocument.
+    """
+    if len(raw) > (
+        _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES
+        + _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES
+    ):
+        raise EngineProtocolError(
+            "Enterprise source execution v2 response exceeds its byte bound"
+        )
+    try:
+        value = strict_json_loads(
+            raw, label="Enterprise Engine source execution v2 response"
+        )
+    except ValidationError as exc:
+        raise EngineProtocolError(
+            "Enterprise Engine source execution v2 response is not valid JSON"
+        ) from exc
+    if set(value) != {"schema_version", "tenant_id", "governance_revision", "execution"}:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 response wrapper is invalid"
+        )
+    if (
+        isinstance(value["schema_version"], bool)
+        or not isinstance(value["schema_version"], int)
+        or value["schema_version"] != _V2_SCHEMA_VERSION
+    ):
+        raise EngineProtocolError(
+            "Enterprise source execution v2 response schema_version is unsupported"
+        )
+    if value["tenant_id"] != tenant_id:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 tenant binding does not match"
+        )
+    revision = _integer(
+        value["governance_revision"],
+        "response.governance_revision",
+        protocol=True,
+    )
+    if revision != expected_governance_revision:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 governance revision does not match"
+        )
+    execution_v2 = _mapping(value["execution"], "execution", protocol=True)
+    if set(execution_v2) != {"schema_version", "execution", "receipt_document_json"}:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 fields do not match the v2 contract"
+        )
+    if (
+        isinstance(execution_v2["schema_version"], bool)
+        or not isinstance(execution_v2["schema_version"], int)
+        or execution_v2["schema_version"] != _V2_SCHEMA_VERSION
+    ):
+        raise EngineProtocolError(
+            "Enterprise source execution v2 execution schema_version is unsupported"
+        )
+    receipt_document_json = execution_v2["receipt_document_json"]
+    if not isinstance(receipt_document_json, str):
+        raise EngineProtocolError(
+            "Enterprise source execution v2 receipt_document_json must be a string"
+        )
+    try:
+        receipt_document_bytes = receipt_document_json.encode("utf-8", "strict")
+    except UnicodeEncodeError as exc:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 receipt document is not valid UTF-8"
+        ) from exc
+    if len(receipt_document_bytes) > _MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 receipt document exceeds its byte bound"
+        )
+    nested_execution = _mapping(
+        execution_v2["execution"], "execution.execution", protocol=True
+    )
+    inner_v2 = {
+        "schema_version": _V2_SCHEMA_VERSION,
+        "execution": nested_execution,
+        "receipt_document_json": receipt_document_json,
+    }
+    try:
+        if len(canonical_bytes(inner_v2)) > _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES:
+            raise EngineProtocolError(
+                "Enterprise source execution v2 response exceeds its byte bound"
+            )
+        v1_wrapper = canonical_bytes(
+            {
+                "schema_version": _SCHEMA_VERSION,
+                "tenant_id": tenant_id,
+                "governance_revision": revision,
+                "execution": nested_execution,
+            }
+        )
+    except ValidationError as exc:
+        raise EngineProtocolError(
+            "Enterprise source execution v2 response contains non-canonical JSON data"
+        ) from exc
+    parsed_v1 = parse_source_execution_response(
+        v1_wrapper,
+        request,
+        source_ids,
+        task,
+        plan,
+        tenant_id,
+        revision,
+        expected_binding_digest,
+        planning_evaluation_time,
+    )
+    parsed_execution = cast(Mapping[str, object], parsed_v1["execution"])
+    canonical_receipt = cast(
+        Mapping[str, object], parsed_execution["canonical_receipt"]
+    )
+    if canonical_receipt["receipt_digest"] != sha256_digest(receipt_document_bytes):
+        raise EngineProtocolError(
+            "Enterprise source execution v2 receipt document digest does not match"
+        )
+    return {
+        "schema_version": _V2_SCHEMA_VERSION,
+        "tenant_id": tenant_id,
+        "governance_revision": revision,
+        "execution": {
+            "schema_version": _V2_SCHEMA_VERSION,
+            "execution": parsed_execution,
+            "receipt_document_json": receipt_document_json,
+        },
+    }
+
+
+__all__ = [
+    "parse_source_execution_response",
+    "parse_source_execution_v2_response",
+    "validate_execution_request",
+]

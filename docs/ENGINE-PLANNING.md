@@ -65,6 +65,17 @@ bytes or independent signature verification. Source execution does not imply
 model invocation, accepted learning or provider billing. Opt-in Engine v2 signed
 delivery is a separate contract and is not silently negotiated by this method.
 
+`context_execute_v2(task, plan, request, source_ids, expected_governance_revision,
+expected_binding_digest, planning_evaluation_time=None)` explicitly calls
+`POST /v2/engine/context-execute`. It returns the same authenticated outer v2
+envelope as Enterprise: `schema_version: 2`, tenant and governance bindings,
+and `execution: {schema_version: 2, execution: <validated v1 projection>,
+receipt_document_json: <exact string>}`. UTF-8 encoding that returned string
+recovers the exact signed receipt bytes; the SDK checks its 1 MiB bound and
+digest join to `canonical_receipt.receipt_digest`, but does not parse the
+ReceiptDocument, admit signer keys, or claim cryptographic verification.
+Independent trust-store verification remains the caller's existing authority.
+
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
 POST retries are disabled. Responses are bounded; socket I/O and the connected
