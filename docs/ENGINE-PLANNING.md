@@ -131,7 +131,7 @@ request have a deadline. The operating system's DNS resolver is not cancellable
 by this synchronous standard-library client, so lookup time is not covered by a
 hard wall-clock guarantee. Supply a reachable controlled endpoint.
 
-### Go Enterprise source planning (unreleased)
+### Go Enterprise source planning and materialization (unreleased)
 
 The unreleased Go package adds the narrower Enterprise source-planning slice:
 `NewEnterpriseEngineClient(baseURL, credential, tenantID, options...)`,
@@ -139,8 +139,16 @@ The unreleased Go package adds the narrower Enterprise source-planning slice:
 transport with caller cancellation and validates the canonical response's task,
 budget, projection digest, selected-source bindings and expected tenant. The
 source IDs are bounded non-nil UUIDs; the configured tenant is never sent as an
-override. This is not Go materialization, provider execution, receipt delivery or
-outcome reporting. No methods are added to the existing injected `EngineClient`.
+override. `ContextMaterializeSources` and `ContextMaterializeSourcesContext`
+take an `EngineSourceMaterializationRequest` containing the original planning
+request/source IDs, expected governance revision and binding digest, and optional
+planning evaluation time. Preserve `context_plan_evaluation_v1.evaluation_time`
+from the returned plan when present; a fresh evaluation can change its binding.
+They verify the returned source plan and content digest,
+and bound the reported token metric to the plan budget. That metric is not an
+independent tokenizer measurement. Neither operation performs provider execution,
+receipt delivery or outcome reporting. No methods are added to the existing
+injected `EngineClient`.
 
 ## Guarded Engine context read
 

@@ -119,7 +119,11 @@ types do not extend the stable lifecycle interfaces. The adapter validates
 tenant, task, budget and source bindings using the existing strict JSON and
 bounded HTTP machinery. It adds no Engine algorithm, provider dispatch, signed
 receipt authority or automatic retry, and does not imply parity for Go
-materialization/execution/outcomes or other languages.
+execution/outcomes or other languages. `ContextMaterializeSources` and its
+cancellable context variant add digest-checked context materialization via
+`EngineSourceMaterializationRequest`/`EngineSourceMaterializationResponse`, bound
+to the original plan and expected governance revision. They do not create an
+execution receipt or accepted outcome.
 
 ## Preview namespace
 
