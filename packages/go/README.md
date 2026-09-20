@@ -38,3 +38,8 @@ execution through `EngineSourceExecutionV2Request`. They return the exact v2
 receipt-document string with checked byte-digest and lineage bindings. The SDK
 does not verify signer trust, declare task acceptance, execute a model provider,
 or retry an execution request automatically.
+
+`ProviderExecute`/`ProviderExecuteContext` send a concrete non-local plan through
+the separately governed provider boundary. Results retain nullable usage and
+cost provenance; unavailable values are never synthesized as zero. The host
+owns dispatch/admission, acceptance stays `unknown`, and the SDK does not retry.

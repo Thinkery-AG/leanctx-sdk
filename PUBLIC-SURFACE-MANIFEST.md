@@ -132,6 +132,12 @@ and task/plan/source lineage are checked without changing `EngineClient` or
 creating signing, provider or task-acceptance authority. Signature trust must be
 established separately; the receipt outcome stays `unknown`.
 
+The unreleased Go provider surface is `ProviderExecute`/`ProviderExecuteContext`
+with `EngineProviderExecutionRequest` and `EngineProviderExecutionResponse`.
+Its output/usage/cost/failure DTOs preserve the canonical provider projection,
+including unknown acceptance and unavailable metrics. It uses the existing
+authenticated transport and adds no Engine, retry, signing or billing authority.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

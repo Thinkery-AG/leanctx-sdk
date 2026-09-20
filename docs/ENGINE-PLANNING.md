@@ -159,6 +159,13 @@ exact receipt-document byte digest. The returned receipt outcome remains
 admitted keys; this adapter does not establish signer trust or successful task
 acceptance. It is not the provider-execution API.
 
+Go `ProviderExecute`/`ProviderExecuteContext` accept
+`EngineProviderExecutionRequest` with a concrete non-local plan, bound
+materialization and an output-token ceiling. The adapter validates task/plan,
+provider/model, bounded output digest, usage totals and cost basis while
+preserving unavailable counters as `nil`. It neither retries/falls back nor
+upgrades a provider response into task acceptance or proof of a billed charge.
+
 ## Guarded Engine context read
 
 `EngineContextClient(base_url, credential).context_read(path)` uses the same
