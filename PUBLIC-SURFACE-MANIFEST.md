@@ -112,6 +112,15 @@ It consumes `contracts/guarded-context-read-v1.json` without extending the
 existing Go `EngineClient` interface. This addition does not claim planning or
 guarded-read parity across all SDK languages.
 
+Go additionally exposes the unreleased `EnterpriseEngineClient` constructor
+`NewEnterpriseEngineClient` and `ContextPlanSources`/`ContextPlanSourcesContext`
+for the standalone source-planning contract. Supporting planning request/result
+types do not extend the stable lifecycle interfaces. The adapter validates
+tenant, task, budget and source bindings using the existing strict JSON and
+bounded HTTP machinery. It adds no Engine algorithm, provider dispatch, signed
+receipt authority or automatic retry, and does not imply parity for Go
+materialization/execution/outcomes or other languages.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

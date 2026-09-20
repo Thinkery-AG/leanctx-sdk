@@ -43,6 +43,7 @@ type EngineContextReadResult struct {
 type EngineContextClient struct {
 	endpoint   string
 	credential string
+	baseURL    string
 	timeout    time.Duration
 	httpClient *http.Client
 }
@@ -77,6 +78,7 @@ func NewEngineContextClient(baseURL, credential string, options ...EngineContext
 	}
 	return &EngineContextClient{
 		endpoint:   endpoint,
+		baseURL:    strings.TrimSuffix(endpoint, contextReadEndpoint),
 		credential: checkedCredential,
 		timeout:    option.Timeout,
 		httpClient: &http.Client{Transport: transport, CheckRedirect: noContextReadRedirect},
@@ -118,11 +120,31 @@ func (c *EngineContextClient) ContextReadContext(parent context.Context, path st
 	if len(payload) > maxRequestBytes {
 		return nil, NewEngineProtocolError("Engine context-read request exceeds its byte bound")
 	}
+	raw, err := c.postJSONContext(parent, contextReadEndpoint, payload, maxResponseBytes, "Engine context-read", "request")
+	if err != nil {
+		return nil, err
+	}
+	return parseEngineContextReadResponse(raw)
+}
+
+// postJSONContext is the shared bounded authenticated transport for local and
+// Enterprise Engine operations. The path is always selected by a fixed SDK
+// operation; callers cannot supply a URL or follow a redirect.
+func (c *EngineContextClient) postJSONContext(parent context.Context, path string, payload []byte, maxResponseBytes int, operation, rejection string) ([]byte, error) {
+	if c == nil || c.httpClient == nil || c.baseURL == "" {
+		return nil, NewConfigurationError("EngineContextClient is not initialized")
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	if path == "" || path[0] != '/' {
+		return nil, NewEngineProtocolError(operation + " path is invalid")
+	}
 	requestContext, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, c.endpoint, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
-		return nil, NewEngineUnavailable("Engine context-read request could not be created")
+		return nil, NewEngineUnavailable(operation + " request could not be created")
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
@@ -130,44 +152,44 @@ func (c *EngineContextClient) ContextReadContext(parent context.Context, path st
 	request.Header.Set("Connection", "close")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return nil, contextReadTransportError(requestContext, err)
+		return nil, contextTransportError(requestContext, err, operation)
 	}
 	defer response.Body.Close()
-	if err := contextReadStatus(response.StatusCode); err != nil {
+	if err := contextTransportStatus(response.StatusCode, operation, rejection); err != nil {
 		return nil, err
 	}
-	if response.ContentLength > int64(maxResponseBytes) {
-		return nil, NewEngineProtocolError("Engine context-read response exceeds its byte bound")
+	if response.ContentLength < -1 || response.ContentLength > int64(maxResponseBytes) {
+		return nil, NewEngineProtocolError(operation + " response exceeds its byte bound")
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, int64(maxResponseBytes)+1))
 	if err != nil {
-		return nil, contextReadTransportError(requestContext, err)
+		return nil, contextTransportError(requestContext, err, operation)
 	}
 	if len(raw) > maxResponseBytes {
-		return nil, NewEngineProtocolError("Engine context-read response exceeds its byte bound")
+		return nil, NewEngineProtocolError(operation + " response exceeds its byte bound")
 	}
-	return parseEngineContextReadResponse(raw)
+	return raw, nil
 }
 
-func contextReadTransportError(ctx context.Context, err error) error {
+func contextTransportError(ctx context.Context, err error, operation string) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return NewEngineTimeout("Engine context-read request exceeded its deadline")
+		return NewEngineTimeout(operation + " request exceeded its deadline")
 	}
-	return NewEngineUnavailable("Engine context-read request failed")
+	return NewEngineUnavailable(operation + " request failed")
 }
 
-func contextReadStatus(status int) error {
+func contextTransportStatus(status int, operation, rejection string) error {
 	switch {
 	case status >= 300 && status < 400:
-		return NewEngineProtocolError("Engine context-read redirects are not followed")
+		return NewEngineProtocolError(operation + " redirects are not followed")
 	case status == http.StatusUnauthorized:
-		return NewEngineRejected("Engine context-read authentication was rejected", nil, nil)
+		return NewEngineRejected(operation+" authentication was rejected", nil, nil)
 	case status == http.StatusForbidden:
-		return NewPolicyAdmissionError("Engine context-read policy rejected the request", nil, nil)
+		return NewPolicyAdmissionError(operation+" policy rejected the request", nil, nil)
 	case status >= 500:
-		return NewEngineUnavailable("Engine context-read returned a server error")
+		return NewEngineUnavailable(operation + " returned a server error")
 	case status < 200 || status >= 300:
-		return NewEngineRejected("Engine context-read rejected the request", nil, nil)
+		return NewEngineRejected(operation+" rejected the "+rejection, nil, nil)
 	default:
 		return nil
 	}

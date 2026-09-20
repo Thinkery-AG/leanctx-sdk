@@ -131,6 +131,17 @@ request have a deadline. The operating system's DNS resolver is not cancellable
 by this synchronous standard-library client, so lookup time is not covered by a
 hard wall-clock guarantee. Supply a reachable controlled endpoint.
 
+### Go Enterprise source planning (unreleased)
+
+The unreleased Go package adds the narrower Enterprise source-planning slice:
+`NewEnterpriseEngineClient(baseURL, credential, tenantID, options...)`,
+`ContextPlanSources` and `ContextPlanSourcesContext`. It reuses the guarded HTTP
+transport with caller cancellation and validates the canonical response's task,
+budget, projection digest, selected-source bindings and expected tenant. The
+source IDs are bounded non-nil UUIDs; the configured tenant is never sent as an
+override. This is not Go materialization, provider execution, receipt delivery or
+outcome reporting. No methods are added to the existing injected `EngineClient`.
+
 ## Guarded Engine context read
 
 `EngineContextClient(base_url, credential).context_read(path)` uses the same
