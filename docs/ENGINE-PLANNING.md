@@ -76,6 +76,24 @@ digest join to `canonical_receipt.receipt_digest`, but does not parse the
 ReceiptDocument, admit signer keys, or claim cryptographic verification.
 Independent trust-store verification remains the caller's existing authority.
 
+`context_outcome(task_id, receipt_digest, context_decision_digest, signals)`
+calls the authenticated `POST /v1/engine/context-outcome` adapter. The request
+contains only the task and digest bindings plus 1–16 restricted public signal
+values (`boolean`, bounded `count`, or `unknown`); tenant, agent, signer,
+filesystem and learning fields are never caller inputs. The Enterprise host
+binds tenant and agent to the credential, rechecks its independently granted
+`outcome:write` scope, and remains the authority for signature admission,
+outcome evaluation and ledger mutation.
+
+The SDK validates the strict `{schema_version, tenant_id, outcome}` envelope,
+receipt/original-digest joins, acceptance state, UTF-8 receipt-document bound
+(1 MiB), exact document digest, required document envelope, canonical JSON and
+derived receipt ID, plus selected joins for outcome state, predecessor digest,
+task lineage and runtime decision evidence. It
+preserves `receipt_document_json` so a caller can recover the returned bytes,
+but does not fully parse or cryptographically verify the receipt, admit signer
+keys, or claim accepted learning, billing or accounting. POSTs are not retried.
+
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
 POST retries are disabled. Responses are bounded; socket I/O and the connected

@@ -71,8 +71,9 @@ gain no new required methods. They are not present in published 1.1.0 artifacts;
 release compatibility remains gated by the Engine-first acceptance plan.
 
 `EnterpriseEngineClient` is the separate authenticated HTTP source consumer:
-`context_plan`, `context_materialize`, additive `context_execute`, and explicit
-`context_execute_v2` use the versioned standalone Enterprise Engine routes.
+`context_plan`, `context_materialize`, additive `context_execute`, explicit
+`context_execute_v2`, and `context_outcome` use the versioned standalone
+Enterprise Engine routes.
 Execution validates the original task/plan, source/output digests and unknown
 receipt projection. The v2 method additionally preserves the exact
 `receipt_document_json` string (whose UTF-8 bytes are the signed document) and
@@ -80,6 +81,13 @@ checks its digest/size binding; it does not fetch signer keys, independently
 verify signatures, or admit accepted learning.
 Its tenant expectation and source-ID request are not the local process protocol;
 it does not extend `EngineClient` or implement server authorization.
+
+`context_outcome` carries only task/digest bindings and restricted signals to the
+authenticated outcome adapter. It preserves the exact returned receipt-document
+string and validates its digest/size, authenticated tenant and required document
+envelopes, canonical JSON/derived identity, and selected receipt joins for
+task/outcome/predecessor/runtime evidence. It does not fully validate nested
+receipt semantics or verify signer trust, learning, billing or accounting.
 
 `EngineContextClient` and `EngineContextReadResult` add the authenticated public
 Engine's guarded context-read boundary, without a tenant-ID prerequisite. They
