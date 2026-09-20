@@ -66,7 +66,7 @@ function validUtf8(value: string, label: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
-function validateCredential(value: unknown): string {
+export function _validateCredential(value: unknown): string {
   if (typeof value !== "string") {
     throw new ConfigurationError("credential must be a non-empty visible ASCII string");
   }
@@ -82,7 +82,7 @@ function validateCredential(value: unknown): string {
   return value;
 }
 
-function validateTimeout(value: unknown): number {
+export function _validateTimeout(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0.1 || value > MAX_TIMEOUT_SECONDS) {
     throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
   }
@@ -97,7 +97,11 @@ function isLoopbackLiteral(host: string): boolean {
   return first === 127;
 }
 
-function validateBaseUrl(value: unknown, allowLoopbackHttp: boolean): URL {
+export function _validateBaseUrl(
+  value: unknown,
+  allowLoopbackHttp: boolean,
+  endpointPath = CONTEXT_READ_PATH,
+): URL {
   if (typeof value !== "string" || value.length === 0) {
     throw new ConfigurationError("base_url must be a bounded absolute URL");
   }
@@ -136,7 +140,7 @@ function validateBaseUrl(value: unknown, allowLoopbackHttp: boolean): URL {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new ConfigurationError("base_url port is outside its bounds");
   }
-  parsed.pathname = CONTEXT_READ_PATH;
+  parsed.pathname = endpointPath;
   parsed.search = "";
   parsed.hash = "";
   return parsed;
@@ -240,16 +244,21 @@ export function parseContextReadResponse(raw: Uint8Array | string): EngineContex
   };
 }
 
-function statusError(status: number): Error | null {
-  if (status >= 300 && status < 400) return new EngineProtocolError("Engine context-read redirects are not followed");
-  if (status === 401) return new EngineRejected("Engine context-read authentication was rejected");
-  if (status === 403) return new PolicyAdmissionError("Engine context-read policy rejected the request");
-  if (status >= 500) return new EngineUnavailable("Engine context-read returned a server error");
-  if (status < 200 || status >= 300) return new EngineRejected("Engine context-read rejected the request");
+function statusError(status: number, operation: string): Error | null {
+  if (status >= 300 && status < 400) return new EngineProtocolError(`${operation} redirects are not followed`);
+  if (status === 401) return new EngineRejected(`${operation} authentication was rejected`);
+  if (status === 403) return new PolicyAdmissionError(`${operation} policy rejected the request`);
+  if (status >= 500) return new EngineUnavailable(`${operation} returned a server error`);
+  if (status < 200 || status >= 300) return new EngineRejected(`${operation} rejected the request`);
   return null;
 }
 
-function readResponse(response: IncomingMessage, deadline: number, maxBytes: number): Promise<Buffer> {
+function readResponse(
+  response: IncomingMessage,
+  deadline: number,
+  maxBytes: number,
+  operation: string,
+): Promise<Buffer> {
   return new Promise((resolvePromise, rejectPromise) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -270,20 +279,27 @@ function readResponse(response: IncomingMessage, deadline: number, maxBytes: num
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += bytes.byteLength;
       if (total > maxBytes) {
-        finishError(new EngineProtocolError("Engine context-read response exceeds its byte bound"));
+        finishError(new EngineProtocolError(`${operation} response exceeds its byte bound`));
         return;
       }
       chunks.push(bytes);
     });
     response.on("end", () => finish(Buffer.concat(chunks)));
     response.on("error", (error) => {
-      if (Date.now() >= deadline) finishError(new EngineTimeout("Engine context-read response exceeded its deadline"));
-      else finishError(new EngineUnavailable("Engine context-read response could not be read", { cause: error }));
+      if (Date.now() >= deadline) finishError(new EngineTimeout(`${operation} response exceeded its deadline`));
+      else finishError(new EngineUnavailable(`${operation} response could not be read`, { cause: error }));
     });
   });
 }
 
-function postJson(url: URL, credential: string, payload: Buffer, timeoutSeconds: number): Promise<Buffer> {
+export function _postJson(
+  url: URL,
+  credential: string,
+  payload: Buffer,
+  timeoutSeconds: number,
+  maxBytes = MAX_RESPONSE_BYTES,
+  operation = "Engine context-read",
+): Promise<Buffer> {
   return new Promise((resolvePromise, rejectPromise) => {
     const deadline = Date.now() + timeoutSeconds * 1000;
     let settled = false;
@@ -329,7 +345,7 @@ function postJson(url: URL, credential: string, payload: Buffer, timeoutSeconds:
     const requestFunction: typeof httpRequest = url.protocol === "https:" ? (httpsRequest as typeof httpRequest) : httpRequest;
     request = requestFunction(requestOptions, (incoming) => {
       response = incoming;
-      const error = statusError(incoming.statusCode ?? 0);
+      const error = statusError(incoming.statusCode ?? 0, operation);
       if (error !== null) {
         finishError(error);
         return;
@@ -337,20 +353,20 @@ function postJson(url: URL, credential: string, payload: Buffer, timeoutSeconds:
       const contentLength = incoming.headers["content-length"];
       if (contentLength !== undefined) {
         const declared = Number(contentLength);
-        if (!Number.isSafeInteger(declared) || declared < 0 || declared > MAX_RESPONSE_BYTES) {
-          finishError(new EngineProtocolError("Engine context-read response exceeds its byte bound"));
+        if (!Number.isSafeInteger(declared) || declared < 0 || declared > maxBytes) {
+          finishError(new EngineProtocolError(`${operation} response exceeds its byte bound`));
           return;
         }
       }
-      readResponse(incoming, deadline, MAX_RESPONSE_BYTES).then(finish, finishError);
+      readResponse(incoming, deadline, maxBytes, operation).then(finish, finishError);
     });
-    timer = setTimeout(() => finishError(new EngineTimeout("Engine context-read request exceeded its deadline")), timeoutSeconds * 1000);
+    timer = setTimeout(() => finishError(new EngineTimeout(`${operation} request exceeded its deadline`)), timeoutSeconds * 1000);
     timer.unref?.();
-    request.setTimeout(remaining(), () => finishError(new EngineTimeout("Engine context-read request exceeded its deadline")));
+    request.setTimeout(remaining(), () => finishError(new EngineTimeout(`${operation} request exceeded its deadline`)));
     request.on("error", (error: Error) => {
       if (settled) return;
-      if (Date.now() >= deadline) finishError(new EngineTimeout("Engine context-read request exceeded its deadline"));
-      else finishError(new EngineUnavailable("Engine context-read request failed", { cause: error }));
+      if (Date.now() >= deadline) finishError(new EngineTimeout(`${operation} request exceeded its deadline`));
+      else finishError(new EngineUnavailable(`${operation} request failed`, { cause: error }));
     });
     request.end(payload);
   });
@@ -366,9 +382,9 @@ export class EngineContextClient {
     if (typeof options.allowLoopbackHttp !== "undefined" && typeof options.allowLoopbackHttp !== "boolean") {
       throw new ConfigurationError("allowLoopbackHttp must be a boolean");
     }
-    this.endpoint = validateBaseUrl(baseUrl, options.allowLoopbackHttp ?? false);
-    this.credential = validateCredential(credential);
-    this.timeout = validateTimeout(options.timeout ?? DEFAULT_TIMEOUT_SECONDS);
+    this.endpoint = _validateBaseUrl(baseUrl, options.allowLoopbackHttp ?? false);
+    this.credential = _validateCredential(credential);
+    this.timeout = _validateTimeout(options.timeout ?? DEFAULT_TIMEOUT_SECONDS);
     this.baseUrl = baseUrl;
   }
 
@@ -381,7 +397,7 @@ export class EngineContextClient {
     if (payload.byteLength > MAX_REQUEST_BYTES) {
       throw new EngineProtocolError("Engine context-read request exceeds its byte bound");
     }
-    const raw = await postJson(this.endpoint, this.credential, payload, this.timeout);
+    const raw = await _postJson(this.endpoint, this.credential, payload, this.timeout);
     return parseContextReadResponse(raw);
   }
 }
