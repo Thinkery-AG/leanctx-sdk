@@ -362,6 +362,21 @@ function sourcePlanIntegerPaths(paths: JsonPath[], value: unknown, base: JsonPat
   if (Array.isArray(plan.evidence)) plan.evidence.forEach((evidence, index) => add(evidence, "schema_version", [...base, "result", "plan", "evidence", index]));
 }
 
+export function collectSourcePlanIntegerPaths(
+  value: unknown,
+): readonly (readonly (string | number)[])[] {
+  const paths: JsonPath[] = [];
+  sourcePlanIntegerPaths(paths, value, ["plan"]);
+  return paths;
+}
+
+export function validateSourcePlanScope(
+  sourcePlan: EngineSourcePlan,
+  requestedIds: readonly string[],
+): void {
+  validateSourceScope(sourcePlan, requestedIds);
+}
+
 function planIntegerPaths(paths: JsonPath[], value: unknown, base: JsonPath): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const objectValue = value as JsonRecord;

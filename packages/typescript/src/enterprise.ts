@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-/** Authenticated Enterprise Engine source-execution adapter. */
+/** Authenticated Enterprise Engine planning and source-execution adapter. */
 
 import {
   _postJson,
@@ -8,22 +8,113 @@ import {
   _validateTimeout,
   type EngineContextClientOptions,
 } from "./context.js";
-import { ConfigurationError, ValidationError } from "./errors.js";
-import { EnginePlanningRequest } from "./planning.js";
+import { ConfigurationError, EngineProtocolError, ValidationError } from "./errors.js";
+import {
+  MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
+  MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES,
+  EnginePlanningRequest,
+  parseSourcePlan,
+  type EngineSourcePlan,
+} from "./planning.js";
 import {
   MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES,
   MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES,
+  collectSourcePlanIntegerPaths,
   normalizeSourceIds,
   parseSourceExecutionV2Response,
   validateExecutionRequest,
   validatePlanningEvaluationTime,
+  validateSourcePlanScope,
   type EngineSourceExecutionV2,
 } from "./source_execution.js";
-import { canonicalBytes, validateDigest } from "./protocol.js";
+import { canonicalBytes, strictJsonLoads, validateDigest } from "./protocol.js";
 
+const CONTEXT_PLAN_PATH = "/v1/engine/context-plan";
 const EXECUTION_V2_PATH = "/v2/engine/context-execute";
 const MAX_U64 = Number.MAX_SAFE_INTEGER;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type JsonRecord = Record<string, unknown>;
+
+function protocolRecord(value: unknown, fieldName: string): JsonRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new EngineProtocolError(fieldName + " must be an object");
+  }
+  return value as JsonRecord;
+}
+
+function protocolU64(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > MAX_U64) {
+    throw new EngineProtocolError(fieldName + " must be an unsigned bounded integer");
+  }
+  return value;
+}
+
+function protocolUuid(value: unknown, fieldName: string): string {
+  try {
+    return configuredUuid(value, fieldName);
+  } catch (cause) {
+    throw new EngineProtocolError(fieldName + " must be a non-nil UUID", { cause });
+  }
+}
+
+function parseEnterpriseSourcePlanResponse(
+  raw: Uint8Array,
+  request: EnginePlanningRequest,
+  sourceIds: readonly string[],
+  tenantId: string,
+): Readonly<{
+  schema_version: 1;
+  tenant_id: string;
+  governance_revision: number;
+  plan: EngineSourcePlan;
+}> {
+  const label = "Enterprise Engine source-plan response";
+  let initial: unknown;
+  try {
+    initial = strictJsonLoads(raw, label);
+  } catch (cause) {
+    throw new EngineProtocolError(label + " is not valid JSON", { cause });
+  }
+  const initialResponse = protocolRecord(initial, label);
+  let parsed: unknown;
+  try {
+    parsed = strictJsonLoads(raw, label, [
+      ["schema_version"],
+      ["governance_revision"],
+      ...collectSourcePlanIntegerPaths(initialResponse.plan),
+    ]);
+  } catch (cause) {
+    throw new EngineProtocolError(label + " is not valid JSON", { cause });
+  }
+  const response = protocolRecord(parsed, label);
+  const expectedKeys = new Set(["schema_version", "tenant_id", "governance_revision", "plan"]);
+  const keys = Object.keys(response);
+  if (keys.length !== expectedKeys.size || keys.some((key) => !expectedKeys.has(key))) {
+    throw new EngineProtocolError("Enterprise Engine source-plan response fields do not match the v1 contract");
+  }
+  if (protocolU64(response.schema_version, "schema_version") !== 1) {
+    throw new EngineProtocolError("Enterprise Engine source-plan response schema_version is unsupported");
+  }
+  const responseTenant = protocolUuid(response.tenant_id, "tenant_id");
+  if (responseTenant !== tenantId) {
+    throw new EngineProtocolError("Enterprise Engine source-plan response tenant binding does not match");
+  }
+  const governanceRevision = protocolU64(response.governance_revision, "governance_revision");
+  let plan: EngineSourcePlan;
+  try {
+    plan = parseSourcePlan(canonicalBytes(response.plan), request);
+  } catch (cause) {
+    throw new EngineProtocolError("Enterprise Engine source plan failed validation", { cause });
+  }
+  validateSourcePlanScope(plan, sourceIds);
+  return {
+    schema_version: 1,
+    tenant_id: responseTenant,
+    governance_revision: governanceRevision,
+    plan,
+  };
+}
 
 export type EnterpriseEngineClientOptions = EngineContextClientOptions;
 
@@ -59,6 +150,7 @@ export class EnterpriseEngineClient {
   readonly tenantId: string;
   readonly timeout: number;
   private readonly endpoint: URL;
+  private readonly planEndpoint: URL;
   private readonly credential: string;
 
   constructor(
@@ -70,11 +162,50 @@ export class EnterpriseEngineClient {
     if (options.allowLoopbackHttp !== undefined && typeof options.allowLoopbackHttp !== "boolean") {
       throw new ConfigurationError("allowLoopbackHttp must be a boolean");
     }
-    this.endpoint = _validateBaseUrl(baseUrl, options.allowLoopbackHttp ?? false, EXECUTION_V2_PATH);
+    const allowLoopbackHttp = options.allowLoopbackHttp ?? false;
+    this.endpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, EXECUTION_V2_PATH);
+    this.planEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, CONTEXT_PLAN_PATH);
     this.credential = _validateCredential(credential);
     this.timeout = _validateTimeout(options.timeout ?? 30);
     this.baseUrl = baseUrl;
     this.tenantId = configuredUuid(tenantId, "tenant_id");
+  }
+
+  /**
+   * Plan authenticated Enterprise source IDs without accepting source bodies.
+   *
+   * The Enterprise host remains authoritative for source admission and content;
+   * this adapter validates only the returned digest-bound planning projection.
+   */
+  async contextPlanSources(
+    request: EnginePlanningRequest,
+    sourceIds: readonly string[],
+  ): Promise<Readonly<{
+    schema_version: 1;
+    tenant_id: string;
+    governance_revision: number;
+    plan: EngineSourcePlan;
+  }>> {
+    if (!(request instanceof EnginePlanningRequest)) {
+      throw new ValidationError("contextPlanSources requires EnginePlanningRequest");
+    }
+    const normalizedIds = normalizeSourceIds(sourceIds);
+    const payload = canonicalBytes({
+      planning: request.toDict(),
+      source_ids: [...normalizedIds],
+    });
+    if (payload.byteLength > MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES) {
+      throw new ValidationError("Enterprise Engine source planning request exceeds its byte bound");
+    }
+    const raw = await _postJson(
+      this.planEndpoint,
+      this.credential,
+      payload,
+      this.timeout,
+      MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES,
+      "Enterprise source planning",
+    );
+    return parseEnterpriseSourcePlanResponse(raw, request, normalizedIds, this.tenantId);
   }
 
   /**

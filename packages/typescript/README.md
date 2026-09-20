@@ -91,6 +91,29 @@ provenance. Materialized token count is a bounded Engine report; this client doe
 not treat it as billing, compression savings, execution, acceptance, or a receipt.
 The existing `EngineClient` context-view/recover interface is unchanged.
 
+## Enterprise source planning (v4 integration candidate)
+
+The authenticated `EnterpriseEngineClient.contextPlanSources(request, sourceIds)`
+calls `POST /v1/engine/context-plan` for the configured tenant. It accepts
+governed source IDs, not source bodies or operator settings:
+
+```ts
+import { EnterpriseEngineClient, EnginePlanningRequest } from "@thinkery/leanctx-sdk";
+
+const enterprise = new EnterpriseEngineClient(engineUrl, credential, tenantId);
+const planned = await enterprise.contextPlanSources(
+  new EnginePlanningRequest("task-id", "source query", 512),
+  sourceIds,
+);
+// planned.tenant_id, planned.governance_revision, planned.plan
+```
+
+The response must bind the tenant, request task/budget, permitted selections,
+requested source IDs and canonical projection/binding digests. This reuses the
+local source-planning validator and the existing guarded HTTP transport; it
+does not execute a plan, acquire a source, or grant access to a foreign tenant.
+HTTP materialization is not yet exposed by this TypeScript adapter.
+
 ## Enterprise source execution v2 (v4 integration candidate)
 
 `EnterpriseEngineClient` uses the same bounded authenticated HTTP transport for
