@@ -138,6 +138,13 @@ Its output/usage/cost/failure DTOs preserve the canonical provider projection,
 including unknown acceptance and unavailable metrics. It uses the existing
 authenticated transport and adds no Engine, retry, signing or billing authority.
 
+The unreleased Go `ContextOutcome`/`ContextOutcomeContext` surface uses
+`EngineOutcomeRequest`/`EngineOutcomeResponse` for the existing authenticated
+operator-attestation contract. It transports bounded signals, verifies selected
+response/document joins and preserves exact receipt bytes. Accepted/rejected
+state is a host projection: the SDK neither evaluates it nor admits signer
+trust, triggers learning, changes accounting or retries the POST automatically.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

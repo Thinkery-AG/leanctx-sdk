@@ -166,6 +166,16 @@ provider/model, bounded output digest, usage totals and cost basis while
 preserving unavailable counters as `nil`. It neither retries/falls back nor
 upgrades a provider response into task acceptance or proof of a billed charge.
 
+Go `ContextOutcome`/`ContextOutcomeContext` accept `EngineOutcomeRequest` with
+task ID, original receipt digest, context-decision digest and restricted signals.
+The fixed `/v1/engine/context-outcome` request carries no caller-supplied tenant
+or signing identity. `EngineOutcomeResponse` preserves the host's accepted or
+rejected successor and replay flag, with exact document bytes and selected
+canonical identity/task/predecessor/runtime-evidence joins checked as in the
+Python adapter above. This is an operator-attestation carrier, not an outcome
+evaluator, independent signer verifier, learning trigger or accounting authority.
+The caller must explicitly choose to retry; the transport never does so.
+
 ## Guarded Engine context read
 
 `EngineContextClient(base_url, credential).context_read(path)` uses the same

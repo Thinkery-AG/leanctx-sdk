@@ -43,3 +43,10 @@ or retry an execution request automatically.
 the separately governed provider boundary. Results retain nullable usage and
 cost provenance; unavailable values are never synthesized as zero. The host
 owns dispatch/admission, acceptance stays `unknown`, and the SDK does not retry.
+
+`ContextOutcome`/`ContextOutcomeContext` carry restricted operator signals and
+task/receipt/decision digests to the authenticated outcome boundary. They check
+the host's accepted/rejected receipt projection, canonical document identity
+and exact bytes without establishing signer trust or evaluating acceptance.
+The host alone grants signing authority and changes its ledger; the adapter
+does not add learning, billing or automatic retries.
