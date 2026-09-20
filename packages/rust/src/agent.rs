@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -9,6 +10,9 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 
+use crate::agent_io::{
+    close_request, hello_request, read_agent_stderr, read_agent_stdout, ReaderMessage,
+};
 use crate::errors::{
     boxed, AgentPermissionError, ConfigurationError, EngineCrashed, EngineExecutionError,
     EngineProtocolError, EngineTimeout, EngineUnavailable, SdkResult, UnsupportedCapabilityError,
@@ -301,11 +305,52 @@ struct ExchangeState {
     metrics: AgentMetrics,
 }
 
-#[derive(Debug)]
-enum ReaderMessage {
-    Line(Vec<u8>),
-    End,
-    Overflow,
+#[derive(Clone, Debug)]
+pub(crate) struct AgentTermination {
+    state: Arc<AgentState>,
+}
+
+impl AgentTermination {
+    pub(crate) fn terminate(&self) -> SdkResult<()> {
+        self.state.terminate()
+    }
+}
+
+impl AgentState {
+    fn remove_policy(&self) {
+        if let Ok(mut path) = self.policy_path.lock() {
+            if let Some(path) = path.take() {
+                remove_policy_path(&path);
+            }
+        }
+    }
+
+    fn terminate(&self) -> SdkResult<()> {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            self.remove_policy();
+            return Ok(());
+        }
+        let result = (|| {
+            let mut stdin = self.stdin.lock().map_err(|_| {
+                boxed(EngineExecutionError::new(
+                    "AgentContext stdin could not be closed",
+                ))
+            })?;
+            stdin.take();
+            drop(stdin);
+            let mut process = self.process.lock().map_err(|_| {
+                boxed(EngineExecutionError::new(
+                    "AgentContext process could not be terminated",
+                ))
+            })?;
+            if let Some(mut child) = process.take() {
+                kill_process_tree(&mut child)?;
+            }
+            Ok(())
+        })();
+        self.remove_policy();
+        result
+    }
 }
 
 impl AgentContext {
@@ -333,6 +378,30 @@ impl AgentContext {
         engine_binary: Option<PathBuf>,
         timeout: Duration,
     ) -> SdkResult<Self> {
+        Self::open_with_policy_hook(
+            project_root,
+            task,
+            permissions,
+            execution_policy,
+            engine_binary,
+            timeout,
+            |_| {},
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open_with_policy_hook<F>(
+        project_root: impl AsRef<Path>,
+        task: impl AsRef<str>,
+        permissions: AgentPermissions,
+        execution_policy: ExecutionPolicy,
+        engine_binary: Option<PathBuf>,
+        timeout: Duration,
+        on_spawn: F,
+    ) -> SdkResult<Self>
+    where
+        F: FnOnce(&Self),
+    {
         let root = existing_directory(project_root.as_ref())
             .map_err(|_| boxed(ConfigurationError::new("project_root must be a directory")))?;
         let task = task.as_ref();
@@ -393,10 +462,10 @@ impl AgentContext {
             .take()
             .ok_or_else(|| boxed(EngineProtocolError::new("Agent Tools stdin is unavailable")))?;
         let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || read_agent_stdout(stdout, sender));
+        thread::spawn(move || read_agent_stdout(stdout, sender, MAX_RESPONSE_BYTES));
         let stderr_store = Arc::new(Mutex::new(Vec::new()));
         let stderr_target = Arc::clone(&stderr_store);
-        thread::spawn(move || read_agent_stderr(stderr, stderr_target));
+        thread::spawn(move || read_agent_stderr(stderr, stderr_target, MAX_STDERR_BYTES));
         let state = Arc::new(AgentState {
             exchange: Mutex::new(ExchangeState {
                 next_id: 0,
@@ -419,7 +488,16 @@ impl AgentContext {
             capabilities: Vec::new(),
             state,
         };
-        let hello = context.exchange(hello_request(), timeout, false);
+        on_spawn(&context);
+        let hello = context.exchange(
+            hello_request(
+                AGENT_TOOLS_INTERFACE_VERSION,
+                AGENT_TOOLS_SCHEMA_VERSION,
+                AGENT_TOOLS_TRANSPORT_VERSION,
+            ),
+            timeout,
+            false,
+        );
         let hello = match hello {
             Ok(value) => value,
             Err(error) => {
@@ -435,7 +513,7 @@ impl AgentContext {
             }
         };
         context.capabilities = capabilities;
-        context.remove_policy();
+        context.state.remove_policy();
         Ok(context)
     }
 
@@ -465,6 +543,12 @@ impl AgentContext {
 
     pub fn capabilities(&self) -> &[String] {
         &self.capabilities
+    }
+
+    pub(crate) fn termination_handle(&self) -> AgentTermination {
+        AgentTermination {
+            state: Arc::clone(&self.state),
+        }
     }
 
     pub fn metrics(&self) -> AgentMetrics {
@@ -1013,41 +1097,9 @@ impl AgentContext {
         Ok(capabilities)
     }
 
-    fn remove_policy(&self) {
-        if let Ok(mut path) = self.state.policy_path.lock() {
-            if let Some(path) = path.take() {
-                remove_policy_path(&path);
-            }
-        }
-    }
-
     fn terminate(&self) -> SdkResult<()> {
-        if self.state.closed.swap(true, Ordering::AcqRel) {
-            self.remove_policy();
-            return Ok(());
-        }
-        let result = (|| {
-            let mut stdin = self.state.stdin.lock().map_err(|_| {
-                boxed(EngineExecutionError::new(
-                    "AgentContext stdin could not be closed",
-                ))
-            })?;
-            stdin.take();
-            drop(stdin);
-            let mut process = self.state.process.lock().map_err(|_| {
-                boxed(EngineExecutionError::new(
-                    "AgentContext process could not be terminated",
-                ))
-            })?;
-            if let Some(mut child) = process.take() {
-                kill_process_tree(&mut child)?;
-            }
-            Ok(())
-        })();
-        self.remove_policy();
-        result
+        self.state.terminate()
     }
-
     fn protocol_failure(&self, message: &str) -> SdkResult<()> {
         self.terminate()?;
         Err(boxed(EngineProtocolError::new(message)))
@@ -1070,100 +1122,10 @@ impl AgentContext {
         }
     }
 }
-
 impl Drop for AgentContext {
     fn drop(&mut self) {
         let _ = self.terminate();
     }
-}
-
-#[derive(Debug)]
-pub struct AsyncAgentContext {
-    context: AgentContext,
-}
-
-impl AsyncAgentContext {
-    pub async fn open(project_root: impl AsRef<Path>) -> SdkResult<Self> {
-        Ok(Self {
-            context: AgentContext::open(project_root)?,
-        })
-    }
-
-    pub fn from_context(context: AgentContext) -> Self {
-        Self { context }
-    }
-
-    pub fn context(&self) -> &AgentContext {
-        &self.context
-    }
-
-    pub fn capabilities(&self) -> &[String] {
-        self.context.capabilities()
-    }
-
-    pub fn metrics(&self) -> AgentMetrics {
-        self.context.metrics()
-    }
-
-    pub async fn call(&self, tool: &str, arguments: Value) -> SdkResult<ToolResult> {
-        self.context.call(tool, arguments)
-    }
-
-    pub async fn read(
-        &self,
-        path: impl AsRef<str>,
-        mode: ReadMode,
-        fresh: bool,
-    ) -> SdkResult<ToolResult> {
-        self.context.read(path, mode, fresh)
-    }
-
-    pub async fn run<I, S>(&self, argv: I) -> SdkResult<ToolResult>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        self.context.run(argv)
-    }
-
-    pub async fn cancel(&self) -> SdkResult<()> {
-        self.context.cancel()
-    }
-
-    pub async fn close(&self) -> SdkResult<()> {
-        self.context.close()
-    }
-
-    pub async fn reconnect(&self) -> SdkResult<Self> {
-        Ok(Self {
-            context: self.context.reconnect()?,
-        })
-    }
-}
-
-fn hello_request() -> Value {
-    let mut request = Map::new();
-    request.insert("op".to_owned(), Value::String("hello".to_owned()));
-    request.insert(
-        "schema_version".to_owned(),
-        Value::from(AGENT_TOOLS_SCHEMA_VERSION),
-    );
-    request.insert(
-        "transport_version".to_owned(),
-        Value::from(AGENT_TOOLS_TRANSPORT_VERSION),
-    );
-    request.insert(
-        "agent_tools_interface_version".to_owned(),
-        Value::String(AGENT_TOOLS_INTERFACE_VERSION.to_owned()),
-    );
-    request.insert("sdk_version".to_owned(), Value::String("1.1.0".to_owned()));
-    Value::Object(request)
-}
-
-fn close_request() -> Value {
-    let mut request = Map::new();
-    request.insert("op".to_owned(), Value::String("close".to_owned()));
-    Value::Object(request)
 }
 
 fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
@@ -1278,55 +1240,6 @@ fn map_agent_error(code: &str, message: &str) -> Box<dyn std::error::Error + Sen
             boxed(EngineProtocolError::new(message))
         }
         _ => boxed(EngineExecutionError::new(message)),
-    }
-}
-
-fn read_agent_stdout<R: Read>(mut reader: R, sender: mpsc::Sender<ReaderMessage>) {
-    let mut pending = Vec::new();
-    let mut chunk = [0_u8; 64 * 1024];
-    loop {
-        let size = match reader.read(&mut chunk) {
-            Ok(0) => {
-                let _ = sender.send(ReaderMessage::End);
-                return;
-            }
-            Ok(size) => size,
-            Err(_) => {
-                let _ = sender.send(ReaderMessage::End);
-                return;
-            }
-        };
-        pending.extend_from_slice(&chunk[..size]);
-        if pending.len() > MAX_RESPONSE_BYTES + 1 {
-            let _ = sender.send(ReaderMessage::Overflow);
-            return;
-        }
-        while let Some(position) = pending.iter().position(|byte| *byte == b'\n') {
-            let line: Vec<u8> = pending.drain(..position).collect();
-            pending.drain(..1);
-            if line.len() > MAX_RESPONSE_BYTES {
-                let _ = sender.send(ReaderMessage::Overflow);
-                return;
-            }
-            if sender.send(ReaderMessage::Line(line)).is_err() {
-                return;
-            }
-        }
-    }
-}
-
-fn read_agent_stderr<R: Read>(mut reader: R, target: Arc<Mutex<Vec<u8>>>) {
-    let mut chunk = [0_u8; 8192];
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) | Err(_) => return,
-            Ok(size) => {
-                if let Ok(mut target) = target.lock() {
-                    let available = MAX_STDERR_BYTES.saturating_sub(target.len());
-                    target.extend_from_slice(&chunk[..size.min(available)]);
-                }
-            }
-        }
     }
 }
 

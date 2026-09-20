@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 #![forbid(unsafe_code)]
 #![deny(missing_debug_implementations)]
 
 mod agent;
+mod agent_io;
+mod async_agent;
 mod engine;
 mod errors;
 mod process;
@@ -13,10 +16,11 @@ mod session;
 pub const __version__: &str = "1.1.0";
 
 pub use agent::{
-    AgentContext, AgentMetrics, AgentPermissions, AsyncAgentContext, ExecutionPolicy, ReadMode,
-    ToolResult, AGENT_TOOLS_INTERFACE_VERSION, AGENT_TOOLS_SCHEMA_VERSION,
-    AGENT_TOOLS_TRANSPORT_VERSION, SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
+    AgentContext, AgentMetrics, AgentPermissions, ExecutionPolicy, ReadMode, ToolResult,
+    AGENT_TOOLS_INTERFACE_VERSION, AGENT_TOOLS_SCHEMA_VERSION, AGENT_TOOLS_TRANSPORT_VERSION,
+    SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
 };
+pub use async_agent::AsyncAgentContext;
 pub use engine::{EngineClient, SubprocessEngineClient};
 pub use errors::{
     AgentPermissionError, ArtifactIntegrityError, CompatibilityError, ConfigurationError,
