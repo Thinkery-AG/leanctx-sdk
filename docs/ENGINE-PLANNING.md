@@ -94,6 +94,26 @@ preserves `receipt_document_json` so a caller can recover the returned bytes,
 but does not fully parse or cryptographically verify the receipt, admit signer
 keys, or claim accepted learning, billing or accounting. POSTs are not retried.
 
+`provider_execute(task, plan, request, source_ids, expected_governance_revision,
+expected_binding_digest, *, max_output_tokens, planning_evaluation_time=None)`
+calls `POST /v1/engine/provider-execute` using the public provider-execution v1
+contract at `a2289b132b` (Enterprise `6ebe4a9` or compatible). Unlike the
+local-native context operation, this requires an explicit provider/model,
+zero retries, no fallbacks, a concrete context-plan ID and a bounded token plan.
+The server validates exact context-plan equality and owns source grants, policy,
+dispatch admission and wallet settlement. A planning result alone is not egress
+permission. Request/response bytes are each capped at 1 MiB.
+
+The direct response distinguishes provider execution status from acceptance
+(always `unknown`) and measured usage from unavailable usage. Cost is separately
+unavailable, a usage-priced estimate, or an acknowledged managed-wallet charge;
+an estimate is never an invoice. The SDK checks task/plan/provider joins, output
+SHA-256 and bounded counters. Host-owned request/context digests are syntax
+checked, not independently reconstructed or signed. No receipt, signer admission,
+accepted outcome, billing authority or automatic POST retry is added. A transport
+failure may follow an already-dispatched attempt; do not retry under a new task
+identity without resolving the original attempt.
+
 HTTPS is required by default. Explicit `allow_loopback_http=True` permits literal
 loopback IPs for local tests only. Redirects, environment proxies and automatic
 POST retries are disabled. Responses are bounded; socket I/O and the connected

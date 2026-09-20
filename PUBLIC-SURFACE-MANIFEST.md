@@ -74,6 +74,11 @@ release compatibility remains gated by the Engine-first acceptance plan.
 `context_plan`, `context_materialize`, additive `context_execute`, explicit
 `context_execute_v2`, and `context_outcome` use the versioned standalone
 Enterprise Engine routes.
+The additive `provider_execute` method uses the separate canonical provider v1
+boundary. It validates explicit provider plans, output integrity and usage/cost
+provenance; the host owns egress authorization, dispatch and wallet settlement.
+It creates no receipt, signer trust or accepted-outcome claim and never retries
+the POST automatically. See `docs/ENGINE-PLANNING.md` for exact bounds and limits.
 Execution validates the original task/plan, source/output digests and unknown
 receipt projection. The v2 method additionally preserves the exact
 `receipt_document_json` string (whose UTF-8 bytes are the signed document) and

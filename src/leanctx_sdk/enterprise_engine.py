@@ -65,6 +65,12 @@ from .source_execution import (
     validate_outcome_request,
     validate_execution_request,
 )
+from .provider_execution import (
+    _MAX_PROVIDER_REQUEST_BYTES,
+    _MAX_PROVIDER_RESPONSE_BYTES,
+    parse_provider_execution_response,
+    validate_provider_request,
+)
 
 
 _ENGINE_PATH = "/v1/engine/context-plan"
@@ -72,6 +78,7 @@ _MATERIALIZATION_PATH = "/v1/engine/context-materialize"
 _EXECUTION_PATH = "/v1/engine/context-execute"
 _EXECUTION_V2_PATH = "/v2/engine/context-execute"
 _OUTCOME_PATH = "/v1/engine/context-outcome"
+_PROVIDER_EXECUTION_PATH = "/v1/engine/provider-execute"
 _CONTEXT_READ_PATH = "/v1/tools/call"
 _SCHEMA_VERSION = 1
 _MAX_REQUEST_BYTES = 64 * 1024
@@ -751,6 +758,79 @@ class EnterpriseEngineClient(_AuthenticatedEngineTransport):
             governance_revision,
             binding_digest,
             planning_evaluation_time,
+        )
+
+    def provider_execute(
+        self,
+        task: Mapping[str, object],
+        plan: Mapping[str, object],
+        request: EnginePlanningRequest,
+        source_ids: Sequence[str],
+        expected_governance_revision: int,
+        expected_binding_digest: str,
+        *,
+        max_output_tokens: int,
+        planning_evaluation_time: Optional[str] = None,
+    ) -> Mapping[str, object]:
+        """Execute one governed concrete-provider request.
+
+        The host remains authoritative for admission, materialization bytes,
+        attempt identity, provider dispatch, billing, and receipts.  Because
+        this SDK does not own those values, it validates their wire shape and
+        declared task/plan/provider joins without treating request/context
+        digests as independently verified proof.
+        """
+        normalized_ids = _source_ids(source_ids)
+        normalized_task, normalized_plan, output_tokens = validate_provider_request(
+            task,
+            plan,
+            request,
+            self._tenant_id,
+            max_output_tokens,
+        )
+        governance_revision = _validate_input_u64(
+            expected_governance_revision, "expected_governance_revision"
+        )
+        try:
+            binding_digest = validate_digest(
+                expected_binding_digest, "expected_binding_digest"
+            )
+        except ValidationError as exc:
+            _validation_error("expected_binding_digest is invalid", exc)
+        materialization: dict[str, object] = {
+            "planning": dict(request.to_dict()),
+            "source_ids": list(normalized_ids),
+            "expected_governance_revision": governance_revision,
+            "expected_binding_digest": binding_digest,
+        }
+        if planning_evaluation_time is not None:
+            materialization["planning_evaluation_time"] = _timestamp(
+                planning_evaluation_time, "planning_evaluation_time"
+            )
+        body = {
+            "schema_version": _SCHEMA_VERSION,
+            "task": normalized_task,
+            "plan": normalized_plan,
+            "materialization": materialization,
+            "max_output_tokens": output_tokens,
+        }
+        payload = canonical_bytes(body)
+        if len(payload) > _MAX_PROVIDER_REQUEST_BYTES:
+            _validation_error(
+                "Enterprise Engine provider execution request exceeds its byte bound"
+            )
+        raw = self._post_json(
+            _PROVIDER_EXECUTION_PATH,
+            payload,
+            _MAX_PROVIDER_RESPONSE_BYTES,
+            "Enterprise Engine provider execution",
+            "provider execution request",
+        )
+        return parse_provider_execution_response(
+            raw,
+            normalized_task,
+            normalized_plan,
+            self._tenant_id,
         )
 
     def context_execute_v2(
