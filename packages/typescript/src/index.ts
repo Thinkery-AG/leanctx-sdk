@@ -58,6 +58,7 @@ export {
   parseSourceExecutionV2Response,
 } from "./source_execution.js";
 export type { EngineSourceExecution, EngineSourceExecutionV2 } from "./source_execution.js";
+export type { EngineOutcomeSignal, EngineOutcomeResponse } from "./outcome.js";
 export {
   AgentPermissionError,
   ArtifactIntegrityError,

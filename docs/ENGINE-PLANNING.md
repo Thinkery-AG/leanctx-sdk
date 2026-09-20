@@ -94,6 +94,13 @@ preserves `receipt_document_json` so a caller can recover the returned bytes,
 but does not fully parse or cryptographically verify the receipt, admit signer
 keys, or claim accepted learning, billing or accounting. POSTs are not retried.
 
+TypeScript `EnterpriseEngineClient.contextOutcome(taskId, receiptDigest,
+contextDecisionDigest, signals)` implements that same bounded operator-carrier
+contract. Its `EngineOutcomeSignal` and `EngineOutcomeResponse` types are
+unreleased supporting DTOs. Schema tokens must be lexical JSON integers; counts
+are unsigned 32-bit values. The exact receipt string is preserved, while signer
+admission, evaluation, learning and accounting remain outside the SDK.
+
 `provider_execute(task, plan, request, source_ids, expected_governance_revision,
 expected_binding_digest, *, max_output_tokens, planning_evaluation_time=None)`
 calls `POST /v1/engine/provider-execute` using the public provider-execution v1

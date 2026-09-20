@@ -93,6 +93,15 @@ The existing `EngineClient` context-view/recover interface is unchanged.
 
 ## Enterprise source planning (v4 integration candidate)
 
+The same `EnterpriseEngineClient` also supports
+`contextOutcome(taskId, receiptDigest, contextDecisionDigest, signals)` for
+authorized operator attestations. It preserves exact returned receipt JSON and
+checks its byte digest, canonical identity and selected task/decision joins.
+The host alone evaluates signals and admits signing authority; SDK parsing is
+not signer verification, learning or accounting. Requests are never retried
+automatically. `EngineOutcomeSignal` and `EngineOutcomeResponse` describe this
+unreleased supporting contract without extending the stable lifecycle interface.
+
 The authenticated `EnterpriseEngineClient.contextPlanSources(request, sourceIds)`
 calls `POST /v1/engine/context-plan` for the configured tenant. It accepts
 governed source IDs, not source bodies or operator settings:

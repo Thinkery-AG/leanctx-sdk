@@ -98,6 +98,11 @@ envelopes, canonical JSON/derived identity, and selected receipt joins for
 task/outcome/predecessor/runtime evidence. It does not fully validate nested
 receipt semantics or verify signer trust, learning, billing or accounting.
 
+TypeScript adds `EnterpriseEngineClient.contextOutcome` with supporting
+`EngineOutcomeSignal`/`EngineOutcomeResponse` type exports and the same selected
+wire/document joins. Its parser is internal, not a new lifecycle surface; no
+signer admission, evaluation, learning or accounting authority is added.
+
 `EngineContextClient` and `EngineContextReadResult` add the authenticated public
 Engine's guarded context-read boundary, without a tenant-ID prerequisite. They
 reuse the HTTP transport and validate returned text/receipt-reference metadata;

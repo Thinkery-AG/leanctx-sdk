@@ -36,6 +36,10 @@ import {
   type EngineProviderExecutionResponse,
 } from "./provider_execution.js";
 import { canonicalBytes, strictJsonLoads, validateDigest } from "./protocol.js";
+import {
+  MAX_ENGINE_OUTCOME_RESPONSE_BYTES, parseEngineOutcomeResponse, validateOutcomeRequest,
+  type EngineOutcomeResponse, type EngineOutcomeSignal,
+} from "./outcome.js";
 
 const CONTEXT_PLAN_PATH = "/v1/engine/context-plan";
 const PROVIDER_EXECUTION_PATH = "/v1/engine/provider-execute";
@@ -166,6 +170,7 @@ export class EnterpriseEngineClient {
   private readonly endpoint: URL;
   private readonly planEndpoint: URL;
   private readonly providerEndpoint: URL;
+  private readonly outcomeEndpoint: URL;
   private readonly credential: string;
 
   constructor(
@@ -181,6 +186,7 @@ export class EnterpriseEngineClient {
     this.endpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, EXECUTION_V2_PATH);
     this.planEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, CONTEXT_PLAN_PATH);
     this.providerEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, PROVIDER_EXECUTION_PATH);
+    this.outcomeEndpoint = _validateBaseUrl(baseUrl, allowLoopbackHttp, "/v1/engine/context-outcome");
     this.credential = _validateCredential(credential);
     this.timeout = _validateTimeout(options.timeout ?? 30);
     this.baseUrl = baseUrl;
@@ -288,6 +294,16 @@ export class EnterpriseEngineClient {
       normalized.plan,
       this.tenantId,
     );
+  }
+
+  /** Carry operator signals; the host retains signer, evaluation and ledger authority. */
+  async contextOutcome(
+    taskId: string, receiptDigest: string, contextDecisionDigest: string, signals: readonly EngineOutcomeSignal[],
+  ): Promise<EngineOutcomeResponse> {
+    const payload = validateOutcomeRequest(taskId, receiptDigest, contextDecisionDigest, signals);
+    const raw = await _postJson(this.outcomeEndpoint, this.credential, payload, this.timeout,
+      MAX_ENGINE_OUTCOME_RESPONSE_BYTES, "Enterprise outcome");
+    return parseEngineOutcomeResponse(raw, taskId, receiptDigest, contextDecisionDigest, this.tenantId);
   }
 
   /**
