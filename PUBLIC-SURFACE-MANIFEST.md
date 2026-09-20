@@ -125,6 +125,13 @@ cancellable context variant add digest-checked context materialization via
 to the original plan and expected governance revision. They do not create an
 execution receipt or accepted outcome.
 
+The unreleased Go `ContextExecuteV2` and `ContextExecuteV2Context` surface uses
+`EngineSourceExecutionV2Request`/`EngineSourceExecutionV2Response` for declared
+local-native source execution. Exact receipt-document bytes, canonical digest
+and task/plan/source lineage are checked without changing `EngineClient` or
+creating signing, provider or task-acceptance authority. Signature trust must be
+established separately; the receipt outcome stays `unknown`.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not

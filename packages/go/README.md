@@ -32,3 +32,9 @@ existing `EngineClient` interface. Planning is not provider dispatch, a signed
 receipt or task acceptance; materialization returns digest-checked context only. See
 [Engine planning](../../docs/ENGINE-PLANNING.md) for the canonical boundary;
 other-language and installed-release parity remain separate acceptance work.
+
+`ContextExecuteV2` and its context variant consume a declared local-native source
+execution through `EngineSourceExecutionV2Request`. They return the exact v2
+receipt-document string with checked byte-digest and lineage bindings. The SDK
+does not verify signer trust, declare task acceptance, execute a model provider,
+or retry an execution request automatically.

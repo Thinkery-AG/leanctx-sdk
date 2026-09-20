@@ -150,6 +150,15 @@ independent tokenizer measurement. Neither operation performs provider execution
 receipt delivery or outcome reporting. No methods are added to the existing
 injected `EngineClient`.
 
+The Go `ContextExecuteV2`/`ContextExecuteV2Context` adapter takes an
+`EngineSourceExecutionV2Request` containing the caller's task, declared
+local-native execution plan and bound materialization request. It checks the
+returned invocation/observation, source/task/plan lineage, declared plan and
+exact receipt-document byte digest. The returned receipt outcome remains
+`unknown`. Receipt bytes are preserved for verification with independently
+admitted keys; this adapter does not establish signer trust or successful task
+acceptance. It is not the provider-execution API.
+
 ## Guarded Engine context read
 
 `EngineContextClient(base_url, credential).context_read(path)` uses the same
