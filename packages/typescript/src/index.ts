@@ -49,6 +49,15 @@ export type {
 } from "./planning.js";
 export { EngineContextClient } from "./context.js";
 export type { EngineContextClientOptions, EngineContextReadResult } from "./context.js";
+export { EnterpriseEngineClient } from "./enterprise.js";
+export type { ContextExecuteV2Options, EnterpriseEngineClientOptions } from "./enterprise.js";
+export {
+  MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES,
+  MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES,
+  MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES,
+  parseSourceExecutionV2Response,
+} from "./source_execution.js";
+export type { EngineSourceExecution, EngineSourceExecutionV2 } from "./source_execution.js";
 export {
   AgentPermissionError,
   ArtifactIntegrityError,

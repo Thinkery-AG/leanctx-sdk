@@ -90,3 +90,38 @@ retention epoch. The epoch is an unsigned replay hint, not authorization or
 provenance. Materialized token count is a bounded Engine report; this client does
 not treat it as billing, compression savings, execution, acceptance, or a receipt.
 The existing `EngineClient` context-view/recover interface is unchanged.
+
+## Enterprise source execution v2 (v4 integration candidate)
+
+`EnterpriseEngineClient` uses the same bounded authenticated HTTP transport for
+the tenant-scoped `POST /v2/engine/context-execute` adapter:
+
+```ts
+import {
+  EnterpriseEngineClient,
+  EnginePlanningRequest,
+} from "@thinkery/leanctx-sdk";
+
+const client = new EnterpriseEngineClient(engineUrl, credential, tenantId);
+const result = await client.contextExecuteV2(
+  task,
+  localNativePlan,
+  new EnginePlanningRequest("task-id", "source query", 512),
+  sourceIds,
+  governanceRevision,
+  bindingDigest,
+  { planningEvaluationTime: "2026-09-20T12:34:56Z" },
+);
+// result.execution.execution and result.execution.receipt_document_json
+```
+
+The client sends only the declared task/plan, governed source IDs, planning
+epoch, governance revision, and binding digest; source bodies, signer settings,
+operator state, and tenant overrides are not caller inputs. Responses are
+strictly validated through the v1 execution joins plus the v2 tenant/revision,
+output, invocation, observation, and receipt-byte/digest joins. The exact
+`receipt_document_json` string is preserved for independent verification; this
+adapter does not verify signer trust or claim acceptance, billing, or learning.
+Requests are bounded to 1 MiB, the v2 response to 4 MiB plus its wrapper, and
+POSTs are not retried. HTTPS is required unless literal loopback HTTP is
+explicitly enabled for local tests.
