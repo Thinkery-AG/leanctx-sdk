@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package com.thinkery.leanctx;
 
 import java.io.ByteArrayOutputStream;
@@ -246,6 +247,11 @@ public final class AgentContext implements AutoCloseable {
     }
 
     public ToolResult search(String pattern, String path, int maxResults, String include) {
+        return callTool("ctx_search", searchArguments(pattern, path, maxResults, include));
+    }
+
+    static Map<String, Object> searchArguments(String pattern, String path,
+                                                int maxResults, String include) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("path", path == null ? "." : path);
         arguments.put("pattern", checkedArgumentString(pattern, "pattern"));
@@ -253,7 +259,7 @@ public final class AgentContext implements AutoCloseable {
         if (include != null) {
             arguments.put("include", include);
         }
-        return callTool("ctx_search", arguments);
+        return arguments;
     }
 
     public ToolResult glob(String pattern) {
@@ -261,10 +267,14 @@ public final class AgentContext implements AutoCloseable {
     }
 
     public ToolResult glob(String pattern, String path, int maxResults) {
-        return callTool("ctx_glob", Map.of(
+        return callTool("ctx_glob", globArguments(pattern, path, maxResults));
+    }
+
+    static Map<String, Object> globArguments(String pattern, String path, int maxResults) {
+        return Map.of(
                 "path", path == null ? "." : path,
                 "pattern", checkedArgumentString(pattern, "pattern"),
-                "max_results", checkedPositive(maxResults, "max_results")));
+                "max_results", checkedPositive(maxResults, "max_results"));
     }
 
     public ToolResult tree() {
@@ -272,10 +282,14 @@ public final class AgentContext implements AutoCloseable {
     }
 
     public ToolResult tree(String path, int depth, boolean showHidden) {
-        return callTool("ctx_tree", Map.of(
+        return callTool("ctx_tree", treeArguments(path, depth, showHidden));
+    }
+
+    static Map<String, Object> treeArguments(String path, int depth, boolean showHidden) {
+        return Map.of(
                 "path", path == null ? "." : path,
                 "depth", checkedPositive(depth, "depth"),
-                "show_hidden", showHidden));
+                "show_hidden", showHidden);
     }
 
     public ToolResult compose() {
@@ -283,13 +297,21 @@ public final class AgentContext implements AutoCloseable {
     }
 
     public ToolResult compose(String composeTask, String path) {
-        return callTool("ctx_compose", Map.of(
+        return callTool("ctx_compose", composeArguments(composeTask, path));
+    }
+
+    static Map<String, Object> composeArguments(String composeTask, String path) {
+        return Map.of(
                 "path", path == null ? "." : path,
-                "task", checkedArgumentString(composeTask, "task")));
+                "task", checkedArgumentString(composeTask, "task"));
     }
 
     public ToolResult symbol(String name) {
-        return callTool("ctx_symbol", Map.of("name", checkedArgumentString(name, "name")));
+        return callTool("ctx_symbol", symbolArguments(name));
+    }
+
+    static Map<String, Object> symbolArguments(String name) {
+        return Map.of("name", checkedArgumentString(name, "name"));
     }
 
     public ToolResult patch(Map<String, ?> arguments) {

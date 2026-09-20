@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package com.thinkery.leanctx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,11 +10,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 
 class AgentToolsTest {
     @Test
@@ -80,8 +91,10 @@ class AgentToolsTest {
         Path binary = fakeAgent(root, false, true);
         AgentContext context = null;
         try {
-            context = new AgentContext(root.toString(), "", new AgentPermissions(),
-                    new ExecutionPolicy(), binary.toString(), 0.2);
+            // This deadline covers hello too: allow process startup, then time out
+            // the fixture's five-second call. Keep constructor failures phase-specific.
+            context = assertDoesNotThrow(() -> new AgentContext(root.toString(), "",
+                    new AgentPermissions(), new ExecutionPolicy(), binary.toString(), 2.0));
             AgentContext connected = context;
             assertThrows(EngineTimeout.class, () -> connected.call("ctx_read", Map.of()));
             assertThrows(EngineCrashed.class, () -> connected.call("ctx_read", Map.of()));
@@ -94,17 +107,99 @@ class AgentToolsTest {
         }
     }
 
+    @TestFactory
+    Stream<DynamicTest> cancellingConvenienceFutureTerminatesTheActualSession() {
+        Map<String, Function<AsyncAgentContext, CompletableFuture<ToolResult>>> operations = Map.of(
+                "search", tools -> tools.search("text", ".", 3, "*.md"),
+                "glob", tools -> tools.glob("*.md", ".", 3),
+                "tree", tools -> tools.tree(".", 2, false),
+                "compose", tools -> tools.compose("inspect", "."),
+                "symbol", tools -> tools.symbol("Context"),
+                "patch", tools -> tools.patch(Map.of("path", "README.md", "op", "create", "new_text", "x")));
+        return operations.entrySet().stream().sorted(Map.Entry.comparingByKey()).map(operation ->
+                DynamicTest.dynamicTest(operation.getKey(), () -> {
+                    Path root = Files.createTempDirectory("leanctx-agent-cancel-");
+                    Path binary = fakeAgent(root, false, true, true);
+                    try (AsyncAgentContext tools = new AsyncAgentContext(root.toString(), "inspect",
+                            new AgentPermissions(true, false), new ExecutionPolicy(),
+                            binary.toString(), 10.0).open().join()) {
+                        CompletableFuture<ToolResult> result = operation.getValue().apply(tools);
+                        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                        while (!Files.exists(root.resolve("call-seen")) && System.nanoTime() < deadline) {
+                            Thread.sleep(10);
+                        }
+                        assertTrue(Files.exists(root.resolve("call-seen")), "call reached the process");
+                        ProcessHandle engine = ProcessHandle.of(Long.parseLong(
+                                Files.readString(root.resolve("engine.pid")))).orElseThrow();
+                        ProcessHandle child = ProcessHandle.of(Long.parseLong(
+                                Files.readString(root.resolve("call-child.pid")))).orElseThrow();
+                        assertTrue(engine.isAlive());
+                        assertTrue(child.isAlive());
+                        assertTrue(result.cancel(true));
+                        assertTrue(result.isCancelled());
+                        assertTrue(!engine.isAlive(), "cancellation reaps the Engine process");
+                        assertTrue(!child.isAlive(), "cancellation reaps the child process");
+                        assertNoAgentState(root);
+                        CompletionException failure = assertThrows(CompletionException.class,
+                                () -> tools.read("README.md", ReadMode.AUTO, false).join());
+                        assertTrue(failure.getCause() instanceof EngineCrashed);
+                    } finally {
+                        deleteTree(root);
+                    }
+                }));
+    }
+
+    @Test
+    void convenienceValidationAndWriteDenialRemainFailedFuturesBeforeDispatch() throws Exception {
+        Path root = Files.createTempDirectory("leanctx-agent-validation-");
+        Path binary = fakeAgent(root, false, true, false);
+        try (AsyncAgentContext tools = new AsyncAgentContext(root.toString(), "inspect",
+                new AgentPermissions(), new ExecutionPolicy(), binary.toString(), 2.0).open().join()) {
+            for (CompletableFuture<ToolResult> invalid : List.of(
+                    tools.search(null, ".", 1, null), tools.glob("*.md", ".", -1),
+                    tools.tree(".", -1, false), tools.compose(null, "."), tools.symbol(null))) {
+                CompletionException failure = assertThrows(CompletionException.class, invalid::join);
+                assertTrue(failure.getCause() instanceof ValidationError);
+            }
+            CompletionException failure = assertThrows(CompletionException.class,
+                    () -> tools.patch(Map.of()).join());
+            assertTrue(failure.getCause() instanceof AgentPermissionError);
+            assertEquals(0, tools.metrics().toolCalls());
+            assertTrue(!Files.exists(root.resolve("call-seen")), "invalid calls never dispatch");
+        } finally {
+            deleteTree(root);
+        }
+    }
+
     private static Path fakeAgent(Path root, boolean badHello, boolean delayCall) throws Exception {
+        return fakeAgent(root, badHello, delayCall, false, false);
+    }
+
+    private static Path fakeAgent(Path root, boolean badHello, boolean delayCall,
+                                  boolean allowWrite) throws Exception {
+        return fakeAgent(root, badHello, delayCall, allowWrite, true);
+    }
+
+    private static Path fakeAgent(Path root, boolean badHello, boolean delayCall,
+                                  boolean allowWrite, boolean observe) throws Exception {
         Path script = root.resolve("fake-agent-" + UUID.randomUUID());
         boolean allowExec = !delayCall;
-        String readCapabilities = "[\"ctx_compose\",\"ctx_glob\",\"ctx_read\",\"ctx_search\",\"ctx_symbol\",\"ctx_tree\"]";
-        String capabilities = badHello
-                ? "[\"ctx_read\"]"
-                : allowExec
-                        ? "[\"ctx_compose\",\"ctx_glob\",\"ctx_read\",\"ctx_search\",\"ctx_shell\",\"ctx_symbol\",\"ctx_tree\"]"
-                        : readCapabilities;
-        String delay = delayCall ? "sleep 5\n" : "";
+        List<String> tools = new ArrayList<>(List.of("ctx_compose", "ctx_glob", "ctx_read",
+                "ctx_search", "ctx_symbol", "ctx_tree"));
+        if (allowExec) {
+            tools.add("ctx_shell");
+        }
+        if (allowWrite) {
+            tools.addAll(List.of("ctx_edit", "ctx_fill", "ctx_patch"));
+        }
+        Collections.sort(tools);
+        String capabilities = badHello ? "[\"ctx_read\"]"
+                : tools.stream().map(tool -> "\"" + tool + "\"").collect(Collectors.joining(",", "[", "]"));
+        String delay = delayCall ? (observe
+                ? "sleep 5 &\nprintf '%s' \"$!\" > call-child.pid\nprintf 'seen' > call-seen\nwait \"$!\"\n"
+                : "sleep 5\n") : "";
         String source = "#!/bin/sh\n"
+                + (observe ? "printf '%s' \"$$\" > engine.pid\n" : "")
                 + "policy=''\n"
                 + "while [ \"$#\" -gt 0 ]; do\n"
                 + "  if [ \"$1\" = \"--policy-file\" ]; then policy=\"$2\"; shift; fi\n"
@@ -115,7 +210,7 @@ class AgentToolsTest {
                 + "while IFS= read -r line; do\n"
                 + "  id=$((id + 1))\n"
                 + "  case \"$line\" in\n"
-                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":false,\"capabilities\":" + capabilities + ",\"engine_version\":\"3.10.1\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
+                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.10.1\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
                 + "    *\\\"tool\\\":\\\"ctx_shell\\\"*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_shell:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":{\"exit_code\":0}}}' ;;\n"
                 + "    *call*) " + delay + "printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_read:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":null}}' ;;\n"
                 + "    *close*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{}}'; exit 0 ;;\n"

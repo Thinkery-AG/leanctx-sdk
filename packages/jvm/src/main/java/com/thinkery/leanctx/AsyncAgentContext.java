@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package com.thinkery.leanctx;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.function.Supplier;
 
 /** CompletableFuture facade for AgentContext, convenient from Kotlin coroutines. */
 public final class AsyncAgentContext implements AutoCloseable {
@@ -79,28 +80,32 @@ public final class AsyncAgentContext implements AutoCloseable {
 
     public CompletableFuture<ToolResult> search(String pattern, String path, int maxResults,
                                                 String include) {
-        return CompletableFuture.supplyAsync(() -> current().search(pattern, path, maxResults,
-                include));
+        return checkedCall(() -> current().callAsync("ctx_search",
+                AgentContext.searchArguments(pattern, path, maxResults, include)));
     }
 
     public CompletableFuture<ToolResult> glob(String pattern, String path, int maxResults) {
-        return CompletableFuture.supplyAsync(() -> current().glob(pattern, path, maxResults));
+        return checkedCall(() -> current().callAsync("ctx_glob",
+                AgentContext.globArguments(pattern, path, maxResults)));
     }
 
     public CompletableFuture<ToolResult> tree(String path, int depth, boolean showHidden) {
-        return CompletableFuture.supplyAsync(() -> current().tree(path, depth, showHidden));
+        return checkedCall(() -> current().callAsync("ctx_tree",
+                AgentContext.treeArguments(path, depth, showHidden)));
     }
 
     public CompletableFuture<ToolResult> compose(String task, String path) {
-        return CompletableFuture.supplyAsync(() -> current().compose(task, path));
+        return checkedCall(() -> current().callAsync("ctx_compose",
+                AgentContext.composeArguments(task, path)));
     }
 
     public CompletableFuture<ToolResult> symbol(String name) {
-        return CompletableFuture.supplyAsync(() -> current().symbol(name));
+        return checkedCall(() -> current().callAsync("ctx_symbol",
+                AgentContext.symbolArguments(name)));
     }
 
     public CompletableFuture<ToolResult> patch(Map<String, ?> arguments) {
-        return CompletableFuture.supplyAsync(() -> current().patch(arguments));
+        return checkedCall(() -> current().callAsync("ctx_patch", arguments));
     }
 
     public CompletableFuture<ToolResult> run(List<String> argv, String cwd,
@@ -138,6 +143,16 @@ public final class AsyncAgentContext implements AutoCloseable {
         AgentContext current = context;
         if (current != null) {
             current.close();
+        }
+    }
+
+    private CompletableFuture<ToolResult> checkedCall(
+            Supplier<CompletableFuture<ToolResult>> operation) {
+        try {
+            // Return the transport future itself so cancellation reaches the session.
+            return operation.get();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
         }
     }
 
