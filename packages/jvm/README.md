@@ -20,5 +20,14 @@ This also applies to `search`, `glob`, `tree`, `compose`, `symbol` and `patch`.
 These convenience methods retain the synchronous argument checks and write
 permission rules, returning validation failures through their futures.
 
+Persistent and one-shot adapters share one process-termination implementation.
+It waits for the Engine and descendants captured at termination, with a shared
+two-second cleanup deadline; incomplete cleanup is an `EngineExecutionError`.
+That cleanup failure takes precedence over the original timeout or protocol
+error, so callers cannot mistake an unverified shutdown for a normal timeout.
+An interrupted caller retains its interrupt flag after that cleanup. This is
+not OS sandboxing: children detached before capture require deployment-level
+process containment.
+
 Engine 3.10.1 is published. Maven releases are produced from the monorepo's
 cross-SDK promotion gate.

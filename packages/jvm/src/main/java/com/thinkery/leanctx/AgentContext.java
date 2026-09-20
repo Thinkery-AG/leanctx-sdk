@@ -757,11 +757,14 @@ public final class AgentContext implements AutoCloseable {
             failPending(reason);
             child = process;
         }
-        if (child != null && child.isAlive()) {
-            killProcessTree(child);
+        try {
+            if (child != null && child.isAlive()) {
+                ProcessTreeTermination.terminate(child);
+            }
+        } finally {
+            reapReader();
+            removePolicy();
         }
-        reapReader();
-        removePolicy();
     }
 
     private void failPending(EngineError error) {
@@ -771,37 +774,6 @@ public final class AgentContext implements AutoCloseable {
                 call.cancelDeadline();
                 call.future.completeExceptionally(error);
             }
-        }
-    }
-
-    private static void killProcessTree(Process child) {
-        List<ProcessHandle> descendants = List.of();
-        try {
-            ProcessHandle handle = child.toHandle();
-            descendants = handle.descendants().toList();
-            for (int i = descendants.size() - 1; i >= 0; i--) {
-                descendants.get(i).destroyForcibly();
-            }
-            handle.destroyForcibly();
-        } catch (RuntimeException exception) {
-            child.destroyForcibly();
-        }
-        try {
-            if (!child.waitFor(2, TimeUnit.SECONDS)) {
-                throw new EngineExecutionError("Agent Tools process could not be reaped");
-            }
-            for (ProcessHandle descendant : descendants) {
-                if (descendant.isAlive()) {
-                    descendant.onExit().get(2, TimeUnit.SECONDS);
-                }
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new EngineExecutionError("Agent Tools process reaping was interrupted",
-                    null, null, exception);
-        } catch (ExecutionException | java.util.concurrent.TimeoutException exception) {
-            throw new EngineExecutionError("Agent Tools process tree could not be reaped",
-                    null, null, exception);
         }
     }
 

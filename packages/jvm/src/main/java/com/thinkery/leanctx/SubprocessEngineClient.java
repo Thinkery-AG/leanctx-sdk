@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package com.thinkery.leanctx;
 
 import java.io.ByteArrayOutputStream;
@@ -364,12 +365,15 @@ public final class SubprocessEngineClient implements EngineClient {
                 throw new EngineTimeout("Engine process exceeded its deadline", exception);
             }
         } finally {
-            if (process.isAlive()) {
-                terminate(process);
+            try {
+                if (process.isAlive()) {
+                    terminate(process);
+                }
+            } finally {
+                closeQuietly(process.getInputStream());
+                closeQuietly(process.getErrorStream());
+                closeQuietly(process.getOutputStream());
             }
-            closeQuietly(process.getInputStream());
-            closeQuietly(process.getErrorStream());
-            closeQuietly(process.getOutputStream());
         }
     }
 
@@ -518,20 +522,7 @@ public final class SubprocessEngineClient implements EngineClient {
     }
 
     private static void terminate(Process process) {
-        try {
-            ProcessHandle handle = process.toHandle();
-            List<ProcessHandle> descendants = handle.descendants().toList();
-            for (int i = descendants.size() - 1; i >= 0; i--) {
-                descendants.get(i).destroyForcibly();
-            }
-            handle.destroyForcibly();
-            process.waitFor(2, TimeUnit.SECONDS);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        } catch (RuntimeException ignored) {
-            process.destroyForcibly();
-        }
+        ProcessTreeTermination.terminate(process);
     }
 
     private static void deleteQuietly(Path path) {
