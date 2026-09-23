@@ -582,7 +582,7 @@ impl<T: Send + 'static> Future for AsyncOperation<T> {
                 return Poll::Pending;
             }
             let worker_state = Arc::clone(&state);
-            if thread::Builder::new()
+            let worker_failed_to_start = thread::Builder::new()
                 .name("leanctx-sdk-async".to_owned())
                 .spawn(move || {
                     let result = if worker_control.is_cancelled() {
@@ -593,8 +593,8 @@ impl<T: Send + 'static> Future for AsyncOperation<T> {
                     complete_operation(&worker_state, &worker_control, result);
                     worker_control.maybe_enqueue_cleanup();
                 })
-                .is_err()
-            {
+                .is_err();
+            if worker_failed_to_start {
                 complete_operation(
                     &state,
                     &control,

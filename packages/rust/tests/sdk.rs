@@ -544,10 +544,20 @@ fn public_constants_are_frozen() {
 
 #[test]
 fn optional_real_engine_v1_round_trip() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let Some(binary) = std::env::var_os("LEANCTX_ENGINE_BIN") else {
-        return Ok(());
+    let binary = match std::env::var_os("LEANCTX_ENGINE_BIN") {
+        Some(binary) => PathBuf::from(binary),
+        None if std::env::var_os("LEANCTX_REQUIRE_ENGINE").is_some() => {
+            return Err("LEANCTX_ENGINE_BIN is required for this Engine proof".into());
+        }
+        None => return Ok(()),
     };
-    let root = std::env::current_dir()?;
+    let proof_file = std::env::var_os("LEANCTX_ENGINE_PROOF_FILE").map(PathBuf::from);
+    if std::env::var_os("LEANCTX_REQUIRE_ENGINE").is_some() && proof_file.is_none() {
+        return Err("LEANCTX_ENGINE_PROOF_FILE is required for this Engine proof".into());
+    }
+    let root = std::env::var_os("LEANCTX_TEST_ROOT")
+        .map(PathBuf::from)
+        .map_or_else(std::env::current_dir, Ok)?;
     let source = ContextSource::new("README.md", &root)?;
     let plan = ContextPlan::new(
         "optional-real-engine",
@@ -555,11 +565,22 @@ fn optional_real_engine_v1_round_trip() -> Result<(), Box<dyn Error + Send + Syn
         "inspect",
         source,
     )?;
-    let client = SubprocessEngineClient::with_binary(binary)?;
+    let client = SubprocessEngineClient::with_binary(&binary)?;
     let view = client.context_view(&plan)?;
     assert!(matches!(
         view.status(),
         EngineStatus::Succeeded | EngineStatus::Degraded
     ));
+    if let Some(path) = proof_file {
+        fs::write(
+            path,
+            format!(
+                "actual isolated Engine v1 context_view completed; binary={}; status={:?}; synthetic_root={}\n",
+                binary.display(),
+                view.status(),
+                root.display()
+            ),
+        )?;
+    }
     Ok(())
 }

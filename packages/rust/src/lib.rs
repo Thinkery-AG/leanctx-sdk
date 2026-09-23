@@ -6,7 +6,9 @@ mod agent;
 mod agent_io;
 mod async_agent;
 mod engine;
+mod enterprise;
 mod errors;
+mod planning;
 mod process;
 mod protocol;
 mod receipt;
@@ -22,6 +24,9 @@ pub use agent::{
 };
 pub use async_agent::AsyncAgentContext;
 pub use engine::{EngineClient, SubprocessEngineClient};
+pub use enterprise::{
+    EngineSourceMaterializationResponse, EngineSourcePlanResponse, EnterpriseEngineClient,
+};
 pub use errors::{
     AgentPermissionError, ArtifactIntegrityError, CompatibilityError, ConfigurationError,
     EngineCrashed, EngineError, EngineExecutionError, EngineProtocolError, EngineRejected,
@@ -29,6 +34,7 @@ pub use errors::{
     PolicyAdmissionError, RecoveryUnavailableError, SDKError, SessionStateError,
     SourceUnavailableError, UnsupportedCapabilityError, UnsupportedEngineError, ValidationError,
 };
+pub use planning::EnginePlanningRequest;
 pub use protocol::{
     ContextFailure, ContextMeasurement, ContextPlan, ContextReceiptLink, ContextSource,
     ContextView, EngineStatus, FailureCode, Freshness, HostOutcome, Integrity, RecoveredSource,
