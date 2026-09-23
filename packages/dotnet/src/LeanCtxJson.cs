@@ -118,7 +118,9 @@ internal static class WireJson
             return Plain(document.RootElement);
         if (value is JsonElement element)
             return Plain(element);
-        if (value is byte or sbyte or short or ushort or int or uint or long or ulong)
+        if (value is ulong unsigned)
+            return unsigned;
+        if (value is byte or sbyte or short or ushort or int or uint or long)
             return Integral(value);
         if (value is float or double or decimal)
             throw new ValidationError("canonical JSON numbers must be safe integers");
@@ -158,7 +160,7 @@ internal static class WireJson
 
     internal static object? DeepFreeze(object? value)
     {
-        if (value is null || value is string || value is bool || value is long)
+        if (value is null || value is string || value is bool || value is long or ulong)
             return value;
         if (value is IDictionary dictionary)
         {
@@ -208,12 +210,16 @@ internal static class WireJson
         return result;
     }
 
-    private static long Integral(JsonElement element)
+    private static object Integral(JsonElement element)
     {
         var raw = element.GetRawText();
-        if (raw == "-0" || !element.TryGetInt64(out var result))
+        if (raw == "-0")
             throw new ValidationError("canonical JSON numbers must be safe integers");
-        return result;
+        if (element.TryGetInt64(out var signed))
+            return signed;
+        if (element.TryGetUInt64(out var unsigned))
+            return unsigned;
+        throw new ValidationError("canonical JSON numbers must be safe integers");
     }
 
     private static long Integral(object value)
@@ -253,6 +259,9 @@ internal static class WireJson
                 builder.Append(boolean ? "true" : "false");
                 return;
             case long integer:
+                builder.Append(integer.ToString(CultureInfo.InvariantCulture));
+                return;
+            case ulong integer:
                 builder.Append(integer.ToString(CultureInfo.InvariantCulture));
                 return;
             case IDictionary dictionary:
@@ -350,13 +359,24 @@ internal static class WireJson
         {
             throw;
         }
+        catch (ValidationError error)
+        {
+            throw new EngineProtocolError($"invalid {label}", error);
+        }
         catch (Exception error) when (error is JsonException or ArgumentException or DecoderFallbackException)
         {
             throw new EngineProtocolError($"invalid {label}", error);
         }
         if (document.RootElement.ValueKind != JsonValueKind.Object)
             throw new EngineProtocolError($"{label} must be an object");
-        return (Dictionary<string, object?>)Plain(document.RootElement)!;
+        try
+        {
+            return (Dictionary<string, object?>)Plain(document.RootElement)!;
+        }
+        catch (ValidationError error)
+        {
+            throw new EngineProtocolError($"invalid {label}", error);
+        }
     }
 
     private static void ValidateJson(JsonElement value, HashSet<string> path)
@@ -468,7 +488,7 @@ internal static class WireJson
         return result;
     }
 
-    private sealed class UnicodeCodePointComparer : IComparer<string>
+    internal sealed class UnicodeCodePointComparer : IComparer<string>
     {
         internal static readonly UnicodeCodePointComparer Instance = new();
 

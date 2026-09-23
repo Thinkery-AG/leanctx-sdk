@@ -20,6 +20,7 @@ internal static class Program
         Run("agent-timeout-negative", AgentTimeoutNegative);
         Run("engine-v1-fixture", EngineV1Fixture);
         Run("engine-v1-optional", EngineV1Optional);
+        Run("enterprise-http-transport-contract", EnterpriseHttpContractTests.Run);
         if (failures != 0)
             throw new Exception($"{failures} test group(s) failed");
         Console.WriteLine("all .NET SDK tests passed");
@@ -35,7 +36,7 @@ internal static class Program
         catch (Exception error)
         {
             failures++;
-            Console.Error.WriteLine($"FAIL {name}: {error.GetType().Name}: {error.Message}");
+            Console.Error.WriteLine($"FAIL {name}: {error}");
         }
     }
 
@@ -168,7 +169,8 @@ internal static class Program
     {
         using var root = new TemporaryDirectory();
         var fake = FakeAgent(root.Path, "hang");
-        using var context = AgentContext.Open(root.Path, engineBinary: fake, timeout: 0.2);
+        // This deadline also covers process startup; allow normal launch latency.
+        using var context = AgentContext.Open(root.Path, engineBinary: fake, timeout: 2);
         Throws<EngineTimeout>(() => context.Read("README.md"));
         Throws<EngineCrashed>(() => context.Read("README.md"));
     }
