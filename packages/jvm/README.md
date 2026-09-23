@@ -29,5 +29,23 @@ An interrupted caller retains its interrupt flag after that cleanup. This is
 not OS sandboxing: children detached before capture require deployment-level
 process containment.
 
+## Authorized source context
+
+`EnterpriseEngineClient` exposes `contextPlan` and `contextMaterialize` for an
+existing authenticated LeanCTX service. `EnginePlanningRequest` carries the
+task and token budget; source IDs select inputs that the service must authorize.
+Materialization takes the governance revision and binding digest from the
+plan response. Revisions use `BigInteger` to preserve the unsigned 64-bit range.
+
+The client checks tenant/source scope, versions, plan bindings and content
+digests before returning immutable response maps. These calls prepare context;
+they do not send it to a model or establish an execution outcome. Local Engine
+processes are not involved in these HTTP operations.
+
+HTTPS uses the JDK trust manager and hostname checks. Redirects and proxy
+inheritance are disabled; response bytes and the full response duration are
+bounded. Explicit `allowLoopbackHttp` is reserved for literal loopback addresses
+in local tests. SDK and Engine licensing remain separate.
+
 Engine 3.10.1 is published. Maven releases are produced from the monorepo's
 cross-SDK promotion gate.

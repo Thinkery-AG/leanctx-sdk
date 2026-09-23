@@ -22,6 +22,7 @@ import java.util.Set;
 final class Json {
     static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private static final BigInteger MAX_SAFE = BigInteger.valueOf(MAX_SAFE_INTEGER);
+    private static final BigInteger MAX_UNSIGNED_64 = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
     private static final Comparator<String> CODE_POINT_ORDER = Json::compareCodePoints;
 
     private Json() {
@@ -51,7 +52,7 @@ final class Json {
 
     static String canonical(Object value) {
         StringBuilder out = new StringBuilder();
-        writeCanonical(value, out, new IdentityHashMap<>());
+        writeCanonical(value, out, new IdentityHashMap<>(), false);
         return out.toString();
     }
 
@@ -59,8 +60,16 @@ final class Json {
         return canonical(value).getBytes(StandardCharsets.UTF_8);
     }
 
+    /** Canonicalize Enterprise protocol data with exact non-negative U64 integers. */
+    static byte[] canonicalBytesWithUnsignedU64(Object value) {
+        StringBuilder out = new StringBuilder();
+        writeCanonical(value, out, new IdentityHashMap<>(), true);
+        return out.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
     private static void writeCanonical(Object value, StringBuilder out,
-                                       IdentityHashMap<Object, Boolean> active) {
+                                       IdentityHashMap<Object, Boolean> active,
+                                       boolean allowUnsignedU64) {
         value = plain(value);
         if (value == null) {
             out.append("null");
@@ -70,7 +79,7 @@ final class Json {
         } else if (value instanceof Boolean bool) {
             out.append(bool ? "true" : "false");
         } else if (value instanceof Number number) {
-            out.append(number(number));
+            out.append(number(number, allowUnsignedU64));
         } else if (value instanceof Map<?, ?> map) {
             enter(value, active);
             try {
@@ -91,7 +100,7 @@ final class Json {
                     String key = keys.get(i);
                     writeString(key, out);
                     out.append(':');
-                    writeCanonical(map.get(key), out, active);
+                    writeCanonical(map.get(key), out, active, allowUnsignedU64);
                 }
                 out.append('}');
             } finally {
@@ -106,7 +115,7 @@ final class Json {
                     if (index++ > 0) {
                         out.append(',');
                     }
-                    writeCanonical(item, out, active);
+                    writeCanonical(item, out, active, allowUnsignedU64);
                 }
                 out.append(']');
             } finally {
@@ -121,7 +130,7 @@ final class Json {
                     if (i > 0) {
                         out.append(',');
                     }
-                    writeCanonical(java.lang.reflect.Array.get(value, i), out, active);
+                    writeCanonical(java.lang.reflect.Array.get(value, i), out, active, allowUnsignedU64);
                 }
                 out.append(']');
             } finally {
@@ -138,7 +147,14 @@ final class Json {
         }
     }
 
-    private static String number(Number number) {
+    private static String number(Number number, boolean allowUnsignedU64) {
+        if (allowUnsignedU64 && (number instanceof Byte || number instanceof Short
+                || number instanceof Integer || number instanceof Long || number instanceof BigInteger)) {
+            BigInteger unsigned = new BigInteger(number.toString());
+            if (unsigned.signum() >= 0 && unsigned.compareTo(MAX_UNSIGNED_64) <= 0) {
+                return unsigned.toString();
+            }
+        }
         BigInteger integer;
         if (number instanceof Byte || number instanceof Short || number instanceof Integer
                 || number instanceof Long || number instanceof BigInteger) {
@@ -197,13 +213,20 @@ final class Json {
     }
 
     static Object parse(byte[] data, String label) {
+        return parse(data, label, Integer.MAX_VALUE);
+    }
+
+    static Object parse(byte[] data, String label, int maximumNestingDepth) {
+        if (maximumNestingDepth < 0) {
+            throw new IllegalArgumentException("maximumNestingDepth must not be negative");
+        }
         String source;
         try {
             source = decodeUtf8(data);
         } catch (CharacterCodingException exception) {
             throw new EngineProtocolError("invalid " + label, exception);
         }
-        Parser parser = new Parser(source, label);
+        Parser parser = new Parser(source, label, maximumNestingDepth);
         Object result = parser.parse();
         if (!(result instanceof Map<?, ?>)) {
             throw new EngineProtocolError(label + " must be a JSON object");
@@ -469,16 +492,18 @@ final class Json {
     private static final class Parser {
         private final String source;
         private final String label;
+        private final int maximumNestingDepth;
         private int index;
 
-        private Parser(String source, String label) {
+        private Parser(String source, String label, int maximumNestingDepth) {
             this.source = source;
             this.label = label;
+            this.maximumNestingDepth = maximumNestingDepth;
         }
 
         private Object parse() {
             skipWhitespace();
-            Object value = parseValue();
+            Object value = parseValue(0);
             skipWhitespace();
             if (index != source.length()) {
                 fail("trailing data");
@@ -486,14 +511,17 @@ final class Json {
             return value;
         }
 
-        private Object parseValue() {
+        private Object parseValue(int depth) {
+            if (depth > maximumNestingDepth) {
+                fail("nesting depth exceeds its bound");
+            }
             if (index >= source.length()) {
                 fail("unexpected end of input");
             }
             char c = source.charAt(index);
             return switch (c) {
-                case '{' -> parseObject();
-                case '[' -> parseArray();
+                case '{' -> parseObject(depth);
+                case '[' -> parseArray(depth);
                 case '"' -> parseString();
                 case 't' -> take("true", Boolean.TRUE);
                 case 'f' -> take("false", Boolean.FALSE);
@@ -508,7 +536,7 @@ final class Json {
             };
         }
 
-        private Map<String, Object> parseObject() {
+        private Map<String, Object> parseObject(int depth) {
             index++;
             Map<String, Object> result = new LinkedHashMap<>();
             skipWhitespace();
@@ -529,7 +557,7 @@ final class Json {
                     fail("object key missing colon");
                 }
                 skipWhitespace();
-                result.put(key, parseValue());
+                result.put(key, parseValue(depth + 1));
                 skipWhitespace();
                 if (takeChar('}')) {
                     return result;
@@ -540,7 +568,7 @@ final class Json {
             }
         }
 
-        private List<Object> parseArray() {
+        private List<Object> parseArray(int depth) {
             index++;
             List<Object> result = new ArrayList<>();
             skipWhitespace();
@@ -549,7 +577,7 @@ final class Json {
             }
             while (true) {
                 skipWhitespace();
-                result.add(parseValue());
+                result.add(parseValue(depth + 1));
                 skipWhitespace();
                 if (takeChar(']')) {
                     return result;
