@@ -27,7 +27,7 @@ func terminateProcess(command *exec.Cmd) error {
 	if groupErr != nil && !errors.Is(groupErr, syscall.ESRCH) {
 		return fmt.Errorf("process group could not be terminated: %w", groupErr)
 	}
-	if processErr != nil && !errors.Is(processErr, os.ErrProcessDone) {
+	if processErr != nil && !errors.Is(processErr, os.ErrProcessDone) && !errors.Is(processErr, syscall.ESRCH) {
 		return fmt.Errorf("process could not be terminated: %w", processErr)
 	}
 	return nil

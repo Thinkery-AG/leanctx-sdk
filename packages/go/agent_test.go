@@ -4,6 +4,7 @@ package leanctx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,49 @@ import (
 	"testing"
 	"time"
 )
+
+func TestDefaultPolicyListsAreArrays(t *testing.T) {
+	policy, err := normalizeExecutionPolicy(defaultExecutionPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := canonicalJSON(map[string]any{"allowed_env": policy.AllowedEnv, "allowed_executables": policy.AllowedExecutables})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"allowed_env", "allowed_executables"} {
+		if values, ok := decoded[key].([]any); !ok || len(values) != 0 {
+			t.Fatalf("%s must be an empty array, got %#v", key, decoded[key])
+		}
+	}
+}
+
+func TestDefaultAgentPolicyWithActualEngine(t *testing.T) {
+	binary := os.Getenv("LEANCTX_TEST_ENGINE_BINARY")
+	if binary == "" {
+		t.Skip("set LEANCTX_TEST_ENGINE_BINARY to run actual Agent Tools")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte("actual default policy content\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client, err := OpenAgentContext(context.Background(), root, AgentContextOptions{EngineBinary: binary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	result, err := client.Read("source.txt", ReadModeFull)
+	if err != nil || result == nil || !strings.Contains(result.Text, "actual default policy content") {
+		t.Fatalf("actual read = %#v, %v", result, err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func fakeAgentScript(t *testing.T, behavior string) string {
 	t.Helper()

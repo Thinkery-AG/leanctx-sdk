@@ -122,7 +122,8 @@ func validEnvironmentName(value string) bool {
 
 func uniqueStrings(values []string) []string {
 	if len(values) == 0 {
-		return nil
+		// Engine policy lists are JSON arrays, including an empty deny-all list.
+		return []string{}
 	}
 	result := values[:0]
 	for _, value := range values {
