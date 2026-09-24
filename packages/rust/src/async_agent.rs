@@ -799,7 +799,7 @@ mod tests {
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.10.1",
+            "engine_version": "3.10.2",
             "schema_version": 1,
             "transport_version": 1
         });
@@ -839,7 +839,7 @@ done"#,
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.10.1",
+            "engine_version": "3.10.2",
             "schema_version": 1,
             "transport_version": 1
         });

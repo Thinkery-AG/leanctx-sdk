@@ -13,7 +13,7 @@ import tempfile
 from typing import Iterable, cast
 from unittest.mock import patch
 
-from leanctx_sdk import AgentContext
+from leanctx_sdk import AgentContext, SUPPORTED_AGENT_TOOLS_ENGINE_VERSION
 
 
 MINIMUM_SAVINGS_PERCENT = 30.0
@@ -185,7 +185,7 @@ def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
     report.update(
         {
             "benchmark": "leanctx.agent-tools-retrieval/v1",
-            "engine_version": "3.10.1",
+            "engine_version": SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
             "median_savings_percent": median_savings,
             "network_access": "denied",
             "repeats": repeats,

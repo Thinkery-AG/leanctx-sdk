@@ -21,8 +21,8 @@ context.close()?;
 # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
 ```
 
-Agent Tools requires the published Engine 3.10.1 and negotiates the exact v1
-capability set. Registry releases are produced from the monorepo's cross-SDK
+This source candidate requires exactly LeanCTX Engine 3.10.2 for Agent Tools.
+The local pairing does not certify a published Engine or SDK release. Registry releases are produced from the monorepo's cross-SDK
 promotion gate. See the repository contracts and
 `PUBLIC-SURFACE-MANIFEST.md` for the frozen wire and public API contracts.
 

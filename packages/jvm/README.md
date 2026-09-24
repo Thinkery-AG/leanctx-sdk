@@ -47,5 +47,6 @@ inheritance are disabled; response bytes and the full response duration are
 bounded. Explicit `allowLoopbackHttp` is reserved for literal loopback addresses
 in local tests. SDK and Engine licensing remain separate.
 
-Engine 3.10.1 is published. Maven releases are produced from the monorepo's
+This source candidate requires exactly LeanCTX Engine 3.10.2 for Agent Tools.
+The local pairing does not certify a published Engine or SDK release. Maven releases are produced from the monorepo's
 cross-SDK promotion gate.

@@ -112,12 +112,12 @@ cache. Async task cancellation terminates the process before propagating
 
 ## Reproduce the Agent Tools evidence
 
-Use an Engine 3.10.1 binary; both commands are provider-free and make no
+Use the matching Engine 3.10.2 candidate binary; both commands are provider-free and make no
 network calls:
 
 ```bash
 PYTHONPATH=src:. python scripts/verify_agent_context_e2e.py \
-  --engine /path/to/lean-ctx --expected-engine-version 3.10.1
+  --engine /path/to/lean-ctx --expected-engine-version 3.10.2
 PYTHONPATH=src:. python -m benchmarks.agent_tools.retrieval_benchmark \
   --engine /path/to/lean-ctx
 ```

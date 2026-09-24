@@ -1,0 +1,58 @@
+// Copy into a fresh npm consumer before running; no source-relative SDK imports.
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { AgentContext, EngineProtocolError } from "@thinkery/leanctx-sdk";
+
+const [engine, previousEngine, output] = process.argv.slice(2);
+if (!engine || !previousEngine || !output) throw new Error("engine, previous engine and output are required");
+const installed = fileURLToPath(import.meta.resolve("@thinkery/leanctx-sdk"));
+if (!installed.startsWith(resolve("node_modules") + "/")) throw new Error("SDK is not installed in this fresh consumer");
+const root = await mkdtemp(join(tmpdir(), "leanctx-pro-typescript-reference-"));
+const checks = {};
+const responses = {};
+const rules = 'name="installed-reference"\nversion="1.0.0"\ndescription="test"\n[filters]\nclassification="block"\n[redaction]\ncustomer="CUS-[0-9]{4}"\n';
+try {
+  await mkdir(join(root, ".git"));
+  await mkdir(join(root, ".lean-ctx"));
+  await writeFile(join(root, "login.py"), '# authentication retry: refresh the expired session before retrying\ndef authenticate():\n    return "REFRESH_SESSION_FIRST CUS-1234"\n');
+  await writeFile(join(root, "private.py"), '# CONFIDENTIAL\ndef authentication_secret():\n    return "PRIVATE_CANARY"\n');
+  const policy = join(root, ".lean-ctx/policy.toml");
+  await writeFile(policy, rules);
+  try {
+    const old = await AgentContext.open(root, { engineBinary: previousEngine });
+    await old.close();
+    checks.old_engine_rejected = false;
+  } catch (error) {
+    checks.old_engine_rejected = error instanceof EngineProtocolError && error.message.includes("hello is incompatible");
+  }
+  const context = await AgentContext.open(root, { engineBinary: engine });
+  try {
+    responses.read = (await context.read("login.py", "full")).text;
+    responses.compose = (await context.compose("investigate authentication retry")).text;
+    checks.useful_masked_read = responses.read.includes("REFRESH_SESSION_FIRST") && responses.read.includes("REDACTED") && !responses.read.includes("CUS-1234");
+    checks.useful_protected_compose = responses.compose.includes("REFRESH_SESSION_FIRST") && responses.compose.includes("login.py") && ["CUS-1234", "private.py", "PRIVATE_CANARY"].every(value => !responses.compose.includes(value));
+    await writeFile(policy, rules + '[context]\ndeny_tools=["ctx_read"]\n');
+    try {
+      responses.denied = (await context.read("login.py", "full")).text;
+      checks.changed_rule_blocks_read = responses.denied.includes("POLICY BLOCKED") && !responses.denied.includes("REFRESH_SESSION_FIRST") && !responses.denied.includes("CUS-1234");
+    } catch (error) {
+      responses.denied = String(error);
+      checks.changed_rule_blocks_read = responses.denied.toLowerCase().includes("policy") && !responses.denied.includes("REFRESH_SESSION_FIRST") && !responses.denied.includes("CUS-1234");
+    }
+    await writeFile(policy, rules);
+    responses.restored = (await context.read("login.py", "full")).text;
+    checks.same_session_rule_repair = responses.restored.includes("REFRESH_SESSION_FIRST") && !responses.restored.includes("CUS-1234");
+  } finally {
+    await context.close();
+  }
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
+const digest = async path => createHash("sha256").update(await readFile(path)).digest("hex");
+const passed = Object.keys(checks).length === 5 && Object.values(checks).every(Boolean);
+await writeFile(output, JSON.stringify({ passed, checks, responses, installed_module: installed, engine_sha256: await digest(engine), previous_engine_sha256: await digest(previousEngine), scope: "Installed npm artifact, actual local Engine; application output, no GitLab/Codex/model transmission claim." }, null, 2) + "\n");
+console.log(JSON.stringify({ passed, checks }));
+process.exitCode = passed ? 0 : 1;

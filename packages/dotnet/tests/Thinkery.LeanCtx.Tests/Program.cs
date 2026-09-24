@@ -45,7 +45,7 @@ internal static class Program
         Equal("1.1.0", Constants.__version__);
         Equal("1.0.0", Constants.ENGINE_INTERFACE_VERSION);
         Equal("1.0.0", Constants.AGENT_TOOLS_INTERFACE_VERSION);
-        Equal("3.10.1", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
+        Equal("3.10.2", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
         Equal(1, Constants.SCHEMA_VERSION);
         Equal(1, Constants.TRANSPORT_VERSION);
     }
@@ -231,7 +231,7 @@ IFS= read -r line
 #!/bin/sh
 IFS= read -r line
 id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.10.1","schema_version":1,"transport_version":1}}\n' "$id"
+printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.10.2","schema_version":1,"transport_version":1}}\n' "$id"
 while :; do sleep 10; done
 """;
         }
@@ -240,7 +240,7 @@ while :; do sleep 10; done
             script = """
 #!/bin/sh
 IFS= read -r line
-printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.1","schema_version":1,"transport_version":1}}\n'
+printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.2","schema_version":1,"transport_version":1}}\n'
 IFS= read -r line
 while :; do sleep 10; done
 """;
@@ -252,7 +252,7 @@ while :; do sleep 10; done
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.1","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.2","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac
@@ -281,7 +281,7 @@ if op == 'context-view':
     recovery_ref = 'input:fixture-' + 'b' * 64
     invocation_id = 'engine-invocation-fixture'
     output_digest = 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
-    invocation = {'schema_version':1,'invocation_id':invocation_id,'engine':{'engine_id':'lean-ctx-local','engine_version':'3.10.1'},'operation':{'capability_id':'capability://leanctx/context-optimization','capability_version':'1.0.0'},'input_ref':recovery_ref,'input_digest':'sha256:'+'c'*64,'source_refs':[recovery_ref,source_ref],'policy_admission':{'policy_ref':'policy:fixture','decision':'admitted'}}
+    invocation = {'schema_version':1,'invocation_id':invocation_id,'engine':{'engine_id':'lean-ctx-local','engine_version':'3.10.2'},'operation':{'capability_id':'capability://leanctx/context-optimization','capability_version':'1.0.0'},'input_ref':recovery_ref,'input_digest':'sha256:'+'c'*64,'source_refs':[recovery_ref,source_ref],'policy_admission':{'policy_ref':'policy:fixture','decision':'admitted'}}
     receipt = {'schema_version':1,'receipt_id':'engine-receipt-fixture','receipt_ref':'receipt:sha256:'+'d'*64,'receipt_digest':'sha256:'+'d'*64,'invocation_id':invocation_id}
     observation = {'schema_version':1,'invocation_id':invocation_id,'status':'succeeded','output_ref':'output:'+output_digest[7:],'output_digest':output_digest,'source_lineage':[recovery_ref,source_ref],'measurements':[],'failure':None,'receipt_link':receipt}
     response = {'schema_version':1,'transport_version':1,'engine_interface_version':'1.0.0','view':{'text':text,'output_ref':'output:'+output_digest[7:],'output_digest':output_digest},'invocation':invocation,'observation':observation,'recovery':{'recovery_ref':recovery_ref,'source_ref':source_ref,'source_digest':source_digest}}

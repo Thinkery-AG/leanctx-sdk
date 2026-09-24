@@ -3,7 +3,7 @@
 ## Stable SDK 1.1.0
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
-contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
+contract. This source candidate's `AgentContext` requires LeanCTX Engine 3.10.2 and negotiates interface
 `1.0.0`, schema `1`, and transport `1` before exposing any tool.
 
 | Component | Declared scope | Release status |
@@ -15,22 +15,22 @@ contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 | Rust | Rust 1.76+ and stable | supported |
 | JVM | Java 21 / Kotlin 2.1 | supported |
 | .NET | .NET 8+ | supported |
-| Agent Tools Engine | `v3.10.1` | published; required for `AgentContext` |
+| Agent Tools Engine | `3.10.2` | exact source-candidate pairing; release certification remains separate |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
 
 The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras install
-their exact 3.10.1 companion Engine packages. Source checkouts may instead pass
+their exact 3.10.2 companion Engine packages. Source checkouts may instead pass
 `engine_binary=` explicitly. No compatibility is inferred from a newer Engine
 or an executable found on `PATH`.
 
-The supported Agent Tools Engine release is
+The following historical release evidence is retained for
 [`v3.10.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1).
 The tag resolves to commit
 `4a76710a6c792229f170a66fdda1f4a0a64f47ee`.
 Its signed `SHA256SUMS` has SHA-256
 `86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170`.
-Release CI verifies the Sigstore identity
+It does not certify the current source candidate. That release's CI verifies the Sigstore identity
 `https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.1`.
 
 | Platform | Release archive SHA-256 | Extracted binary SHA-256 |

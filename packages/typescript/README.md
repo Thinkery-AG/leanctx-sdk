@@ -22,7 +22,8 @@ try {
 }
 ```
 
-Agent Tools requires the published LeanCTX Engine 3.10.1. Registry releases are
+This source candidate requires exactly LeanCTX Engine 3.10.2 for Agent Tools.
+The local pairing does not certify a published Engine or SDK release. Registry releases are
 produced from the same commit and cross-SDK release gate as every other LeanCTX
 SDK. The five Product primitives remain independently compatible with Engine
 Interface v1 and provider-independent.

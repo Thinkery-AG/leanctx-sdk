@@ -3,7 +3,8 @@
 Thinkery.LeanCtx is a source-available .NET 8 SDK for the LeanCTX Product
 primitives, Engine Interface v1, and Agent Tools 1.1.
 
-Engine-backed production use is gated on LeanCTX Engine 3.10.1. The package
+This source candidate requires exactly LeanCTX Engine 3.10.2 for Agent Tools.
+The local pairing does not certify a published Engine or SDK release. The package
 does not embed an Engine and does not grant Engine rights. Use
 `LEANCTX_ENGINE_BIN` or an explicit executable path for a separately installed
 Engine.

@@ -27,7 +27,7 @@ use crate::protocol::{
 pub const AGENT_TOOLS_INTERFACE_VERSION: &str = "1.0.0";
 pub const AGENT_TOOLS_SCHEMA_VERSION: u64 = 1;
 pub const AGENT_TOOLS_TRANSPORT_VERSION: u64 = 1;
-pub const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION: &str = "3.10.1";
+pub const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION: &str = "3.10.2";
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_TASK_BYTES: usize = 16 * 1024;
