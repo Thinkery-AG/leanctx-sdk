@@ -122,7 +122,41 @@ The response must bind the tenant, request task/budget, permitted selections,
 requested source IDs and canonical projection/binding digests. This reuses the
 local source-planning validator and the existing guarded HTTP transport; it
 does not execute a plan, acquire a source, or grant access to a foreign tenant.
-HTTP materialization is not yet exposed by this TypeScript adapter.
+
+## Enterprise source materialization (v4 integration candidate)
+
+`EnterpriseEngineClient.contextMaterializeSources(request, sourceIds,
+expectedGovernanceRevision, expectedBindingDigest, options)` calls
+`POST /v1/engine/context-materialize` for the configured tenant, matching the
+existing Python `context_materialize` and Go `ContextMaterializeSources` wire
+contract:
+
+```ts
+const planned = await enterprise.contextPlanSources(request, sourceIds);
+const evaluationTime = (
+  planned.plan.result.plan.context_plan_evaluation_v1 as { evaluation_time?: string } | undefined
+)?.evaluation_time;
+const materialized = await enterprise.contextMaterializeSources(
+  request,
+  sourceIds,
+  planned.governance_revision,
+  planned.plan.binding_digest,
+  { planningEvaluationTime: evaluationTime },
+);
+// materialized.materialization.content / .materialized_token_count / .plan
+```
+
+The caller sends only the governance revision and binding digest it observed
+during planning; source bodies and signer settings stay host-owned. Before any
+value reaches the caller the response must bind the tenant, echo the expected
+governance revision, keep the plan within the requested and permitted source
+IDs, reproduce the expected binding digest and planning evaluation epoch, hash
+to the declared `materialized_digest`, and stay inside both the plan token
+budget and the 1 MiB materialized-content bound. Envelope revisions, versions
+and token counts are read through the strict integer JSON path, so `7.0` or
+`4e0` is rejected instead of being silently rounded. The returned content is a
+bounded Engine projection: it is not an execution, a receipt, a signature
+check, billing evidence, or proof that the host accepted the task.
 
 ## Enterprise source execution v2 (v4 integration candidate)
 
