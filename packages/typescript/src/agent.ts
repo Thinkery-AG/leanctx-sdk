@@ -190,7 +190,10 @@ export class AgentContext {
       const payload = Buffer.from(JSON.stringify({ allow_exec: permissions.execute, allow_write: permissions.write, allowed_env: executionPolicy.allowedEnv, allowed_executables: executionPolicy.allowedExecutables, max_timeout_ms: Math.trunc(executionPolicy.maxTimeout * 1000), schema_version: AGENT_TOOLS_SCHEMA_VERSION }));
       try { fchmodSync(fd, 0o600); writeFileSync(fd, payload); fsyncSync(fd); } finally { closeSync(fd); }
       const binary = this.resolveBinary();
-      const child = spawn(binary, ["engine", "tool-session", "--project-root", this.projectRoot, "--policy-file", this.policyPath], { cwd: this.projectRoot, env: { LANG: "C", LC_ALL: "C", TZ: "UTC", PYTHONHASHSEED: "0" }, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
+      const env: Record<string, string> = { LANG: "C", LC_ALL: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
+      // Executable resolution needs a search path; forward it only under the execute permission.
+      if (permissions.execute) for (const name of ["PATH", "TMPDIR", "TEMP", "TMP"]) { const value = process.env[name]; if (typeof value === "string") env[name] = value; }
+      const child = spawn(binary, ["engine", "tool-session", "--project-root", this.projectRoot, "--policy-file", this.policyPath], { cwd: this.projectRoot, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
       this.process = child;
       child.stdout.on("data", (chunk: Buffer) => this.onStdout(chunk));
       child.stderr.on("data", (chunk: Buffer) => { this.stderrBytes += chunk.byteLength; if (this.stderrBytes <= 64 * 1024) this.stderrChunks.push(Buffer.from(chunk)); });
