@@ -297,6 +297,7 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
   // Injected by the platform loader itself, never by the SDK.
   const platformEnv = ["__CF_USER_TEXT_ENCODING"];
   const sensitiveEnvName = "LEANCTX_TEST_SENSITIVE_TOKEN";
+  const previousSensitiveEnv = process.env[sensitiveEnvName];
   process.env[sensitiveEnvName] = "must-not-be-inherited";
   try {
     const engineBinary = fakeAgentEngine(root);
@@ -327,7 +328,8 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
     await executing.close();
     assert.deepEqual(readdirSync(root).filter((name) => name.startsWith(".leanctx-agent-")), []);
   } finally {
-    delete process.env[sensitiveEnvName];
+    if (previousSensitiveEnv === undefined) delete process.env[sensitiveEnvName];
+    else process.env[sensitiveEnvName] = previousSensitiveEnv;
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
   }
