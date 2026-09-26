@@ -415,6 +415,11 @@ public final class AgentContext implements AutoCloseable {
             environment.put("LC_ALL", "C");
             environment.put("TZ", "UTC");
             environment.put("PYTHONHASHSEED", "0");
+            // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+            for (String name : List.of("LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK")) {
+                String value = System.getenv(name);
+                if (value != null) environment.put(name, value);
+            }
             process = builder.start();
             stdoutReader = Thread.ofVirtual().name("leanctx-agent-stdout").start(this::readLoop);
             Map<String, Object> hello = new LinkedHashMap<>();

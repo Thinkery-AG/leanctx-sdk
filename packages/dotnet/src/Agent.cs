@@ -891,6 +891,12 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         child.StartInfo.Environment["LC_ALL"] = "C";
         child.StartInfo.Environment["PYTHONHASHSEED"] = "0";
         child.StartInfo.Environment["TZ"] = "UTC";
+        // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+        foreach (var name in new[] { "LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK" })
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (value is not null) child.StartInfo.Environment[name] = value;
+        }
         try
         {
             if (!child.Start())

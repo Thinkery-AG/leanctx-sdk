@@ -42,6 +42,13 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .compose("investigate authentication retry", ".")?
         .text()
         .to_owned();
+    if std::env::var("LEANCTX_REFERENCE_PRO").ok().as_deref() == Some("1") {
+        checks.insert(
+            "pro_context_selection",
+            composed.contains("Pro context selection:")
+                && !composed.contains("Pro context selection unavailable"),
+        );
+    }
     checks.insert(
         "useful_masked_read",
         read.contains("REFRESH_SESSION_FIRST")
@@ -58,9 +65,10 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     responses.insert("read", read);
     responses.insert("compose", composed);
+    let separator = if rules.ends_with('\n') { "" } else { "\n" };
     fs::write(
         &policy,
-        format!("{rules}[context]\ndeny_tools=[\"ctx_read\"]\n"),
+        format!("{rules}{separator}[context]\ndeny_tools=[\"ctx_read\"]\n"),
     )?;
     let (denied, blocked) = match context.read("login.py", ReadMode::Full, false) {
         Ok(result) => (
@@ -91,7 +99,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     responses.insert("restored", restored);
     context.close()?;
-    let passed = checks.len() == 5 && checks.values().all(|value| *value);
+    let passed = checks.len() >= 5 && checks.values().all(|value| *value);
     fs::write(
         &args[3],
         serde_json::to_vec_pretty(&json!({"passed":passed,"checks":checks,"responses":responses}))?,

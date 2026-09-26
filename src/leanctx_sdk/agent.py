@@ -224,6 +224,14 @@ class AgentContext:
         for name in ("SYSTEMROOT", "WINDIR"):
             if name in os.environ:
                 env[name] = os.environ[name]
+        # Host-selected Engine stores and privacy preference, never arbitrary
+        # credentials or the environment of model-requested shell commands.
+        for name in (
+            "LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR",
+            "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK",
+        ):
+            if name in os.environ:
+                env[name] = os.environ[name]
         if permissions.execute:
             for name in ("PATH", "TMPDIR", "TEMP", "TMP"):
                 if name in os.environ:

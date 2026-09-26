@@ -1,27 +1,34 @@
-"""Installed Python AgentContext reference; local source protection, no model calls."""
+"""Installed Python AgentContext reference; local source protection, no model calls.
+
+Optional --project PATH uses a caller-prepared project; otherwise an isolated fixture is created.
+"""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-from importlib.metadata import distribution
 import json
-from pathlib import Path
+import os
 import tempfile
+from contextlib import contextmanager
+from importlib.metadata import distribution
+from pathlib import Path
+from typing import Iterator
 
 import leanctx_sdk
 from leanctx_sdk import AgentContext, EngineProtocolError
 from leanctx_sdk.errors import AgentPermissionError, EngineExecutionError
 
 
-def verify(engine: Path, previous_engine: Path) -> dict[str, object]:
-    installed = Path(leanctx_sdk.__file__).resolve()
-    if "site-packages" not in installed.parts:
-        raise RuntimeError("reference must import the installed wheel")
-    provenance = distribution("thinkery-leanctx-sdk").read_text("direct_url.json")
-    if not provenance:
-        raise RuntimeError("installed package provenance is missing")
-    checks: dict[str, bool] = {}
+@contextmanager
+def _reference_project(project: Path | None) -> Iterator[Path]:
+    if project is not None:
+        root = project.expanduser().resolve(strict=True)
+        if not root.is_dir():
+            raise NotADirectoryError(root)
+        yield root
+        return
+
     with tempfile.TemporaryDirectory(
         prefix="leanctx-pro-agent-reference-"
     ) as temporary:
@@ -36,12 +43,27 @@ def verify(engine: Path, previous_engine: Path) -> dict[str, object]:
         )
         policy = root / ".lean-ctx/policy.toml"
         policy.parent.mkdir()
-        rules = (
+        policy.write_text(
             'name="installed-reference"\nversion="1.0.0"\ndescription="test"\n'
             '[filters]\nclassification="block"\n'
             '[redaction]\ncustomer="CUS-[0-9]{4}"\n'
         )
-        policy.write_text(rules)
+        yield root
+
+
+def verify(
+    engine: Path, previous_engine: Path, project: Path | None = None
+) -> dict[str, object]:
+    installed = Path(leanctx_sdk.__file__).resolve()
+    if "site-packages" not in installed.parts:
+        raise RuntimeError("reference must import the installed wheel")
+    provenance = distribution("thinkery-leanctx-sdk").read_text("direct_url.json")
+    if not provenance:
+        raise RuntimeError("installed package provenance is missing")
+    checks: dict[str, bool] = {}
+    with _reference_project(project) as root:
+        policy = root / ".lean-ctx/policy.toml"
+        rules = policy.read_text()
         try:
             with AgentContext(root, engine_binary=previous_engine):
                 pass
@@ -54,6 +76,11 @@ def verify(engine: Path, previous_engine: Path) -> dict[str, object]:
         with AgentContext(root, engine_binary=engine) as context:
             read = context.read("login.py", "full")
             composed = context.compose("investigate authentication retry")
+            if os.environ.get("LEANCTX_REFERENCE_PRO") == "1":
+                checks["pro_context_selection"] = (
+                    "Pro context selection:" in composed.text
+                    and "Pro context selection unavailable" not in composed.text
+                )
             checks["useful_masked_read"] = (
                 "REFRESH_SESSION_FIRST" in read.text
                 and "REDACTED" in read.text
@@ -67,7 +94,8 @@ def verify(engine: Path, previous_engine: Path) -> dict[str, object]:
                     for value in ("CUS-1234", "private.py", "PRIVATE_CANARY")
                 )
             )
-            policy.write_text(rules + '[context]\ndeny_tools=["ctx_read"]\n')
+            temporary_rules = rules + ("" if rules.endswith("\n") else "\n")
+            policy.write_text(temporary_rules + '[context]\ndeny_tools=["ctx_read"]\n')
             try:
                 denied = context.read("login.py", "full")
             except (AgentPermissionError, EngineExecutionError) as error:
@@ -117,9 +145,16 @@ def main() -> None:
     parser.add_argument("--engine", required=True, type=Path)
     parser.add_argument("--previous-engine", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--project",
+        type=Path,
+        help="use a caller-prepared project (default: create an isolated fixture)",
+    )
     args = parser.parse_args()
     result = verify(
-        args.engine.resolve(strict=True), args.previous_engine.resolve(strict=True)
+        args.engine.resolve(strict=True),
+        args.previous_engine.resolve(strict=True),
+        args.project,
     )
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({"passed": result["passed"], "checks": result["checks"]}))

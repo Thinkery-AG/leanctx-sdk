@@ -191,6 +191,8 @@ export class AgentContext {
       try { fchmodSync(fd, 0o600); writeFileSync(fd, payload); fsyncSync(fd); } finally { closeSync(fd); }
       const binary = this.resolveBinary();
       const env: Record<string, string> = { LANG: "C", LC_ALL: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
+      // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+      for (const name of ["LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK"]) { const value = process.env[name]; if (typeof value === "string") env[name] = value; }
       // Executable resolution needs a search path; forward it only under the execute permission.
       if (permissions.execute) for (const name of ["PATH", "TMPDIR", "TEMP", "TMP"]) { const value = process.env[name]; if (typeof value === "string") env[name] = value; }
       const child = spawn(binary, ["engine", "tool-session", "--project-root", this.projectRoot, "--policy-file", this.policyPath], { cwd: this.projectRoot, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });

@@ -354,6 +354,12 @@ func (a *AgentContext) start(ctx context.Context) error {
 	command := exec.Command(binary, "engine", "tool-session", "--project-root", a.ProjectRoot, "--policy-file", policyPath)
 	command.Dir = a.ProjectRoot
 	command.Env = []string{"LC_ALL=C", "LANG=C", "TZ=UTC", "PYTHONHASHSEED=0"}
+	// Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+	for _, name := range []string{"LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK"} {
+		if value, ok := os.LookupEnv(name); ok {
+			command.Env = append(command.Env, name+"="+value)
+		}
+	}
 	configureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {

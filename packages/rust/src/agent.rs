@@ -433,6 +433,18 @@ impl AgentContext {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+        for name in [
+            "LEAN_CTX_CONFIG_DIR",
+            "LEAN_CTX_DATA_DIR",
+            "LEAN_CTX_STATE_DIR",
+            "LEAN_CTX_CACHE_DIR",
+            "DO_NOT_TRACK",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

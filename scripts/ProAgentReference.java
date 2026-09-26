@@ -26,10 +26,15 @@ public final class ProAgentReference {
         try (AgentContext context = open(root, args[0])) {
             String read = context.read("login.py", ReadMode.FULL, false).text();
             String composed = context.compose("investigate authentication retry", ".").text();
+            if ("1".equals(System.getenv("LEANCTX_REFERENCE_PRO"))) {
+                checks.put("pro_context_selection", composed.contains("Pro context selection:")
+                    && !composed.contains("Pro context selection unavailable"));
+            }
             checks.put("useful_masked_read", read.contains("REFRESH_SESSION_FIRST") && read.contains("REDACTED") && !read.contains("CUS-1234"));
             checks.put("useful_protected_compose", composed.contains("REFRESH_SESSION_FIRST") && composed.contains("login.py") && List.of("CUS-1234", "PRIVATE_CANARY", "private.py").stream().noneMatch(composed::contains));
             responses.put("read", read); responses.put("compose", composed);
-            Files.writeString(policy, rules + "[context]\ndeny_tools=[\"ctx_read\"]\n");
+            String separator = rules.endsWith("\n") ? "" : "\n";
+            Files.writeString(policy, rules + separator + "[context]\ndeny_tools=[\"ctx_read\"]\n");
             String denied;
             boolean blocked;
             try {
@@ -46,7 +51,7 @@ public final class ProAgentReference {
             checks.put("same_session_rule_repair", restored.contains("REFRESH_SESSION_FIRST") && !restored.contains("CUS-1234"));
             responses.put("restored", restored);
         }
-        boolean passed = checks.size() == 5 && checks.values().stream().allMatch(Boolean::booleanValue);
+        boolean passed = checks.size() >= 5 && checks.values().stream().allMatch(Boolean::booleanValue);
         String checksJson = checks.entrySet().stream().map(e -> "\"" + e.getKey() + "\":" + e.getValue()).collect(Collectors.joining(","));
         String responsesJson = responses.entrySet().stream().map(e -> "\"" + e.getKey() + "\":\"" + Base64.getEncoder().encodeToString(e.getValue().getBytes(StandardCharsets.UTF_8)) + "\"").collect(Collectors.joining(","));
         String location = Base64.getEncoder().encodeToString(AgentContext.class.getProtectionDomain().getCodeSource().getLocation().toString().getBytes(StandardCharsets.UTF_8));

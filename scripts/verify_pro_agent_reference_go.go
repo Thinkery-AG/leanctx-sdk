@@ -28,20 +28,41 @@ func digest(path string) string {
 }
 
 func main() {
-	if len(os.Args) != 4 {
-		panic("engine, previous engine, output required")
+	args := os.Args[1:]
+	positional := make([]string, 0, 3)
+	projectRoot := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--project" {
+			if i+1 >= len(args) || args[i+1] == "" {
+				panic("--project requires a path")
+			}
+			projectRoot = args[i+1]
+			i++
+		} else {
+			positional = append(positional, args[i])
+		}
 	}
-	engine, previous, output := os.Args[1], os.Args[2], os.Args[3]
-	root, err := os.MkdirTemp("", "leanctx-pro-go-reference-")
-	must(err)
-	defer os.RemoveAll(root)
-	must(os.Mkdir(filepath.Join(root, ".git"), 0700))
-	must(os.Mkdir(filepath.Join(root, ".lean-ctx"), 0700))
-	write(filepath.Join(root, "login.py"), "# authentication retry: refresh the expired session before retrying\ndef authenticate():\n    return \"REFRESH_SESSION_FIRST CUS-1234\"\n")
-	write(filepath.Join(root, "private.py"), "# CONFIDENTIAL\ndef authentication_secret():\n    return \"PRIVATE_CANARY\"\n")
-	rules := "name=\"installed-reference\"\nversion=\"1.0.0\"\ndescription=\"test\"\n[filters]\nclassification=\"block\"\n[redaction]\ncustomer=\"CUS-[0-9]{4}\"\n"
+	if len(positional) != 3 {
+		panic("engine, previous engine, output required; optional --project PATH")
+	}
+	engine, previous, output := positional[0], positional[1], positional[2]
+	root := projectRoot
+	var err error
+	if projectRoot == "" {
+		root, err = os.MkdirTemp("", "leanctx-pro-go-reference-")
+		must(err)
+		defer os.RemoveAll(root)
+		must(os.Mkdir(filepath.Join(root, ".git"), 0700))
+		must(os.Mkdir(filepath.Join(root, ".lean-ctx"), 0700))
+		write(filepath.Join(root, "login.py"), "# authentication retry: refresh the expired session before retrying\ndef authenticate():\n    return \"REFRESH_SESSION_FIRST CUS-1234\"\n")
+		write(filepath.Join(root, "private.py"), "# CONFIDENTIAL\ndef authentication_secret():\n    return \"PRIVATE_CANARY\"\n")
+		rules := "name=\"installed-reference\"\nversion=\"1.0.0\"\ndescription=\"test\"\n[filters]\nclassification=\"block\"\n[redaction]\ncustomer=\"CUS-[0-9]{4}\"\n"
+		write(filepath.Join(root, ".lean-ctx/policy.toml"), rules)
+	}
 	policy := filepath.Join(root, ".lean-ctx/policy.toml")
-	write(policy, rules)
+	initialPolicy, err := os.ReadFile(policy)
+	must(err)
+	rules := string(initialPolicy)
 	checks := map[string]bool{}
 	responses := map[string]string{}
 	old, err := leanctx.OpenAgentContext(context.Background(), root, leanctx.AgentContextOptions{EngineBinary: previous})
@@ -58,10 +79,17 @@ func main() {
 	must(err)
 	composed, err := agent.Compose("investigate authentication retry")
 	must(err)
+	if os.Getenv("LEANCTX_REFERENCE_PRO") == "1" {
+		checks["pro_context_selection"] = strings.Contains(composed.Text, "Pro context selection:") && !strings.Contains(composed.Text, "Pro context selection unavailable")
+	}
 	responses["read"], responses["compose"] = read.Text, composed.Text
 	checks["useful_masked_read"] = strings.Contains(read.Text, "REFRESH_SESSION_FIRST") && strings.Contains(read.Text, "REDACTED") && !strings.Contains(read.Text, "CUS-1234")
 	checks["useful_protected_compose"] = strings.Contains(composed.Text, "REFRESH_SESSION_FIRST") && strings.Contains(composed.Text, "login.py") && !strings.Contains(composed.Text, "CUS-1234") && !strings.Contains(composed.Text, "PRIVATE_CANARY") && !strings.Contains(composed.Text, "private.py")
-	write(policy, rules+"[context]\ndeny_tools=[\"ctx_read\"]\n")
+	temporaryPolicy := rules
+	if !strings.HasSuffix(temporaryPolicy, "\n") {
+		temporaryPolicy += "\n"
+	}
+	write(policy, temporaryPolicy+"[context]\ndeny_tools=[\"ctx_read\"]\n")
 	denied, err := agent.Read("login.py", "full")
 	if err != nil {
 		var permission *leanctx.AgentPermissionError
@@ -78,7 +106,7 @@ func main() {
 	must(err)
 	responses["restored"] = restored.Text
 	checks["same_session_rule_repair"] = strings.Contains(restored.Text, "REFRESH_SESSION_FIRST") && !strings.Contains(restored.Text, "CUS-1234")
-	passed := len(checks) == 5
+	passed := len(checks) >= 5
 	for _, ok := range checks {
 		passed = passed && ok
 	}

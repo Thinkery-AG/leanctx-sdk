@@ -16,10 +16,14 @@ using (var context = AgentContext.Open(root, engineBinary: args[0]))
 {
     var read = context.Read("login.py", ReadMode.Full).Text;
     var composed = context.Compose("investigate authentication retry").Text;
+    if (Environment.GetEnvironmentVariable("LEANCTX_REFERENCE_PRO") == "1")
+        checks["pro_context_selection"] = composed.Contains("Pro context selection:")
+            && !composed.Contains("Pro context selection unavailable");
     checks["useful_masked_read"] = read.Contains("REFRESH_SESSION_FIRST") && read.Contains("REDACTED") && !read.Contains("CUS-1234");
     checks["useful_protected_compose"] = composed.Contains("REFRESH_SESSION_FIRST") && composed.Contains("login.py") && new[] { "CUS-1234", "PRIVATE_CANARY", "private.py" }.All(value => !composed.Contains(value));
     responses["read"] = read; responses["compose"] = composed;
-    File.WriteAllText(policy, rules + "[context]\ndeny_tools=[\"ctx_read\"]\n");
+    var separator = rules.EndsWith("\n", StringComparison.Ordinal) ? "" : "\n";
+    File.WriteAllText(policy, rules + separator + "[context]\ndeny_tools=[\"ctx_read\"]\n");
     string denied;
     bool blocked;
     try { denied = context.Read("login.py", ReadMode.Full).Text; blocked = denied.Contains("POLICY BLOCKED"); }
@@ -32,6 +36,6 @@ using (var context = AgentContext.Open(root, engineBinary: args[0]))
     checks["same_session_rule_repair"] = restored.Contains("REFRESH_SESSION_FIRST") && !restored.Contains("CUS-1234");
     responses["restored"] = restored;
 }
-var passed = checks.Count == 5 && checks.Values.All(value => value);
+var passed = checks.Count >= 5 && checks.Values.All(value => value);
 File.WriteAllText(args[3], JsonSerializer.Serialize(new { passed, checks, responses, sdk_location = typeof(AgentContext).Assembly.Location }));
 if (!passed) throw new InvalidOperationException("installed reference failed");

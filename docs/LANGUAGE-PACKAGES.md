@@ -4,6 +4,19 @@ Python, TypeScript, Go, Rust, JVM, and .NET live in one repository and consume
 the same contracts, fixtures, version, Engine compatibility declaration, and
 cross-SDK acceptance gate.
 
+## Engine configuration
+
+All six `AgentContext` launchers preserve the host application's explicit
+`LEAN_CTX_CONFIG_DIR`, `LEAN_CTX_DATA_DIR`, `LEAN_CTX_STATE_DIR`,
+`LEAN_CTX_CACHE_DIR` and `DO_NOT_TRACK` settings. Configure these before opening
+a context when using a custom Engine installation or data directory. The saved
+Engine configuration supplies the verified private runtime and license binding;
+the SDK does not receive a license secret directly.
+
+This exact allowlist applies only to the Engine process. Arbitrary environment
+variables, provider keys and loader overrides remain excluded. Model-requested
+shell commands retain their separate execution permission and environment policy.
+
 ## Package identities
 
 | Language | Registry identity | Release tag |
