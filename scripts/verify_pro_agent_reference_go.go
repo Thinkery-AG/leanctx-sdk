@@ -89,7 +89,12 @@ func main() {
 	if !strings.HasSuffix(temporaryPolicy, "\n") {
 		temporaryPolicy += "\n"
 	}
-	write(policy, temporaryPolicy+"[context]\ndeny_tools=[\"ctx_read\"]\n")
+	deniedContext := "[context]\ndeny_tools=[\"ctx_read\"]\n"
+	if strings.Contains(temporaryPolicy, "[context]") {
+		write(policy, strings.Replace(temporaryPolicy, "[context]", deniedContext, 1))
+	} else {
+		write(policy, temporaryPolicy+deniedContext)
+	}
 	denied, err := agent.Read("login.py", "full")
 	if err != nil {
 		var permission *leanctx.AgentPermissionError

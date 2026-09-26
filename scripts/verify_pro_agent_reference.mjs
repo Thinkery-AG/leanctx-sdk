@@ -52,7 +52,8 @@ try {
     checks.useful_masked_read = responses.read.includes("REFRESH_SESSION_FIRST") && responses.read.includes("REDACTED") && !responses.read.includes("CUS-1234");
     checks.useful_protected_compose = responses.compose.includes("REFRESH_SESSION_FIRST") && responses.compose.includes("login.py") && ["CUS-1234", "private.py", "PRIVATE_CANARY"].every(value => !responses.compose.includes(value));
     const temporaryRules = rules + (rules.endsWith("\n") ? "" : "\n");
-    await writeFile(policy, temporaryRules + '[context]\ndeny_tools=["ctx_read"]\n');
+    const deniedContext = '[context]\ndeny_tools=["ctx_read"]\n';
+    await writeFile(policy, temporaryRules.includes('[context]') ? temporaryRules.replace('[context]', deniedContext) : temporaryRules + deniedContext);
     try {
       responses.denied = (await context.read("login.py", "full")).text;
       checks.changed_rule_blocks_read = responses.denied.includes("POLICY BLOCKED") && !responses.denied.includes("REFRESH_SESSION_FIRST") && !responses.denied.includes("CUS-1234");

@@ -23,7 +23,8 @@ using (var context = AgentContext.Open(root, engineBinary: args[0]))
     checks["useful_protected_compose"] = composed.Contains("REFRESH_SESSION_FIRST") && composed.Contains("login.py") && new[] { "CUS-1234", "PRIVATE_CANARY", "private.py" }.All(value => !composed.Contains(value));
     responses["read"] = read; responses["compose"] = composed;
     var separator = rules.EndsWith("\n", StringComparison.Ordinal) ? "" : "\n";
-    File.WriteAllText(policy, rules + separator + "[context]\ndeny_tools=[\"ctx_read\"]\n");
+    var deniedContext = "[context]\ndeny_tools=[\"ctx_read\"]\n";
+    File.WriteAllText(policy, rules.Contains("[context]", StringComparison.Ordinal) ? rules.Replace("[context]", deniedContext, StringComparison.Ordinal) : rules + separator + deniedContext);
     string denied;
     bool blocked;
     try { denied = context.Read("login.py", ReadMode.Full).Text; blocked = denied.Contains("POLICY BLOCKED"); }

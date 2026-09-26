@@ -34,7 +34,8 @@ public final class ProAgentReference {
             checks.put("useful_protected_compose", composed.contains("REFRESH_SESSION_FIRST") && composed.contains("login.py") && List.of("CUS-1234", "PRIVATE_CANARY", "private.py").stream().noneMatch(composed::contains));
             responses.put("read", read); responses.put("compose", composed);
             String separator = rules.endsWith("\n") ? "" : "\n";
-            Files.writeString(policy, rules + separator + "[context]\ndeny_tools=[\"ctx_read\"]\n");
+            String deniedContext = "[context]\ndeny_tools=[\"ctx_read\"]\n";
+            Files.writeString(policy, rules.contains("[context]") ? rules.replace("[context]", deniedContext) : rules + separator + deniedContext);
             String denied;
             boolean blocked;
             try {

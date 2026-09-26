@@ -95,7 +95,11 @@ def verify(
                 )
             )
             temporary_rules = rules + ("" if rules.endswith("\n") else "\n")
-            policy.write_text(temporary_rules + '[context]\ndeny_tools=["ctx_read"]\n')
+            denied_context = '[context]\ndeny_tools=["ctx_read"]\n'
+            policy.write_text(
+                temporary_rules.replace('[context]', denied_context, 1)
+                if '[context]' in temporary_rules else temporary_rules + denied_context
+            )
             try:
                 denied = context.read("login.py", "full")
             except (AgentPermissionError, EngineExecutionError) as error:

@@ -66,10 +66,13 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     responses.insert("read", read);
     responses.insert("compose", composed);
     let separator = if rules.ends_with('\n') { "" } else { "\n" };
-    fs::write(
-        &policy,
-        format!("{rules}{separator}[context]\ndeny_tools=[\"ctx_read\"]\n"),
-    )?;
+    let denied_context = "[context]\ndeny_tools=[\"ctx_read\"]\n";
+    let temporary_rules = if rules.contains("[context]") {
+        rules.replacen("[context]", denied_context, 1)
+    } else {
+        format!("{rules}{separator}{denied_context}")
+    };
+    fs::write(&policy, temporary_rules)?;
     let (denied, blocked) = match context.read("login.py", ReadMode::Full, false) {
         Ok(result) => (
             result.text().to_owned(),
