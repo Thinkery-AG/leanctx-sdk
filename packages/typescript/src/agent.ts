@@ -128,7 +128,46 @@ export type AgentContextOptions = Readonly<{
   executionPolicy?: ExecutionPolicy | ExecutionPolicyOptions;
   engineBinary?: string;
   timeout?: number;
+  gitlabSource?: GitLabSource;
 }>;
+
+export type GitLabSource = Readonly<{
+  host: string;
+  project: number;
+  namespace: string;
+  glab: string;
+  configDir?: string;
+}>;
+
+function normalizeGitLabSource(value: unknown): GitLabSource | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ValidationError("gitlabSource must be an object");
+  const source = { ...(value as Record<string, unknown>) };
+  const allowed = new Set(["host", "project", "namespace", "glab", "configDir"]);
+  const required = ["host", "project", "namespace", "glab"];
+  if (Object.keys(source).some((key) => !allowed.has(key)) || required.some((key) => !Object.prototype.hasOwnProperty.call(source, key))) throw new ValidationError("gitlabSource fields are invalid");
+  const text = (item: unknown, name: string): string => {
+    if (typeof item !== "string" || item.length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(item)) throw new ValidationError(`GitLabSource ${name} must be a non-empty string without control characters`);
+    return item;
+  };
+  const host = text(source.host, "host");
+  const namespace = text(source.namespace, "namespace");
+  const glab = text(source.glab, "glab");
+  const project = source.project;
+  if (typeof project !== "number" || !Number.isSafeInteger(project) || project < 1) throw new ValidationError("GitLabSource project must be a safe positive integer");
+  if (!isAbsolute(glab)) throw new ValidationError("GitLabSource glab must be an absolute path");
+  const configDir = source.configDir === undefined ? undefined : text(source.configDir, "configDir");
+  if (configDir !== undefined && !isAbsolute(configDir)) throw new ValidationError("GitLabSource configDir must be an absolute path");
+  const snapshot: { host: string; project: number; namespace: string; glab: string; configDir?: string } = { host, project, namespace, glab };
+  if (configDir !== undefined) snapshot.configDir = configDir;
+  return Object.freeze(snapshot);
+}
+
+function gitLabSourcePolicy(source: GitLabSource): Record<string, unknown> {
+  const policy: Record<string, unknown> = { host: source.host, project: source.project, namespace: source.namespace, glab: source.glab };
+  if (source.configDir !== undefined) policy.config_dir = source.configDir;
+  return policy;
+}
 
 type Pending = { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void };
 
@@ -149,6 +188,7 @@ export class AgentContext {
   readonly executionPolicy: ExecutionPolicy;
   readonly engineBinary: string;
   readonly timeout: number;
+  private readonly gitlabSource: GitLabSource | undefined;
   private process: ChildProcessWithoutNullStreams | null = null;
   private readonly pending = new Map<string, Pending>();
   private readonly stderrChunks: Buffer[] = [];
@@ -177,6 +217,7 @@ export class AgentContext {
     if (permissions.execute && executionPolicy.allowedExecutables.length === 0) throw new ConfigurationError("execute permission requires at least one allowed executable");
     const timeout = options.timeout ?? 30;
     if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout < 0.1 || timeout > 120) throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
+    this.gitlabSource = normalizeGitLabSource(options.gitlabSource);
     this.projectRoot = root;
     this.task = task;
     this.permissions = permissions;
@@ -187,7 +228,9 @@ export class AgentContext {
       const policyDirectory = mkdtempSync(resolve(root, ".leanctx-agent-"));
       this.policyPath = resolve(policyDirectory, "policy.json");
       const fd = openSync(this.policyPath, "wx", 0o600);
-      const payload = Buffer.from(JSON.stringify({ allow_exec: permissions.execute, allow_write: permissions.write, allowed_env: executionPolicy.allowedEnv, allowed_executables: executionPolicy.allowedExecutables, max_timeout_ms: Math.trunc(executionPolicy.maxTimeout * 1000), schema_version: AGENT_TOOLS_SCHEMA_VERSION }));
+      const policy: Record<string, unknown> = { allow_exec: permissions.execute, allow_write: permissions.write, allowed_env: executionPolicy.allowedEnv, allowed_executables: executionPolicy.allowedExecutables, max_timeout_ms: Math.trunc(executionPolicy.maxTimeout * 1000), schema_version: AGENT_TOOLS_SCHEMA_VERSION };
+      if (this.gitlabSource !== undefined) policy.selected_gitlab = gitLabSourcePolicy(this.gitlabSource);
+      const payload = Buffer.from(JSON.stringify(policy));
       try { fchmodSync(fd, 0o600); writeFileSync(fd, payload); fsyncSync(fd); } finally { closeSync(fd); }
       const binary = this.resolveBinary();
       const env: Record<string, string> = { LANG: "C", LC_ALL: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
@@ -317,6 +360,7 @@ export class AgentContext {
     const capabilities = value.capabilities as string[];
     if (JSON.stringify(capabilities) !== JSON.stringify([...new Set(capabilities)].sort())) throw new EngineProtocolError("Agent Tools capabilities are not canonical");
     const expectedCapabilities = new Set(READ_TOOLS); if (this.permissions.write) for (const item of WRITE_TOOLS) expectedCapabilities.add(item); if (this.permissions.execute) for (const item of EXEC_TOOLS) expectedCapabilities.add(item);
+    if (this.gitlabSource !== undefined) expectedCapabilities.add("ctx_provider");
     if (capabilities.length !== expectedCapabilities.size || capabilities.some((item) => !expectedCapabilities.has(item))) throw new EngineProtocolError("Agent Tools capabilities do not match policy");
     this.capabilitiesValue = Object.freeze([...capabilities]);
   }
@@ -432,12 +476,18 @@ export class AgentContext {
   }
   async close(): Promise<void> { if (this.closed) { await this.reap(); return; } try { await this.exchangeRaw({ op: "close" }); } catch { /* terminal close remains best effort */ } await this.terminate(); }
   async cancel(): Promise<void> { await this.terminate(); }
-  async reconnect(): Promise<AgentContext> { await this.close(); return AgentContext.open(this.projectRoot, { task: this.task, permissions: this.permissions, executionPolicy: this.executionPolicy, engineBinary: this.engineBinary, timeout: this.timeout }); }
+  async reconnect(): Promise<AgentContext> { await this.close(); return AgentContext.open(this.projectRoot, { task: this.task, permissions: this.permissions, executionPolicy: this.executionPolicy, engineBinary: this.engineBinary, timeout: this.timeout, ...(this.gitlabSource === undefined ? {} : { gitlabSource: this.gitlabSource }) }); }
 }
 
 export class AsyncAgentContext {
   private context: AgentContext | null = null;
-  constructor(private readonly projectRoot: string, private readonly options: AgentContextOptions = {}) {}
+  private readonly projectRoot: string;
+  private readonly options: AgentContextOptions;
+  constructor(projectRoot: string, options: AgentContextOptions = {}) {
+    this.projectRoot = projectRoot;
+    const gitlabSource = normalizeGitLabSource(options.gitlabSource);
+    this.options = Object.freeze({ ...options, ...(gitlabSource === undefined ? {} : { gitlabSource }) });
+  }
   async open(): Promise<this> { if (!this.context) this.context = await AgentContext.open(this.projectRoot, this.options); return this; }
   private get current(): AgentContext { if (!this.context) throw new EngineUnavailable("AsyncAgentContext is not open"); return this.context; }
   get capabilities(): readonly string[] { return this.current.capabilities; }

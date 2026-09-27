@@ -43,6 +43,21 @@ const READ_TOOLS: &[&str] = &[
 const WRITE_TOOLS: &[&str] = &["ctx_edit", "ctx_fill", "ctx_patch"];
 const EXEC_TOOLS: &[&str] = &["ctx_shell"];
 
+fn expected_capabilities(permissions: AgentPermissions, gitlab_selected: bool) -> Vec<String> {
+    let mut expected: Vec<String> = READ_TOOLS.iter().map(|value| (*value).to_owned()).collect();
+    if permissions.write {
+        expected.extend(WRITE_TOOLS.iter().map(|value| (*value).to_owned()));
+    }
+    if permissions.execute {
+        expected.extend(EXEC_TOOLS.iter().map(|value| (*value).to_owned()));
+    }
+    if gitlab_selected {
+        expected.push("ctx_provider".to_owned());
+    }
+    expected.sort();
+    expected
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadMode {
     Auto,
@@ -183,6 +198,196 @@ impl ExecutionPolicy {
     }
 }
 
+const GITLAB_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// Host-owned GitLab source selection passed to the Engine for this session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitLabSource {
+    host: String,
+    project: u64,
+    namespace: String,
+    glab: PathBuf,
+    config_dir: Option<PathBuf>,
+}
+
+impl GitLabSource {
+    pub fn new(
+        host: impl Into<String>,
+        project: u64,
+        namespace: impl Into<String>,
+        glab: impl Into<PathBuf>,
+        config_dir: Option<PathBuf>,
+    ) -> SdkResult<Self> {
+        let host = host.into();
+        let namespace = namespace.into();
+        let glab = glab.into();
+        if project == 0 || project > GITLAB_MAX_SAFE_INTEGER {
+            return Err(boxed(ValidationError::new(
+                "GitLab project must be a positive safe integer",
+            )));
+        }
+        validate_gitlab_text(&host, "GitLab host")?;
+        validate_gitlab_text(&namespace, "GitLab namespace")?;
+        validate_gitlab_path(&glab, "glab")?;
+        if let Some(path) = config_dir.as_ref() {
+            validate_gitlab_path(path, "config_dir")?;
+        }
+        Ok(Self {
+            host,
+            project,
+            namespace,
+            glab,
+            config_dir,
+        })
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub fn project(&self) -> u64 {
+        self.project
+    }
+
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    pub fn glab(&self) -> &Path {
+        &self.glab
+    }
+
+    pub fn config_dir(&self) -> Option<&Path> {
+        self.config_dir.as_deref()
+    }
+
+    fn policy_value(&self) -> Value {
+        let mut object = Map::new();
+        object.insert(
+            "glab".to_owned(),
+            Value::String(self.glab.to_string_lossy().into_owned()),
+        );
+        object.insert("host".to_owned(), Value::String(self.host.clone()));
+        object.insert(
+            "namespace".to_owned(),
+            Value::String(self.namespace.clone()),
+        );
+        object.insert("project".to_owned(), Value::from(self.project));
+        if let Some(path) = self.config_dir.as_ref() {
+            object.insert(
+                "config_dir".to_owned(),
+                Value::String(path.to_string_lossy().into_owned()),
+            );
+        }
+        Value::Object(object)
+    }
+}
+
+fn validate_gitlab_text(value: &str, name: &str) -> SdkResult<()> {
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return Err(boxed(ValidationError::new(format!(
+            "{name} must be a non-empty string without control characters"
+        ))));
+    }
+    Ok(())
+}
+
+fn validate_gitlab_path(path: &Path, name: &str) -> SdkResult<()> {
+    let text = path.to_str().ok_or_else(|| {
+        boxed(ValidationError::new(format!(
+            "{name} must be a valid absolute path"
+        )))
+    })?;
+    validate_gitlab_text(text, name)?;
+    if !path.is_absolute() {
+        return Err(boxed(ValidationError::new(format!(
+            "{name} must be an absolute path"
+        ))));
+    }
+    Ok(())
+}
+
+/// Builder for opening a synchronous or asynchronous Agent Tools context.
+#[derive(Clone, Debug)]
+pub struct AgentContextBuilder {
+    project_root: PathBuf,
+    task: String,
+    permissions: AgentPermissions,
+    execution_policy: ExecutionPolicy,
+    engine_binary: Option<PathBuf>,
+    timeout: Duration,
+    gitlab_source: Option<GitLabSource>,
+}
+
+impl AgentContextBuilder {
+    pub fn new(project_root: impl AsRef<Path>) -> Self {
+        Self {
+            project_root: project_root.as_ref().to_owned(),
+            task: String::new(),
+            permissions: AgentPermissions::default(),
+            execution_policy: ExecutionPolicy::default(),
+            engine_binary: None,
+            timeout: Duration::from_secs(30),
+            gitlab_source: None,
+        }
+    }
+
+    pub fn task(mut self, task: impl Into<String>) -> Self {
+        self.task = task.into();
+        self
+    }
+
+    pub fn permissions(mut self, permissions: AgentPermissions) -> Self {
+        self.permissions = permissions;
+        self
+    }
+
+    pub fn execution_policy(mut self, policy: ExecutionPolicy) -> Self {
+        self.execution_policy = policy;
+        self
+    }
+
+    pub fn engine_binary(mut self, path: impl AsRef<Path>) -> Self {
+        self.engine_binary = Some(path.as_ref().to_owned());
+        self
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn gitlab_source(mut self, source: GitLabSource) -> Self {
+        self.gitlab_source = Some(source);
+        self
+    }
+
+    pub fn open(self) -> SdkResult<AgentContext> {
+        AgentContext::open_with_policy_and_gitlab_source(
+            self.project_root,
+            self.task,
+            self.permissions,
+            self.execution_policy,
+            self.engine_binary,
+            self.timeout,
+            self.gitlab_source,
+        )
+    }
+
+    pub async fn open_async(self) -> SdkResult<crate::async_agent::AsyncAgentContext> {
+        crate::async_agent::AsyncAgentContext::open_with_configuration_and_gitlab_source(
+            self.project_root,
+            self.task,
+            self.permissions,
+            self.execution_policy,
+            self.engine_binary,
+            self.timeout,
+            self.gitlab_source,
+        )
+        .await
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolResult {
     tool: String,
@@ -284,6 +489,7 @@ pub struct AgentContext {
     execution_policy: ExecutionPolicy,
     engine_binary: PathBuf,
     timeout: Duration,
+    gitlab_source: Option<GitLabSource>,
     capabilities: Vec<String>,
     state: Arc<AgentState>,
 }
@@ -354,6 +560,10 @@ impl AgentState {
 }
 
 impl AgentContext {
+    pub fn builder(project_root: impl AsRef<Path>) -> AgentContextBuilder {
+        AgentContextBuilder::new(project_root)
+    }
+
     pub fn open(project_root: impl AsRef<Path>) -> SdkResult<Self> {
         Self::open_with_policy(
             project_root,
@@ -378,25 +588,48 @@ impl AgentContext {
         engine_binary: Option<PathBuf>,
         timeout: Duration,
     ) -> SdkResult<Self> {
-        Self::open_with_policy_hook(
+        Self::open_with_policy_and_gitlab_source(
             project_root,
             task,
             permissions,
             execution_policy,
             engine_binary,
             timeout,
-            |_| {},
+            None,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn open_with_policy_hook<F>(
+    pub fn open_with_policy_and_gitlab_source(
         project_root: impl AsRef<Path>,
         task: impl AsRef<str>,
         permissions: AgentPermissions,
         execution_policy: ExecutionPolicy,
         engine_binary: Option<PathBuf>,
         timeout: Duration,
+        gitlab_source: Option<GitLabSource>,
+    ) -> SdkResult<Self> {
+        Self::open_with_gitlab_source_hook(
+            project_root,
+            task,
+            permissions,
+            execution_policy,
+            engine_binary,
+            timeout,
+            gitlab_source,
+            |_| {},
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open_with_gitlab_source_hook<F>(
+        project_root: impl AsRef<Path>,
+        task: impl AsRef<str>,
+        permissions: AgentPermissions,
+        execution_policy: ExecutionPolicy,
+        engine_binary: Option<PathBuf>,
+        timeout: Duration,
+        gitlab_source: Option<GitLabSource>,
         on_spawn: F,
     ) -> SdkResult<Self>
     where
@@ -415,7 +648,7 @@ impl AgentContext {
             )));
         }
         let binary = resolve_binary(engine_binary.as_deref())?;
-        let policy_path = write_policy(&permissions, &execution_policy)?;
+        let policy_path = write_policy(&permissions, &execution_policy, gitlab_source.as_ref())?;
         let mut command = Command::new(&binary);
         command
             .arg("engine")
@@ -497,6 +730,7 @@ impl AgentContext {
             execution_policy,
             engine_binary: binary,
             timeout,
+            gitlab_source,
             capabilities: Vec::new(),
             state,
         };
@@ -551,6 +785,10 @@ impl AgentContext {
 
     pub fn timeout(&self) -> Duration {
         self.timeout
+    }
+
+    pub fn gitlab_source(&self) -> Option<&GitLabSource> {
+        self.gitlab_source.as_ref()
     }
 
     pub fn capabilities(&self) -> &[String] {
@@ -833,13 +1071,14 @@ impl AgentContext {
 
     pub fn reconnect(&self) -> SdkResult<Self> {
         self.close()?;
-        Self::open_with_policy(
+        Self::open_with_policy_and_gitlab_source(
             &self.project_root,
             &self.task,
             self.permissions,
             self.execution_policy.clone(),
             Some(self.engine_binary.clone()),
             self.timeout,
+            self.gitlab_source.clone(),
         )
     }
 
@@ -1092,15 +1331,8 @@ impl AgentContext {
                 "Agent Tools capabilities are not canonical",
             )));
         }
-        let mut expected_capabilities: Vec<String> =
-            READ_TOOLS.iter().map(|value| (*value).to_owned()).collect();
-        if self.permissions.write {
-            expected_capabilities.extend(WRITE_TOOLS.iter().map(|value| (*value).to_owned()));
-        }
-        if self.permissions.execute {
-            expected_capabilities.extend(EXEC_TOOLS.iter().map(|value| (*value).to_owned()));
-        }
-        expected_capabilities.sort();
+        let expected_capabilities =
+            expected_capabilities(self.permissions, self.gitlab_source.is_some());
         if capabilities != expected_capabilities {
             return Err(boxed(EngineProtocolError::new(
                 "Agent Tools capabilities do not match policy",
@@ -1258,6 +1490,7 @@ fn map_agent_error(code: &str, message: &str) -> Box<dyn std::error::Error + Sen
 fn write_policy(
     permissions: &AgentPermissions,
     execution_policy: &ExecutionPolicy,
+    gitlab_source: Option<&GitLabSource>,
 ) -> SdkResult<PathBuf> {
     static POLICY_COUNTER: AtomicU64 = AtomicU64::new(0);
     for _ in 0..100 {
@@ -1309,6 +1542,9 @@ fn write_policy(
                     "schema_version".to_owned(),
                     Value::from(AGENT_TOOLS_SCHEMA_VERSION),
                 );
+                if let Some(source) = gitlab_source {
+                    object.insert("selected_gitlab".to_owned(), source.policy_value());
+                }
                 let payload = canonical_bytes(&Value::Object(object)).map_err(boxed)?;
                 if let Err(error) = file.write_all(&payload).and_then(|_| file.sync_all()) {
                     remove_policy_path(&path);
@@ -1508,5 +1744,88 @@ mod tests {
         assert!(error.downcast_ref::<AgentPermissionError>().is_some());
 
         fs::remove_dir_all(base).expect("remove fixture");
+    }
+}
+
+#[cfg(test)]
+mod gitlab_source_tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use serde_json::Value;
+
+    use super::{
+        expected_capabilities, remove_policy_path, write_policy, AgentPermissions, ExecutionPolicy,
+        GitLabSource, GITLAB_MAX_SAFE_INTEGER,
+    };
+
+    #[test]
+    fn gitlab_source_validates_basic_types_ranges_controls_and_absolute_paths() {
+        let glab = std::env::temp_dir().join("glab");
+        assert!(GitLabSource::new("gitlab.example", 1, "group/project", &glab, None).is_ok());
+        assert!(GitLabSource::new("gitlab.example", 0, "group/project", &glab, None).is_err());
+        assert!(GitLabSource::new(
+            "gitlab.example",
+            GITLAB_MAX_SAFE_INTEGER + 1,
+            "group/project",
+            &glab,
+            None
+        )
+        .is_err());
+        assert!(GitLabSource::new("gitlab.example\n", 1, "group/project", &glab, None).is_err());
+        assert!(
+            GitLabSource::new("gitlab.example", 1, "group\u{7f}/project", &glab, None).is_err()
+        );
+        assert!(GitLabSource::new("gitlab.example", 1, "group/project", "glab", None).is_err());
+        assert!(GitLabSource::new(
+            "gitlab.example",
+            1,
+            "group/project",
+            &glab,
+            Some(PathBuf::from("relative-config"))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn gitlab_policy_field_and_provider_capability_are_selected_together() {
+        let permissions = AgentPermissions::default();
+        let execution_policy = ExecutionPolicy::default();
+        let base_path = write_policy(&permissions, &execution_policy, None).expect("base policy");
+        let base: Value = serde_json::from_slice(&fs::read(&base_path).expect("read base policy"))
+            .expect("parse base policy");
+        assert_eq!(base.as_object().expect("base object").len(), 6);
+        assert!(base.get("selected_gitlab").is_none());
+        remove_policy_path(&base_path);
+
+        let glab = std::env::temp_dir().join("glab");
+        let source = GitLabSource::new("gitlab.example", 17, "group/project", &glab, None)
+            .expect("valid source");
+        let selected_path =
+            write_policy(&permissions, &execution_policy, Some(&source)).expect("selected policy");
+        let selected: Value =
+            serde_json::from_slice(&fs::read(&selected_path).expect("read selected policy"))
+                .expect("parse selected policy");
+        let serialized_source = selected
+            .get("selected_gitlab")
+            .and_then(Value::as_object)
+            .expect("selected source object");
+        assert_eq!(serialized_source.len(), 4);
+        assert_eq!(serialized_source["host"], "gitlab.example");
+        assert_eq!(serialized_source["project"], 17);
+        assert_eq!(serialized_source["namespace"], "group/project");
+        assert_eq!(serialized_source["glab"], glab.to_string_lossy().as_ref());
+        assert!(serialized_source.get("config_dir").is_none());
+        remove_policy_path(&selected_path);
+
+        let base_capabilities = expected_capabilities(permissions, false);
+        let selected_capabilities = expected_capabilities(permissions, true);
+        assert!(!base_capabilities
+            .iter()
+            .any(|value| value == "ctx_provider"));
+        assert!(selected_capabilities
+            .iter()
+            .any(|value| value == "ctx_provider"));
+        assert_eq!(selected_capabilities.len(), base_capabilities.len() + 1);
     }
 }

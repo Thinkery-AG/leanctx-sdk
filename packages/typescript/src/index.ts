@@ -16,6 +16,7 @@ export {
   ReadMode,
   ToolResult,
 } from "./agent.js";
+export type { GitLabSource } from "./agent.js";
 export {
   MAX_SOURCE_REQUEST_BYTES,
   MAX_SOURCE_RESPONSE_BYTES,

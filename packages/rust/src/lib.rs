@@ -18,9 +18,9 @@ mod session;
 pub const __version__: &str = "1.1.0";
 
 pub use agent::{
-    AgentContext, AgentMetrics, AgentPermissions, ExecutionPolicy, ReadMode, ToolResult,
-    AGENT_TOOLS_INTERFACE_VERSION, AGENT_TOOLS_SCHEMA_VERSION, AGENT_TOOLS_TRANSPORT_VERSION,
-    SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
+    AgentContext, AgentContextBuilder, AgentMetrics, AgentPermissions, ExecutionPolicy,
+    GitLabSource, ReadMode, ToolResult, AGENT_TOOLS_INTERFACE_VERSION, AGENT_TOOLS_SCHEMA_VERSION,
+    AGENT_TOOLS_TRANSPORT_VERSION, SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
 };
 pub use async_agent::AsyncAgentContext;
 pub use engine::{EngineClient, SubprocessEngineClient};

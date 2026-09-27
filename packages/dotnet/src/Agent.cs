@@ -5,6 +5,59 @@ using System.Text;
 
 namespace Thinkery.LeanCtx;
 
+/// <summary>Host-owned GitLab source selection for one Agent Tools session.</summary>
+public sealed class GitLabSource
+{
+    private const long MaxSafeInteger = 9_007_199_254_740_991;
+
+    public GitLabSource(string host, long project, string namespaceName, string glab,
+        string? configDir = null)
+    {
+        Host = Text(host, "GitLab host");
+        if (project < 1 || project > MaxSafeInteger)
+            throw new ValidationError("GitLab project must be a positive safe integer");
+        Project = project;
+        Namespace = Text(namespaceName, "GitLab namespace");
+        Glab = AbsolutePath(glab, "glab");
+        ConfigDir = configDir is null ? null : AbsolutePath(configDir, "config_dir");
+    }
+
+    public string Host { get; }
+    public long Project { get; }
+    public string Namespace { get; }
+    public string Glab { get; }
+    public string? ConfigDir { get; }
+
+    internal Dictionary<string, object?> ToPolicyValue()
+    {
+        var value = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["glab"] = Glab,
+            ["host"] = Host,
+            ["namespace"] = Namespace,
+            ["project"] = Project,
+        };
+        if (ConfigDir is not null)
+            value["config_dir"] = ConfigDir;
+        return value;
+    }
+
+    private static string Text(string value, string name)
+    {
+        if (string.IsNullOrEmpty(value) || value.Any(char.IsControl))
+            throw new ValidationError(name + " must be a non-empty string without control characters");
+        return value;
+    }
+
+    private static string AbsolutePath(string value, string name)
+    {
+        if (string.IsNullOrEmpty(value) || value.Any(char.IsControl) ||
+            !Path.IsPathFullyQualified(value))
+            throw new ValidationError(name + " must be an absolute path without control characters");
+        return value;
+    }
+}
+
 public sealed class AgentPermissions
 {
     public AgentPermissions(bool write = false, bool execute = false)
@@ -154,6 +207,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     private readonly List<byte> stderr = new();
     private readonly string policyDirectory;
     private readonly string policyPath;
+    private readonly GitLabSource? gitlabSource;
     private long nextId;
     private IReadOnlyList<string> capabilitiesValue = Array.Empty<string>();
     private AgentMetrics metricsValue = new();
@@ -168,6 +222,18 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         ExecutionPolicy? executionPolicy = null,
         string? engineBinary = null,
         double timeout = 30)
+        : this(projectRoot, task, permissions, executionPolicy, engineBinary, timeout, null)
+    {
+    }
+
+    public AgentContext(
+        string projectRoot,
+        string? task,
+        AgentPermissions? permissions,
+        ExecutionPolicy? executionPolicy,
+        string? engineBinary,
+        double timeout,
+        GitLabSource? gitlabSource)
     {
         ProjectRoot = ValidateProjectRoot(projectRoot);
         Task = task is null ? string.Empty : WireJson.Text(task, "task", WireJson.MaxTaskBytes, controls: false);
@@ -181,6 +247,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         if (string.IsNullOrWhiteSpace(EngineBinary) || EngineBinary.Contains('\0'))
             throw new ConfigurationError("engine_binary must be a non-empty path");
         Timeout = timeout;
+        this.gitlabSource = gitlabSource;
         policyDirectory = Path.Combine(ProjectRoot, $".leanctx-agent-{Guid.NewGuid():N}");
         policyPath = Path.Combine(policyDirectory, "policy.json");
         try
@@ -196,6 +263,8 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
                 ["max_timeout_ms"] = checked((long)Math.Truncate(ExecutionPolicy.MaxTimeout * 1000)),
                 ["schema_version"] = 1L,
             };
+            if (gitlabSource is not null)
+                policy["selected_gitlab"] = gitlabSource.ToPolicyValue();
             File.WriteAllBytes(policyPath, WireJson.CanonicalBytes(policy));
             SetFileMode(policyPath);
             process = StartProcess(ResolveBinary());
@@ -216,6 +285,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     public ExecutionPolicy ExecutionPolicy { get; }
     public string EngineBinary { get; }
     public double Timeout { get; }
+    public GitLabSource? GitLabSource => gitlabSource;
     public IReadOnlyList<string> Capabilities => capabilitiesValue;
     public AgentMetrics Metrics => metricsValue;
     public Task ReadyAsync() => readyTask;
@@ -228,9 +298,39 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         string? engineBinary = null,
         double timeout = 30,
         CancellationToken cancellationToken = default)
+        => await OpenCoreAsync(projectRoot, task, permissions, executionPolicy, engineBinary,
+            timeout, null, cancellationToken).ConfigureAwait(false);
+
+    public static Task<AgentContext> OpenWithGitLabSourceAsync(string projectRoot,
+        GitLabSource gitlabSource, string? engineBinary = null, double timeout = 30,
+        CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(projectRoot, null, null, null, engineBinary, timeout,
+            gitlabSource, cancellationToken);
+
+    public static Task<AgentContext> OpenAsync(
+        string projectRoot,
+        string? task,
+        AgentPermissions? permissions,
+        ExecutionPolicy? executionPolicy,
+        string? engineBinary,
+        double timeout,
+        GitLabSource? gitlabSource,
+        CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(projectRoot, task, permissions, executionPolicy, engineBinary,
+            timeout, gitlabSource, cancellationToken);
+
+    private static async Task<AgentContext> OpenCoreAsync(
+        string projectRoot,
+        string? task,
+        AgentPermissions? permissions,
+        ExecutionPolicy? executionPolicy,
+        string? engineBinary,
+        double timeout,
+        GitLabSource? gitlabSource,
+        CancellationToken cancellationToken)
     {
         var context = new AgentContext(projectRoot, task, permissions, executionPolicy,
-            engineBinary, timeout);
+            engineBinary, timeout, gitlabSource);
         try
         {
             await context.ReadyAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -253,6 +353,17 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         double timeout = 30) =>
         OpenAsync(projectRoot, task, permissions, executionPolicy, engineBinary, timeout)
             .GetAwaiter().GetResult();
+
+    public static AgentContext OpenWithGitLabSource(string projectRoot, GitLabSource gitlabSource,
+        string? engineBinary = null, double timeout = 30) =>
+        OpenWithGitLabSourceAsync(projectRoot, gitlabSource, engineBinary, timeout)
+            .GetAwaiter().GetResult();
+
+    public static AgentContext Open(string projectRoot, string? task,
+        AgentPermissions? permissions, ExecutionPolicy? executionPolicy,
+        string? engineBinary, double timeout, GitLabSource? gitlabSource) =>
+        OpenAsync(projectRoot, task, permissions, executionPolicy, engineBinary,
+            timeout, gitlabSource).GetAwaiter().GetResult();
 
     public async Task<ToolResult> CallAsync(
         string tool,
@@ -461,7 +572,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     {
         await CloseAsync().ConfigureAwait(false);
         return await OpenAsync(ProjectRoot, Task, Permissions, ExecutionPolicy,
-            EngineBinary, Timeout).ConfigureAwait(false);
+            EngineBinary, Timeout, gitlabSource).ConfigureAwait(false);
     }
 
     public AgentContext Reconnect() => ReconnectAsync().GetAwaiter().GetResult();
@@ -733,6 +844,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         var expectedCapabilities = new HashSet<string>(ReadTools, StringComparer.Ordinal);
         if (Permissions.Write) expectedCapabilities.UnionWith(WriteTools);
         if (Permissions.Execute) expectedCapabilities.UnionWith(ExecuteTools);
+        if (gitlabSource is not null) expectedCapabilities.Add("ctx_provider");
         if (!capabilities.ToHashSet(StringComparer.Ordinal).SetEquals(expectedCapabilities))
             throw new EngineProtocolError("Agent Tools capabilities do not match policy");
         capabilitiesValue = new ReadOnlyCollection<string>(capabilities);

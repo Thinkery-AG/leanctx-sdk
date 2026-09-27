@@ -16,6 +16,7 @@ internal static class Program
         Run("validation-and-path-jail", ValidationAndPathJail);
         Run("engine-parser-negatives", EngineParserNegatives);
         Run("agent-permission-negative", AgentPermissionNegative);
+        Run("agent-gitlab-source", AgentGitLabSource);
         Run("agent-protocol-negative", AgentProtocolNegative);
         Run("agent-timeout-negative", AgentTimeoutNegative);
         Run("engine-v1-fixture", EngineV1Fixture);
@@ -154,6 +155,50 @@ internal static class Program
             throw new Exception("Agent policy directory was not cleaned");
     }
 
+    private static void AgentGitLabSource()
+    {
+        var glab = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "glab"));
+        var configDir = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "glab-config"));
+        var source = new GitLabSource("gitlab.example", 17, "group/project", glab, configDir);
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example\n", 17,
+            "group/project", glab));
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example", 0,
+            "group/project", glab));
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example", 17,
+            "group/project", "glab"));
+
+        using var root = new TemporaryDirectory();
+        var ordinary = AgentContext.Open(root.Path, engineBinary: FakeAgent(root.Path, "good"));
+        using (ordinary)
+        {
+            using var policy = JsonDocument.Parse(File.ReadAllText(
+                Path.Combine(root.Path, ".observed-policy.json")));
+            True(!policy.RootElement.TryGetProperty("selected_gitlab", out _));
+        }
+        var binary = FakeAgent(root.Path, "gitlab");
+        using var selected = AgentContext.OpenWithGitLabSourceAsync(root.Path, source, binary, 5)
+            .GetAwaiter().GetResult();
+        True(selected.Capabilities.Contains("ctx_provider", StringComparer.Ordinal));
+        Equal("gitlab.example", selected.GitLabSource!.Host);
+        Equal("ctx_read:ok", selected.Call("ctx_provider", new Dictionary<string, object?>
+        {
+            ["action"] = "query",
+            ["provider"] = "gitlab",
+            ["resource"] = "issues",
+            ["mode"] = "snapshot",
+            ["project"] = 17L,
+            ["limit"] = 1L,
+        }).Text);
+        using var selectedPolicy = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(root.Path, ".observed-policy.json")));
+        var gitlab = selectedPolicy.RootElement.GetProperty("selected_gitlab");
+        Equal("gitlab.example", gitlab.GetProperty("host").GetString());
+        Equal(17, gitlab.GetProperty("project").GetInt64());
+        Equal("group/project", gitlab.GetProperty("namespace").GetString());
+        Equal(glab, gitlab.GetProperty("glab").GetString());
+        Equal(configDir, gitlab.GetProperty("config_dir").GetString());
+    }
+
     private static void AgentProtocolNegative()
     {
         using var root = new TemporaryDirectory();
@@ -245,10 +290,40 @@ IFS= read -r line
 while :; do sleep 10; done
 """;
         }
+        else if (behavior == "gitlab")
+        {
+            script = """
+#!/bin/sh
+policy=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--policy-file" ]; then policy="$2"; shift; fi
+  shift
+done
+[ -f "$policy" ] || exit 17
+IFS= read -r policy_json < "$policy"
+printf '%s\n' "$policy_json" > .observed-policy.json
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  case "$line" in
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.2","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
+    *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
+  esac
+done
+""";
+        }
         else
         {
             script = """
 #!/bin/sh
+policy=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--policy-file" ]; then policy="$2"; shift; fi
+  shift
+done
+[ -f "$policy" ] || exit 17
+IFS= read -r policy_json < "$policy"
+printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in

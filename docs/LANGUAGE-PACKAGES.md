@@ -17,6 +17,56 @@ This exact allowlist applies only to the Engine process. Arbitrary environment
 variables, provider keys and loader overrides remain excluded. Model-requested
 shell commands retain their separate execution permission and environment policy.
 
+### Selected GitLab source
+
+An optional `GitLabSource` binds one Agent Tools session to a canonical HTTPS
+host, positive project ID and namespace. The host application also selects the
+absolute `glab` executable and, optionally, its absolute configuration directory.
+These are trusted operator settings, like `engine_binary`: never take them from
+model-generated tool arguments or project documents. The Engine reads the
+existing glab credential through a bounded in-memory channel. Tokens are not
+SDK arguments, policy fields or forwarded environment variables.
+
+The policy-file extension is `selected_gitlab` with `host`, `project`,
+`namespace`, `glab` and optional `config_dir`. It is omitted entirely when no
+source is selected. The existing schema and local capability set remain
+unchanged for those sessions; selected sessions additionally negotiate
+`ctx_provider`. Older Engines reject the unsupported policy extension instead
+of opening an unbound source session.
+
+```python
+from leanctx_sdk import AgentContext, GitLabSource
+
+source = GitLabSource(
+    host="gitlab.example.com", project=42, namespace="team/project",
+    glab="/usr/local/bin/glab",
+)
+with AgentContext("/workspace/project", gitlab_source=source) as context:
+    snapshot = context.call("ctx_provider", {
+        "action": "query", "provider": "gitlab", "resource": "merge_requests",
+        "project": "42", "mode": "snapshot", "limit": 10,
+    })
+```
+
+Selected sessions require an active content policy admitting `ctx_provider`.
+The Engine binds the reviewed policy and configuration at startup and rechecks
+that authority before operations and before releasing output. Changed, missing
+or invalid protection does not fall back to an unprotected session; deliberate
+policy updates require a new selected-source session. Ordinary local sessions
+retain their existing dynamic policy behavior.
+Only `query` snapshots of `issues`, `merge_requests` and `pipelines` are exposed,
+with an explicit matching project and limit from 1 to 100. Optional filters are
+`state` and `query`. Other actions, providers and parameters are refused. The
+existing provider rechecks remote project identity and authorization, and the
+snapshot digest is verified after output protection. A digest is not an
+upstream signature or proof that application code later sent data to a model.
+
+Source credentials and executables must be outside the selected project.
+The credential transport currently supports Unix; Windows source startup fails
+closed. This does not change platform availability of ordinary local SDK tools.
+Language-package execution and platform qualification are separate release
+gates. Reconnection preserves source selection and repeats credential startup.
+
 ## Package identities
 
 | Language | Registry identity | Release tag |

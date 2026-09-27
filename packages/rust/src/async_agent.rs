@@ -13,8 +13,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agent::{
-    AgentContext, AgentMetrics, AgentPermissions, AgentTermination, ExecutionPolicy, ReadMode,
-    ToolResult,
+    AgentContext, AgentMetrics, AgentPermissions, AgentTermination, ExecutionPolicy, GitLabSource,
+    ReadMode, ToolResult,
 };
 use crate::errors::{boxed, EngineExecutionError, SdkResult};
 
@@ -32,6 +32,44 @@ impl AsyncAgentContext {
             ExecutionPolicy::default(),
             None,
             Duration::from_secs(30),
+        )
+        .await
+    }
+
+    pub async fn open_with_gitlab_source(
+        project_root: impl AsRef<Path>,
+        gitlab_source: GitLabSource,
+    ) -> SdkResult<Self> {
+        Self::open_with_configuration_and_gitlab_source(
+            project_root.as_ref().to_owned(),
+            String::new(),
+            AgentPermissions::default(),
+            ExecutionPolicy::default(),
+            None,
+            Duration::from_secs(30),
+            Some(gitlab_source),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn open_with_policy_and_gitlab_source(
+        project_root: impl AsRef<Path>,
+        task: impl AsRef<str>,
+        permissions: AgentPermissions,
+        execution_policy: ExecutionPolicy,
+        engine_binary: Option<PathBuf>,
+        timeout: Duration,
+        gitlab_source: GitLabSource,
+    ) -> SdkResult<Self> {
+        Self::open_with_configuration_and_gitlab_source(
+            project_root.as_ref().to_owned(),
+            task.as_ref().to_owned(),
+            permissions,
+            execution_policy,
+            engine_binary,
+            timeout,
+            Some(gitlab_source),
         )
         .await
     }
@@ -110,14 +148,16 @@ impl AsyncAgentContext {
         let execution_policy = self.context.execution_policy().clone();
         let engine_binary = self.context.engine_binary().to_owned();
         let timeout = self.context.timeout();
+        let gitlab_source = self.context.gitlab_source().cloned();
         self.close().await?;
-        Self::open_with_configuration(
+        Self::open_with_configuration_and_gitlab_source(
             project_root,
             task,
             permissions,
             execution_policy,
             Some(engine_binary),
             timeout,
+            gitlab_source,
         )
         .await
     }
@@ -130,13 +170,36 @@ impl AsyncAgentContext {
         engine_binary: Option<PathBuf>,
         timeout: Duration,
     ) -> SdkResult<Self> {
-        open_operation(
+        Self::open_with_configuration_and_gitlab_source(
             project_root,
             task,
             permissions,
             execution_policy,
             engine_binary,
             timeout,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn open_with_configuration_and_gitlab_source(
+        project_root: PathBuf,
+        task: String,
+        permissions: AgentPermissions,
+        execution_policy: ExecutionPolicy,
+        engine_binary: Option<PathBuf>,
+        timeout: Duration,
+        gitlab_source: Option<GitLabSource>,
+    ) -> SdkResult<Self> {
+        open_operation_with_gitlab_source(
+            project_root,
+            task,
+            permissions,
+            execution_policy,
+            engine_binary,
+            timeout,
+            gitlab_source,
         )
         .await
     }
@@ -158,24 +221,27 @@ where
     })
 }
 
-fn open_operation(
+#[allow(clippy::too_many_arguments)]
+fn open_operation_with_gitlab_source(
     project_root: PathBuf,
     task: String,
     permissions: AgentPermissions,
     execution_policy: ExecutionPolicy,
     engine_binary: Option<PathBuf>,
     timeout: Duration,
+    gitlab_source: Option<GitLabSource>,
 ) -> AsyncOperation<AsyncAgentContext> {
     let control = Arc::new(OperationControl::new());
     AsyncOperation::new(control, move |control| {
         let hook_control = Arc::clone(&control);
-        let context = AgentContext::open_with_policy_hook(
+        let context = AgentContext::open_with_gitlab_source_hook(
             &project_root,
             &task,
             permissions,
             execution_policy,
             engine_binary,
             timeout,
+            gitlab_source,
             move |context| hook_control.install_termination(context.termination_handle()),
         )?;
         if control.is_cancelled() {
@@ -1116,13 +1182,14 @@ done"#,
         let root = TempRoot::new()?;
         let descendant_path = root.path.join("completed-descendant.pid");
         let script = completed_open_script(&root, &descendant_path)?;
-        let mut pending = Box::pin(open_operation(
+        let mut pending = Box::pin(open_operation_with_gitlab_source(
             root.path.clone(),
             "completed-open".to_owned(),
             AgentPermissions::read_only(),
             ExecutionPolicy::default(),
             Some(script),
             Duration::from_secs(5),
+            None,
         ));
         assert!(matches!(poll_once(pending.as_mut()), Poll::Pending));
         let pid = wait_for_pid(&descendant_path)?;

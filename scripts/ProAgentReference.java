@@ -4,10 +4,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 public final class ProAgentReference {
     private static AgentContext open(Path root, String binary) {
         return new AgentContext(root, "", new AgentPermissions(), new ExecutionPolicy(), Path.of(binary), 30.0);
+    }
+    private static boolean observeSnapshot(String text) throws Exception {
+        Process observer = new ProcessBuilder(System.getenv("LEANCTX_REFERENCE_PYTHON"),
+            System.getenv("LEANCTX_REFERENCE_SNAPSHOT_OBSERVER"))
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        try {
+            try (var input = observer.getOutputStream()) { input.write(text.getBytes(StandardCharsets.UTF_8)); }
+            return observer.waitFor(15, TimeUnit.SECONDS) && observer.exitValue() == 0;
+        } finally { if (observer.isAlive()) observer.destroyForcibly(); }
     }
     public static void main(String[] args) throws Exception {
         if (args.length != 4) throw new IllegalArgumentException("engine, previous engine, fixture root, output required");
@@ -23,7 +33,10 @@ public final class ProAgentReference {
             oldRejected = error.getMessage().contains("hello is incompatible");
         }
         checks.put("old_engine_rejected", oldRejected);
-        try (AgentContext context = open(root, args[0])) {
+        GitLabSource source = System.getenv("LEANCTX_REFERENCE_GITLAB_SOURCE") == null ? null : new GitLabSource(
+            System.getenv("LEANCTX_REFERENCE_GITLAB_HOST"), Long.parseLong(System.getenv("LEANCTX_REFERENCE_GITLAB_PROJECT")),
+            System.getenv("LEANCTX_REFERENCE_GITLAB_NAMESPACE"), Path.of(System.getenv("LEANCTX_REFERENCE_GITLAB_GLAB")));
+        try (AgentContext context = new AgentContext(root, "", new AgentPermissions(), new ExecutionPolicy(), Path.of(args[0]), 30.0, source)) {
             String read = context.read("login.py", ReadMode.FULL, false).text();
             String composed = context.compose("investigate authentication retry", ".").text();
             if ("1".equals(System.getenv("LEANCTX_REFERENCE_PRO"))) {
@@ -51,6 +64,23 @@ public final class ProAgentReference {
             String restored = context.read("login.py", ReadMode.FULL, false).text();
             checks.put("same_session_rule_repair", restored.contains("REFRESH_SESSION_FIRST") && !restored.contains("CUS-1234"));
             responses.put("restored", restored);
+            if (source != null) {
+                Map<String, Object> query = new HashMap<>(Map.of("action", "query", "provider", "gitlab", "resource", "merge_requests",
+                    "project", Long.toString(source.project()), "mode", "snapshot", "limit", 1));
+                checks.put("live_selected_gitlab", observeSnapshot(context.call("ctx_provider", query).text()));
+                for (String[] refusal : List.of(new String[]{"foreign_project_refused", "project", "other/project"},
+                    new String[]{"unsupported_source_action_refused", "action", "refresh"})) {
+                    var deniedQuery = new HashMap<>(query); deniedQuery.put(refusal[1], refusal[2]);
+                    try { context.call("ctx_provider", deniedQuery); checks.put(refusal[0], false); }
+                    catch (AgentPermissionError error) { checks.put(refusal[0], true); }
+                }
+                try {
+                    Files.delete(policy);
+                    try { context.read("login.py", ReadMode.FULL, false); checks.put("source_policy_removal_closes_session", false); }
+                    catch (AgentPermissionError error) { checks.put("source_policy_removal_closes_session", true); }
+                } finally { Files.writeString(policy, rules); }
+                responses.clear();
+            }
         }
         boolean passed = checks.size() >= 5 && checks.values().stream().allMatch(Boolean::booleanValue);
         String checksJson = checks.entrySet().stream().map(e -> "\"" + e.getKey() + "\":" + e.getValue()).collect(Collectors.joining(","));

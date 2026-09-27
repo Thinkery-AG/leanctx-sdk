@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	leanctx "github.com/Thinkery-AG/leanctx-sdk/packages/go"
 )
@@ -72,7 +75,14 @@ func main() {
 	}
 	var protocol *leanctx.EngineProtocolError
 	checks["old_engine_rejected"] = errors.As(err, &protocol) && strings.Contains(err.Error(), "hello is incompatible")
-	agent, err := leanctx.OpenAgentContext(context.Background(), root, leanctx.AgentContextOptions{EngineBinary: engine})
+	var source *leanctx.GitLabSource
+	if sourcePath := os.Getenv("LEANCTX_REFERENCE_GITLAB_SOURCE"); sourcePath != "" {
+		data, err := os.ReadFile(sourcePath); must(err)
+		var selected struct { Host string; Project int64; Namespace string; Glab string; ConfigDir string `json:"config_dir"` }
+		must(json.Unmarshal(data, &selected))
+		source = &leanctx.GitLabSource{Host:selected.Host, Project:selected.Project, Namespace:selected.Namespace, Glab:selected.Glab, ConfigDir:selected.ConfigDir}
+	}
+	agent, err := leanctx.OpenAgentContext(context.Background(), root, leanctx.AgentContextOptions{EngineBinary: engine, GitLabSource:source})
 	must(err)
 	defer agent.Close()
 	read, err := agent.Read("login.py", "full")
@@ -111,11 +121,34 @@ func main() {
 	must(err)
 	responses["restored"] = restored.Text
 	checks["same_session_rule_repair"] = strings.Contains(restored.Text, "REFRESH_SESSION_FIRST") && !strings.Contains(restored.Text, "CUS-1234")
+	if source != nil {
+		query := map[string]any{"action":"query", "provider":"gitlab", "resource":"merge_requests", "project":fmt.Sprint(source.Project), "mode":"snapshot", "limit":1}
+		snapshot, err := agent.Call("ctx_provider", query); must(err)
+		observerContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		observer := exec.CommandContext(observerContext, os.Getenv("LEANCTX_REFERENCE_PYTHON"), os.Getenv("LEANCTX_REFERENCE_SNAPSHOT_OBSERVER"))
+		observer.Stdin = bytes.NewBufferString(snapshot.Text)
+		checks["live_selected_gitlab"] = observer.Run() == nil
+		cancel()
+		for _, denied := range []struct{name,key,value string}{
+			{"foreign_project_refused","project","other/project"}, {"unsupported_source_action_refused","action","refresh"},
+		} {
+			copyQuery := map[string]any{}; for k,v := range query { copyQuery[k]=v }; copyQuery[denied.key]=denied.value
+			_, err := agent.Call("ctx_provider", copyQuery)
+			var permission *leanctx.AgentPermissionError
+			checks[denied.name] = errors.As(err, &permission)
+		}
+		must(os.Remove(policy))
+		_, err = agent.Read("login.py", "full")
+		write(policy, rules)
+		var permission *leanctx.AgentPermissionError
+		checks["source_policy_removal_closes_session"] = errors.As(err, &permission)
+		responses = map[string]string{}
+	}
 	passed := len(checks) >= 5
 	for _, ok := range checks {
 		passed = passed && ok
 	}
-	result := map[string]any{"passed": passed, "checks": checks, "responses": responses, "engine_sha256": digest(engine), "previous_engine_sha256": digest(previous), "scope": "Installed local Go module archive; actual local Engine output to application, no model/Codex/GitLab qualification."}
+	result := map[string]any{"passed": passed, "checks": checks, "responses": responses, "engine_sha256": digest(engine), "previous_engine_sha256": digest(previous), "scope": "Installed local Go module archive; optional selected GitLab when configured; Engine output to application, no model/Codex claim."}
 	data, err := json.MarshalIndent(result, "", "  ")
 	must(err)
 	must(os.WriteFile(output, append(data, '\n'), 0600))

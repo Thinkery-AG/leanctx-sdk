@@ -15,6 +15,7 @@ import signal
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from types import MappingProxyType
 from typing import Callable, Mapping, Optional, Sequence, Tuple, Union, cast
 
@@ -128,6 +129,78 @@ class ExecutionPolicy:
 
 
 @dataclass(frozen=True)
+class GitLabSource:
+    """Host-selected GitLab CLI source; credentials stay outside the SDK policy."""
+
+    host: str
+    project: int
+    namespace: str
+    glab: str
+    config_dir: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        for name, value in (("host", self.host), ("namespace", self.namespace)):
+            if (
+                not isinstance(value, str)
+                or not value
+                or any(unicodedata.category(character) == "Cc" for character in value)
+            ):
+                raise ValidationError(
+                    f"GitLabSource {name} must be a non-empty string without control characters"
+                )
+        if (
+            isinstance(self.project, bool)
+            or not isinstance(self.project, int)
+            or not 1 <= self.project <= 9007199254740991
+        ):
+            raise ValidationError("GitLabSource project must be a safe positive integer")
+        for name, value, optional in (
+            ("glab", self.glab, False),
+            ("config_dir", self.config_dir, True),
+        ):
+            if value is None and optional:
+                continue
+            if (
+                not isinstance(value, str)
+                or not value
+                or any(unicodedata.category(character) == "Cc" for character in value)
+                or not os.path.isabs(value)
+            ):
+                raise ValidationError(
+                    f"GitLabSource {name} must be an absolute path without control characters"
+                )
+
+
+def _copy_gitlab_source(
+    value: Optional[Union[GitLabSource, Mapping[str, object]]],
+) -> Optional[GitLabSource]:
+    if value is None:
+        return None
+    if isinstance(value, GitLabSource):
+        return GitLabSource(
+            host=value.host,
+            project=value.project,
+            namespace=value.namespace,
+            glab=value.glab,
+            config_dir=value.config_dir,
+        )
+    if not isinstance(value, Mapping):
+        raise ValidationError("gitlab_source must be a GitLabSource or mapping")
+    source = dict(value)
+    required = {"host", "project", "namespace", "glab"}
+    allowed = required | {"config_dir"}
+    if not required.issubset(source) or not set(source).issubset(allowed):
+        raise ValidationError("gitlab_source fields are invalid")
+    return GitLabSource(
+        host=source["host"],  # type: ignore[arg-type]
+        project=source["project"],  # type: ignore[arg-type]
+        namespace=source["namespace"],  # type: ignore[arg-type]
+        glab=source["glab"],  # type: ignore[arg-type]
+        config_dir=source.get("config_dir"),  # type: ignore[arg-type]
+    )
+
+
+@dataclass(frozen=True)
 class ToolResult:
     tool: str
     text: str
@@ -172,6 +245,7 @@ class AgentContext:
         execution_policy: ExecutionPolicy = ExecutionPolicy(),
         engine_binary: Union[os.PathLike[str], str] = "lean-ctx",
         timeout: float = 30.0,
+        gitlab_source: Optional[Union[GitLabSource, Mapping[str, object]]] = None,
     ) -> None:
         root = Path(project_root).expanduser().resolve(strict=True)
         if not root.is_dir():
@@ -192,6 +266,7 @@ class AgentContext:
             or not 0.1 <= timeout <= 120.0
         ):
             raise ConfigurationError("timeout must be between 0.1 and 120 seconds")
+        selected_gitlab = _copy_gitlab_source(gitlab_source)
 
         binary = os.fspath(engine_binary)
         resolved_binary = (
@@ -206,6 +281,7 @@ class AgentContext:
         self.task = task
         self.permissions = permissions
         self.execution_policy = execution_policy
+        self._gitlab_source = selected_gitlab
         self.timeout = float(timeout)
         self._engine_binary = resolved_binary
         self._lock = threading.RLock()
@@ -291,17 +367,28 @@ class AgentContext:
             fchmod = getattr(os, "fchmod", None)
             if fchmod is not None:
                 fchmod(descriptor, 0o600)
+            policy: dict[str, object] = {
+                "allow_exec": self.permissions.execute,
+                "allow_write": self.permissions.write,
+                "allowed_env": list(self.execution_policy.allowed_env),
+                "allowed_executables": list(
+                    self.execution_policy.allowed_executables
+                ),
+                "max_timeout_ms": int(self.execution_policy.max_timeout * 1000),
+                "schema_version": AGENT_TOOLS_SCHEMA_VERSION,
+            }
+            if self._gitlab_source is not None:
+                selected_gitlab = {
+                    "host": self._gitlab_source.host,
+                    "project": self._gitlab_source.project,
+                    "namespace": self._gitlab_source.namespace,
+                    "glab": self._gitlab_source.glab,
+                }
+                if self._gitlab_source.config_dir is not None:
+                    selected_gitlab["config_dir"] = self._gitlab_source.config_dir
+                policy["selected_gitlab"] = selected_gitlab
             payload = json.dumps(
-                {
-                    "allow_exec": self.permissions.execute,
-                    "allow_write": self.permissions.write,
-                    "allowed_env": list(self.execution_policy.allowed_env),
-                    "allowed_executables": list(
-                        self.execution_policy.allowed_executables
-                    ),
-                    "max_timeout_ms": int(self.execution_policy.max_timeout * 1000),
-                    "schema_version": AGENT_TOOLS_SCHEMA_VERSION,
-                },
+                policy,
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
@@ -458,6 +545,8 @@ class AgentContext:
             expected.update(_WRITE_TOOLS)
         if self.permissions.execute:
             expected.update(_EXEC_TOOLS)
+        if self._gitlab_source is not None:
+            expected.add("ctx_provider")
         if set(capabilities) != expected:
             raise EngineProtocolError("Agent Tools capabilities do not match policy")
         self._capabilities = tuple(capabilities)
@@ -469,6 +558,10 @@ class AgentContext:
     @property
     def metrics(self) -> AgentMetrics:
         return self._metrics
+
+    @property
+    def gitlab_source(self) -> Optional[GitLabSource]:
+        return self._gitlab_source
 
     def call(
         self, tool: str, arguments: Optional[Mapping[str, object]] = None
@@ -731,6 +824,7 @@ class AgentContext:
             execution_policy=self.execution_policy,
             engine_binary=self._engine_binary,
             timeout=self.timeout,
+            gitlab_source=self._gitlab_source,
         )
 
     def _terminate(self) -> None:
@@ -820,6 +914,7 @@ class AsyncAgentContext:
         execution_policy: ExecutionPolicy = ExecutionPolicy(),
         engine_binary: Union[os.PathLike[str], str] = "lean-ctx",
         timeout: float = 30.0,
+        gitlab_source: Optional[Union[GitLabSource, Mapping[str, object]]] = None,
     ) -> None:
         self._factory: Callable[[], AgentContext] = partial(
             AgentContext,
@@ -829,6 +924,7 @@ class AsyncAgentContext:
             execution_policy=execution_policy,
             engine_binary=engine_binary,
             timeout=timeout,
+            gitlab_source=_copy_gitlab_source(gitlab_source),
         )
         self._context: Optional[AgentContext] = None
 

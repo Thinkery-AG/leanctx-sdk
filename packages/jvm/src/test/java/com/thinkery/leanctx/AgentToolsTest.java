@@ -49,6 +49,8 @@ class AgentToolsTest {
         AgentContext context = new AgentContext(root.toString(), "inspect",
                 new AgentPermissions(false, true), policy, binary.toString(), 2.0);
         try {
+            assertTrue(!Files.readString(root.resolve("received-policy.json"))
+                    .contains("selected_gitlab"));
             assertEquals(List.of("ctx_compose", "ctx_glob", "ctx_read", "ctx_search",
                     "ctx_shell", "ctx_symbol", "ctx_tree"), context.capabilities());
             ToolResult read = context.read("README.md", ReadMode.AUTO, false);
@@ -73,6 +75,61 @@ class AgentToolsTest {
         }
         assertNoAgentState(root);
         deleteTree(root);
+    }
+
+    @Test
+    void gitLabSourceIsValidatedSerializedAndNegotiatesProviderCapability() throws Exception {
+        Path glab = Path.of(System.getProperty("java.io.tmpdir"), "glab");
+        Path configDir = Path.of(System.getProperty("java.io.tmpdir"), "glab-config");
+        GitLabSource source = new GitLabSource("gitlab.example", 17, "group/project", glab, configDir);
+        assertThrows(ValidationError.class,
+                () -> new GitLabSource("gitlab.example\n", 17, "group/project", glab));
+        assertThrows(ValidationError.class,
+                () -> new GitLabSource("gitlab.example", 0, "group/project", glab));
+        assertThrows(ValidationError.class,
+                () -> new GitLabSource("gitlab.example", 17, "group/project", Path.of("glab")));
+
+        Path root = Files.createTempDirectory("leanctx-agent-gitlab-");
+        Path missingProvider = fakeAgent(root, false, false, false, true, false);
+        AgentPermissions executable = new AgentPermissions(false, true);
+        ExecutionPolicy executionPolicy = new ExecutionPolicy(2.0, List.of("printf"), List.of());
+        assertThrows(EngineProtocolError.class, () -> new AgentContext(root.toString(), "inspect",
+                executable, executionPolicy, missingProvider.toString(), 2.0, source));
+
+        Path binary = fakeAgent(root, false, false, false, true, true);
+        AgentContext context = new AgentContext(root.toString(), "inspect",
+                executable, executionPolicy, binary.toString(), 2.0, source);
+        try {
+            assertTrue(context.capabilities().contains("ctx_provider"));
+            assertEquals(source, context.gitlabSource());
+            assertEquals("ctx_read:ok", context.call("ctx_provider", Map.of(
+                    "action", "query", "provider", "gitlab", "resource", "issues",
+                    "mode", "snapshot", "project", 17, "limit", 1)).text());
+            String policy = Files.readString(root.resolve("received-policy.json"));
+            assertTrue(policy.contains("\"selected_gitlab\":{")
+                    && policy.contains("\"host\":\"gitlab.example\"")
+                    && policy.contains("\"project\":17")
+                    && policy.contains("\"namespace\":\"group/project\"")
+                    && policy.contains("\"glab\":\"" + glab + "\"")
+                    && policy.contains("\"config_dir\":\"" + configDir + "\""));
+        } finally {
+            context.close();
+            deleteTree(root);
+        }
+        Path asyncRoot = Files.createTempDirectory("leanctx-agent-gitlab-async-");
+        try {
+            Path asyncBinary = fakeAgent(asyncRoot, false, false, false, true, true);
+            try (AsyncAgentContext async = new AsyncAgentContext(asyncRoot.toString(), "inspect",
+                    executable, executionPolicy, asyncBinary.toString(), 2.0, source).open().join()) {
+                assertTrue(async.capabilities().contains("ctx_provider"));
+                assertEquals(source, async.gitlabSource());
+                try (AsyncAgentContext reconnected = async.reconnect().join()) {
+                    assertTrue(reconnected.capabilities().contains("ctx_provider"));
+                }
+            }
+        } finally {
+            deleteTree(asyncRoot);
+        }
     }
 
     @Test
@@ -172,16 +229,22 @@ class AgentToolsTest {
     }
 
     private static Path fakeAgent(Path root, boolean badHello, boolean delayCall) throws Exception {
-        return fakeAgent(root, badHello, delayCall, false, false);
+        return fakeAgent(root, badHello, delayCall, false, false, false);
     }
 
     private static Path fakeAgent(Path root, boolean badHello, boolean delayCall,
                                   boolean allowWrite) throws Exception {
-        return fakeAgent(root, badHello, delayCall, allowWrite, true);
+        return fakeAgent(root, badHello, delayCall, allowWrite, true, false);
     }
 
     private static Path fakeAgent(Path root, boolean badHello, boolean delayCall,
                                   boolean allowWrite, boolean observe) throws Exception {
+        return fakeAgent(root, badHello, delayCall, allowWrite, observe, false);
+    }
+
+    private static Path fakeAgent(Path root, boolean badHello, boolean delayCall,
+                                  boolean allowWrite, boolean observe,
+                                  boolean selectedGitlab) throws Exception {
         Path script = root.resolve("fake-agent-" + UUID.randomUUID());
         boolean allowExec = !delayCall;
         List<String> tools = new ArrayList<>(List.of("ctx_compose", "ctx_glob", "ctx_read",
@@ -191,6 +254,9 @@ class AgentToolsTest {
         }
         if (allowWrite) {
             tools.addAll(List.of("ctx_edit", "ctx_fill", "ctx_patch"));
+        }
+        if (selectedGitlab) {
+            tools.add("ctx_provider");
         }
         Collections.sort(tools);
         String capabilities = badHello ? "[\"ctx_read\"]"
@@ -206,6 +272,8 @@ class AgentToolsTest {
                 + "  shift\n"
                 + "done\n"
                 + "[ -f \"$policy\" ] || exit 17\n"
+                + "IFS= read -r policy_json < \"$policy\"\n"
+                + "printf '%s\\n' \"$policy_json\" > received-policy.json\n"
                 + "id=0\n"
                 + "while IFS= read -r line; do\n"
                 + "  id=$((id + 1))\n"

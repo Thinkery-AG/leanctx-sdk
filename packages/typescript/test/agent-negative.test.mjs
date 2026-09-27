@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -37,9 +37,11 @@ function engine(root, source) {
   return path;
 }
 
-function helloAndLoop({ capabilities = READ_CAPABILITIES, allowExec = false, body = "" } = {}) {
+function helloAndLoop({ capabilities = READ_CAPABILITIES, allowExec = false, body = "", capturePolicyPath } = {}) {
   return `
+import { copyFileSync } from "node:fs";
 import readline from "node:readline";
+${capturePolicyPath ? `copyFileSync(process.argv[7], ${JSON.stringify(capturePolicyPath)});` : ""}
 const capabilities = ${JSON.stringify(capabilities)};
 const allowExec = ${JSON.stringify(allowExec)};
 const rl = readline.createInterface({ input: process.stdin });
@@ -148,6 +150,62 @@ test("empty PATH entries are ignored while resolving a bare engine", async () =>
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
+  }
+  assert.deepEqual(dirs(), []);
+});
+
+test("source-free policy bytes and hello capabilities stay unchanged", async () => {
+  const { root, dirs } = project();
+  const capturePolicyPath = join(root, "captured-policy.json");
+  const context = await AgentContext.open(root, {
+    engineBinary: engine(root, helloAndLoop({ capturePolicyPath })),
+    timeout: 1,
+  });
+  assert.deepEqual(context.capabilities, READ_CAPABILITIES);
+  assert.equal(
+    readFileSync(capturePolicyPath, "utf8"),
+    JSON.stringify({ allow_exec: false, allow_write: false, allowed_env: [], allowed_executables: [], max_timeout_ms: 30000, schema_version: 1 }),
+  );
+  await context.close();
+  assert.deepEqual(dirs(), []);
+});
+
+test("selected GitLab source is snapshotted, serialized, and negotiated", async () => {
+  const { root, dirs } = project();
+  const capturePolicyPath = join(root, "captured-policy.json");
+  const source = { host: "gitlab.example.test", project: 42, namespace: "group/project", glab: "/usr/bin/glab" };
+  const context = new AsyncAgentContext(root, {
+    gitlabSource: source,
+    engineBinary: engine(root, helloAndLoop({ capabilities: [...READ_CAPABILITIES, "ctx_provider"].sort(), capturePolicyPath })),
+    timeout: 1,
+  });
+  source.project = 77;
+  await context.open();
+  assert.deepEqual(context.capabilities, [...READ_CAPABILITIES, "ctx_provider"].sort());
+  assert.deepEqual(JSON.parse(readFileSync(capturePolicyPath, "utf8")).selected_gitlab, {
+    host: "gitlab.example.test",
+    project: 42,
+    namespace: "group/project",
+    glab: "/usr/bin/glab",
+  });
+  await context.close();
+  assert.deepEqual(dirs(), []);
+});
+
+test("GitLab source validates required fields, safe project range, and absolute paths", () => {
+  const { root, dirs } = project();
+  const source = { host: "gitlab.example.test", project: 1, namespace: "group/project", glab: "/usr/bin/glab" };
+  for (const invalid of [
+    { ...source, host: "bad\nhost" },
+    { ...source, namespace: 1 },
+    { ...source, project: true },
+    { ...source, project: 0 },
+    { ...source, project: Number.MAX_SAFE_INTEGER + 1 },
+    { ...source, glab: "glab" },
+    { ...source, configDir: "relative" },
+    { ...source, token: "must not be accepted" },
+  ]) {
+    assert.throws(() => new AgentContext(root, { gitlabSource: invalid }), ValidationError);
   }
   assert.deepEqual(dirs(), []);
 });

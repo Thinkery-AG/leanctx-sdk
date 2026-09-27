@@ -67,6 +67,7 @@ public final class AgentContext implements AutoCloseable {
     private final ExecutionPolicy executionPolicy;
     private final String engineBinary;
     private final double timeout;
+    private final GitLabSource gitlabSource;
     private final AtomicLong nextId = new AtomicLong();
     private final ConcurrentHashMap<String, PendingCall> pending = new ConcurrentHashMap<>();
     private final Object writeLock = new Object();
@@ -83,7 +84,7 @@ public final class AgentContext implements AutoCloseable {
     private volatile AgentMetrics metrics = new AgentMetrics();
 
     public AgentContext(String projectRoot) {
-        this(projectRoot, "", new AgentPermissions(), new ExecutionPolicy(), "lean-ctx", 30.0);
+        this(projectRoot, "", new AgentPermissions(), new ExecutionPolicy(), "lean-ctx", 30.0, null);
     }
 
     public AgentContext(Path projectRoot) {
@@ -92,6 +93,12 @@ public final class AgentContext implements AutoCloseable {
 
     public AgentContext(String projectRoot, String task, AgentPermissions permissions,
                         ExecutionPolicy executionPolicy, String engineBinary, double timeout) {
+        this(projectRoot, task, permissions, executionPolicy, engineBinary, timeout, null);
+    }
+
+    public AgentContext(String projectRoot, String task, AgentPermissions permissions,
+                        ExecutionPolicy executionPolicy, String engineBinary, double timeout,
+                        GitLabSource gitlabSource) {
         this.projectRoot = canonicalRoot(projectRoot);
         this.task = boundedTask(task);
         this.permissions = permissions == null ? new AgentPermissions() : permissions;
@@ -107,6 +114,7 @@ public final class AgentContext implements AutoCloseable {
         }
         this.engineBinary = engineBinary;
         this.timeout = timeout;
+        this.gitlabSource = gitlabSource;
         startTransactional();
     }
 
@@ -116,12 +124,29 @@ public final class AgentContext implements AutoCloseable {
                 executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout);
     }
 
+    public AgentContext(Path projectRoot, String task, AgentPermissions permissions,
+                        ExecutionPolicy executionPolicy, Path engineBinary, double timeout,
+                        GitLabSource gitlabSource) {
+        this(projectRoot == null ? null : projectRoot.toString(), task, permissions,
+                executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout,
+                gitlabSource);
+    }
+
     public static AgentContext open(String projectRoot) {
         return new AgentContext(projectRoot);
     }
 
     public static AgentContext open(Path projectRoot) {
         return new AgentContext(projectRoot);
+    }
+
+    public static AgentContext open(String projectRoot, GitLabSource gitlabSource) {
+        return new AgentContext(projectRoot, "", new AgentPermissions(), new ExecutionPolicy(),
+                "lean-ctx", 30.0, gitlabSource);
+    }
+
+    public static AgentContext open(Path projectRoot, GitLabSource gitlabSource) {
+        return open(projectRoot == null ? null : projectRoot.toString(), gitlabSource);
     }
 
     public static AgentContext open(String projectRoot, String task,
@@ -182,6 +207,14 @@ public final class AgentContext implements AutoCloseable {
 
     public double getTimeout() {
         return timeout;
+    }
+
+    public GitLabSource gitlabSource() {
+        return gitlabSource;
+    }
+
+    public GitLabSource getGitlabSource() {
+        return gitlabSource;
     }
 
     public List<String> capabilities() {
@@ -382,7 +415,7 @@ public final class AgentContext implements AutoCloseable {
     public AgentContext reconnect() {
         close();
         return new AgentContext(projectRoot.toString(), task, permissions, executionPolicy,
-                engineBinary, timeout);
+                engineBinary, timeout, gitlabSource);
     }
 
     @Override
@@ -610,6 +643,9 @@ public final class AgentContext implements AutoCloseable {
         if (permissions.execute()) {
             expected.addAll(EXECUTE_TOOLS);
         }
+        if (gitlabSource != null) {
+            expected.add("ctx_provider");
+        }
         if (!expected.equals(new HashSet<>(received))) {
             throw new EngineProtocolError("Agent Tools capabilities do not match policy");
         }
@@ -823,6 +859,9 @@ public final class AgentContext implements AutoCloseable {
         policy.put("allowed_executables", executionPolicy.allowedExecutables());
         policy.put("max_timeout_ms", (long) Math.floor(executionPolicy.maxTimeout() * 1000.0));
         policy.put("schema_version", AGENT_TOOLS_SCHEMA_VERSION);
+        if (gitlabSource != null) {
+            policy.put("selected_gitlab", gitlabSource.policyValue());
+        }
         byte[] payload = Json.canonicalBytes(policy);
         try (OutputStream output = Files.newOutputStream(policyPath)) {
             output.write(payload);

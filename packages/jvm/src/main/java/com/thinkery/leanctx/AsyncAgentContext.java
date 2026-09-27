@@ -15,21 +15,29 @@ public final class AsyncAgentContext implements AutoCloseable {
     private final ExecutionPolicy executionPolicy;
     private final String engineBinary;
     private final double timeout;
+    private final GitLabSource gitlabSource;
     private volatile AgentContext context;
 
     public AsyncAgentContext(String projectRoot) {
-        this(projectRoot, "", new AgentPermissions(), new ExecutionPolicy(), "lean-ctx", 30.0);
+        this(projectRoot, "", new AgentPermissions(), new ExecutionPolicy(), "lean-ctx", 30.0, null);
     }
 
     public AsyncAgentContext(String projectRoot, String task, AgentPermissions permissions,
                              ExecutionPolicy executionPolicy, String engineBinary,
                              double timeout) {
+        this(projectRoot, task, permissions, executionPolicy, engineBinary, timeout, null);
+    }
+
+    public AsyncAgentContext(String projectRoot, String task, AgentPermissions permissions,
+                             ExecutionPolicy executionPolicy, String engineBinary,
+                             double timeout, GitLabSource gitlabSource) {
         this.projectRoot = projectRoot;
         this.task = task;
         this.permissions = permissions;
         this.executionPolicy = executionPolicy;
         this.engineBinary = engineBinary;
         this.timeout = timeout;
+        this.gitlabSource = gitlabSource;
     }
 
     public AsyncAgentContext(Path projectRoot, String task, AgentPermissions permissions,
@@ -37,6 +45,14 @@ public final class AsyncAgentContext implements AutoCloseable {
                              double timeout) {
         this(projectRoot == null ? null : projectRoot.toString(), task, permissions,
                 executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout);
+    }
+
+    public AsyncAgentContext(Path projectRoot, String task, AgentPermissions permissions,
+                             ExecutionPolicy executionPolicy, Path engineBinary,
+                             double timeout, GitLabSource gitlabSource) {
+        this(projectRoot == null ? null : projectRoot.toString(), task, permissions,
+                executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout,
+                gitlabSource);
     }
 
     public static CompletableFuture<AsyncAgentContext> open(String projectRoot) {
@@ -47,6 +63,17 @@ public final class AsyncAgentContext implements AutoCloseable {
         return new AsyncAgentContext(projectRoot == null ? null : projectRoot.toString()).open();
     }
 
+    public static CompletableFuture<AsyncAgentContext> open(String projectRoot,
+                                                              GitLabSource gitlabSource) {
+        return new AsyncAgentContext(projectRoot, "", new AgentPermissions(),
+                new ExecutionPolicy(), "lean-ctx", 30.0, gitlabSource).open();
+    }
+
+    public static CompletableFuture<AsyncAgentContext> open(Path projectRoot,
+                                                              GitLabSource gitlabSource) {
+        return open(projectRoot == null ? null : projectRoot.toString(), gitlabSource);
+    }
+
     public CompletableFuture<AsyncAgentContext> open() {
         if (context != null) {
             return CompletableFuture.completedFuture(this);
@@ -55,7 +82,7 @@ public final class AsyncAgentContext implements AutoCloseable {
             synchronized (this) {
                 if (context == null) {
                     context = new AgentContext(projectRoot, task, permissions,
-                            executionPolicy, engineBinary, timeout);
+                            executionPolicy, engineBinary, timeout, gitlabSource);
                 }
             }
             return this;
@@ -64,6 +91,10 @@ public final class AsyncAgentContext implements AutoCloseable {
 
     public List<String> capabilities() {
         return current().capabilities();
+    }
+
+    public GitLabSource gitlabSource() {
+        return gitlabSource;
     }
 
     public AgentMetrics metrics() {
@@ -119,7 +150,7 @@ public final class AsyncAgentContext implements AutoCloseable {
             old.close();
             synchronized (this) {
                 context = new AgentContext(projectRoot, task, permissions,
-                        executionPolicy, engineBinary, timeout);
+                        executionPolicy, engineBinary, timeout, gitlabSource);
             }
             return this;
         });

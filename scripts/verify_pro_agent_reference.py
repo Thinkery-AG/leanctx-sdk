@@ -9,6 +9,8 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from contextlib import contextmanager
 from importlib.metadata import distribution
@@ -16,7 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 import leanctx_sdk
-from leanctx_sdk import AgentContext, EngineProtocolError
+from leanctx_sdk import AgentContext, EngineProtocolError, GitLabSource
 from leanctx_sdk.errors import AgentPermissionError, EngineExecutionError
 
 
@@ -61,6 +63,9 @@ def verify(
     if not provenance:
         raise RuntimeError("installed package provenance is missing")
     checks: dict[str, bool] = {}
+    source_path = os.environ.get("LEANCTX_REFERENCE_GITLAB_SOURCE")
+    source_config = json.loads(Path(source_path).read_text()) if source_path else None
+    source = GitLabSource(**source_config) if source_config else None
     with _reference_project(project) as root:
         policy = root / ".lean-ctx/policy.toml"
         rules = policy.read_text()
@@ -73,7 +78,7 @@ def verify(
             )
         else:
             raise RuntimeError("old Engine unexpectedly admitted")
-        with AgentContext(root, engine_binary=engine) as context:
+        with AgentContext(root, engine_binary=engine, gitlab_source=source) as context:
             read = context.read("login.py", "full")
             composed = context.compose("investigate authentication retry")
             if os.environ.get("LEANCTX_REFERENCE_PRO") == "1":
@@ -120,6 +125,33 @@ def verify(
                 "REFRESH_SESSION_FIRST" in restored.text
                 and "CUS-1234" not in restored.text
             )
+            if source_config:
+                query = dict(action="query", provider="gitlab", resource="merge_requests",
+                             project=str(source_config["project"]), mode="snapshot", limit=1)
+                snapshot = context.call("ctx_provider", query)
+                observed = subprocess.run(
+                    [sys.executable, os.environ["LEANCTX_REFERENCE_SNAPSHOT_OBSERVER"]],
+                    input=snapshot.text.encode(), capture_output=True, timeout=15,
+                )
+                checks["live_selected_gitlab"] = observed.returncode == 0
+                for name, change in [("foreign_project_refused", {"project": "other/project"}),
+                                     ("unsupported_source_action_refused", {"action": "refresh"})]:
+                    try:
+                        context.call("ctx_provider", {**query, **change})
+                    except AgentPermissionError:
+                        checks[name] = True
+                    else:
+                        checks[name] = False
+                try:
+                    policy.unlink()
+                    try:
+                        context.read("login.py", "full")
+                    except AgentPermissionError:
+                        checks["source_policy_removal_closes_session"] = True
+                    else:
+                        checks["source_policy_removal_closes_session"] = False
+                finally:
+                    policy.write_text(rules)
             metrics = {
                 "original_tokens": context.metrics.original_tokens,
                 "output_tokens": context.metrics.output_tokens,
@@ -128,7 +160,7 @@ def verify(
     return {
         "passed": all(checks.values()),
         "checks": checks,
-        "responses": {
+        "responses": {} if source_config else {
             "read": read.text,
             "compose": composed.text,
             "restored": restored.text,
@@ -140,7 +172,7 @@ def verify(
         "installed_module": str(installed),
         "installed_provenance": json.loads(provenance),
         "metrics": metrics,
-        "scope": "Installed Python package, actual local Engine subprocess; context returned to application. GitLab, Codex, other SDKs and model transmission not proven by this fixture.",
+        "scope": "Installed Python package, actual local Engine subprocess; context returned to application. Optional selected live GitLab is checked only when configured; no Codex or model transmission claim.",
     }
 
 
