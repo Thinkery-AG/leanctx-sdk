@@ -33,9 +33,11 @@ public final class ProAgentReference {
             oldRejected = error.getMessage().contains("hello is incompatible");
         }
         checks.put("old_engine_rejected", oldRejected);
+        String configDir = System.getenv("LEANCTX_REFERENCE_GITLAB_CONFIG_DIR");
         GitLabSource source = System.getenv("LEANCTX_REFERENCE_GITLAB_SOURCE") == null ? null : new GitLabSource(
             System.getenv("LEANCTX_REFERENCE_GITLAB_HOST"), Long.parseLong(System.getenv("LEANCTX_REFERENCE_GITLAB_PROJECT")),
-            System.getenv("LEANCTX_REFERENCE_GITLAB_NAMESPACE"), Path.of(System.getenv("LEANCTX_REFERENCE_GITLAB_GLAB")));
+            System.getenv("LEANCTX_REFERENCE_GITLAB_NAMESPACE"), Path.of(System.getenv("LEANCTX_REFERENCE_GITLAB_GLAB")),
+            configDir == null ? null : Path.of(configDir));
         try (AgentContext context = new AgentContext(root, "", new AgentPermissions(), new ExecutionPolicy(), Path.of(args[0]), 30.0, source)) {
             String read = context.read("login.py", ReadMode.FULL, false).text();
             String composed = context.compose("investigate authentication retry", ".").text();
