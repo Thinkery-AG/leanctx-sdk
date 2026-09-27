@@ -571,7 +571,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     public async Task<AgentContext> ReconnectAsync()
     {
         await CloseAsync().ConfigureAwait(false);
-        return await OpenAsync(ProjectRoot, Task, Permissions, ExecutionPolicy,
+        return await OpenAsync(ProjectRoot, Task.Length == 0 ? null : Task, Permissions, ExecutionPolicy,
             EngineBinary, Timeout, gitlabSource).ConfigureAwait(false);
     }
 

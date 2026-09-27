@@ -84,6 +84,17 @@ try {
         try { await context.read("login.py", "full"); checks.source_policy_removal_closes_session = false; }
         catch (error) { checks.source_policy_removal_closes_session = error instanceof AgentPermissionError; }
       } finally { await writeFile(policy, rules); }
+      const reconnected = await context.reconnect();
+      try {
+        const freshSnapshot = await reconnected.call("ctx_provider", query);
+        const freshObserved = spawnSync(process.env.LEANCTX_REFERENCE_PYTHON, [process.env.LEANCTX_REFERENCE_SNAPSHOT_OBSERVER],
+          { input: freshSnapshot.text, encoding: "utf8", timeout: 15000, maxBuffer: 65536 });
+        checks.reconnect_selected_gitlab = freshObserved.status === 0;
+        const fresh = (await reconnected.read("login.py", "full")).text;
+        checks.reconnect_protected_read = fresh.includes("REFRESH_SESSION_FIRST") && fresh.includes("REDACTED") && !fresh.includes("CUS-1234");
+        try { await reconnected.call("ctx_provider", {...query, project: "other/project"}); checks.reconnect_foreign_project_refused = false; }
+        catch (error) { checks.reconnect_foreign_project_refused = error instanceof AgentPermissionError; }
+      } finally { await reconnected.close(); }
       for (const key of Object.keys(responses)) delete responses[key];
     }
   } finally {

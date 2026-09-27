@@ -79,6 +79,14 @@ public final class ProAgentReference {
                     try { context.read("login.py", ReadMode.FULL, false); checks.put("source_policy_removal_closes_session", false); }
                     catch (AgentPermissionError error) { checks.put("source_policy_removal_closes_session", true); }
                 } finally { Files.writeString(policy, rules); }
+                try (AgentContext reconnected = context.reconnect()) {
+                    checks.put("reconnect_selected_gitlab", observeSnapshot(reconnected.call("ctx_provider", query).text()));
+                    String fresh = reconnected.read("login.py", ReadMode.FULL, false).text();
+                    checks.put("reconnect_protected_read", fresh.contains("REFRESH_SESSION_FIRST") && fresh.contains("REDACTED") && !fresh.contains("CUS-1234"));
+                    var deniedQuery = new HashMap<>(query); deniedQuery.put("project", "other/project");
+                    try { reconnected.call("ctx_provider", deniedQuery); checks.put("reconnect_foreign_project_refused", false); }
+                    catch (AgentPermissionError error) { checks.put("reconnect_foreign_project_refused", true); }
+                }
                 responses.clear();
             }
         }

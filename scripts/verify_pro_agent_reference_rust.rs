@@ -136,6 +136,21 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .err().is_some_and(|error| error.is::<leanctx_sdk::AgentPermissionError>());
         fs::write(&policy, &rules)?;
         checks.insert("source_policy_removal_closes_session", blocked);
+        let reconnected = context.reconnect()?;
+        let fresh_snapshot = reconnected.call("ctx_provider", query.clone())?;
+        let mut observer = Command::new(std::env::var("LEANCTX_REFERENCE_PYTHON")?)
+            .arg(std::env::var("LEANCTX_REFERENCE_SNAPSHOT_OBSERVER")?)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+        observer.stdin.take().ok_or("observer stdin unavailable")?.write_all(fresh_snapshot.text().as_bytes())?;
+        checks.insert("reconnect_selected_gitlab", observer.wait_with_output()?.status.success());
+        let fresh_response = reconnected.read("login.py", ReadMode::Full, false)?;
+        let fresh = fresh_response.text();
+        checks.insert("reconnect_protected_read", fresh.contains("REFRESH_SESSION_FIRST")
+            && fresh.contains("REDACTED") && !fresh.contains("CUS-1234"));
+        let mut denied = query.clone(); denied["project"] = json!("other/project");
+        checks.insert("reconnect_foreign_project_refused", reconnected.call("ctx_provider", denied)
+            .err().is_some_and(|error| error.is::<leanctx_sdk::AgentPermissionError>()));
+        reconnected.close()?;
         responses.clear();
     }
     context.close()?;

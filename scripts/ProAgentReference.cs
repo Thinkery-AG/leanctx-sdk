@@ -73,6 +73,22 @@ using (var context = source is null ? AgentContext.Open(root, engineBinary: args
             try { context.Read("login.py", ReadMode.Full); checks["source_policy_removal_closes_session"]=false; }
             catch (AgentPermissionError) { checks["source_policy_removal_closes_session"]=true; }
         } finally { File.WriteAllText(policy, rules); }
+        using (var reconnected = context.Reconnect())
+        {
+            var freshSnapshot = reconnected.Call("ctx_provider", query);
+            using (var observer = Process.Start(start)!)
+            {
+                try {
+                    observer.StandardInput.Write(freshSnapshot.Text); observer.StandardInput.Close();
+                    checks["reconnect_selected_gitlab"] = observer.WaitForExit(15000) && observer.ExitCode == 0;
+                } finally { if (!observer.HasExited) observer.Kill(entireProcessTree:true); }
+            }
+            var fresh = reconnected.Read("login.py", ReadMode.Full).Text;
+            checks["reconnect_protected_read"] = fresh.Contains("REFRESH_SESSION_FIRST") && fresh.Contains("REDACTED") && !fresh.Contains("CUS-1234");
+            var deniedQuery = new Dictionary<string, object?>(query) { ["project"]="other/project" };
+            try { reconnected.Call("ctx_provider", deniedQuery); checks["reconnect_foreign_project_refused"]=false; }
+            catch (AgentPermissionError) { checks["reconnect_foreign_project_refused"]=true; }
+        }
         responses.Clear();
     }
 }

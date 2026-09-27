@@ -17,6 +17,7 @@ internal static class Program
         Run("engine-parser-negatives", EngineParserNegatives);
         Run("agent-permission-negative", AgentPermissionNegative);
         Run("agent-gitlab-source", AgentGitLabSource);
+        Run("agent-reconnect-task", AgentReconnectTask);
         Run("agent-protocol-negative", AgentProtocolNegative);
         Run("agent-timeout-negative", AgentTimeoutNegative);
         Run("engine-v1-fixture", EngineV1Fixture);
@@ -153,6 +154,21 @@ internal static class Program
         context.Close();
         if (Directory.EnumerateDirectories(root.Path, ".leanctx-agent-*", SearchOption.TopDirectoryOnly).Any())
             throw new Exception("Agent policy directory was not cleaned");
+    }
+
+    private static void AgentReconnectTask()
+    {
+        using var root = new TemporaryDirectory();
+        var binary = FakeAgent(root.Path, "good");
+        Throws<ValidationError>(() => AgentContext.Open(root.Path, task: "", engineBinary: binary));
+        foreach (var task in new string?[] { null, "investigate authentication" })
+        {
+            using var original = AgentContext.Open(root.Path, task: task, engineBinary: binary);
+            using var reconnected = original.Reconnect();
+            Equal(task ?? string.Empty, reconnected.Task);
+            Equal("ctx_read:ok", reconnected.Read("README.md").Text);
+            Throws<AgentPermissionError>(() => reconnected.Run(new[] { "echo" }));
+        }
     }
 
     private static void AgentGitLabSource()

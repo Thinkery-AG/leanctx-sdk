@@ -142,6 +142,24 @@ func main() {
 		write(policy, rules)
 		var permission *leanctx.AgentPermissionError
 		checks["source_policy_removal_closes_session"] = errors.As(err, &permission)
+		reconnected, err := agent.Reconnect(context.Background())
+		must(err)
+		defer reconnected.Close()
+		freshSnapshot, err := reconnected.Call("ctx_provider", query)
+		must(err)
+		freshObserverContext, freshCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		freshObserver := exec.CommandContext(freshObserverContext, os.Getenv("LEANCTX_REFERENCE_PYTHON"), os.Getenv("LEANCTX_REFERENCE_SNAPSHOT_OBSERVER"))
+		freshObserver.Stdin = bytes.NewBufferString(freshSnapshot.Text)
+		checks["reconnect_selected_gitlab"] = freshObserver.Run() == nil
+		freshCancel()
+		fresh, err := reconnected.Read("login.py", "full")
+		must(err)
+		checks["reconnect_protected_read"] = strings.Contains(fresh.Text, "REFRESH_SESSION_FIRST") && strings.Contains(fresh.Text, "REDACTED") && !strings.Contains(fresh.Text, "CUS-1234")
+		deniedQuery := map[string]any{}
+		for key, value := range query { deniedQuery[key] = value }
+		deniedQuery["project"] = "other/project"
+		_, err = reconnected.Call("ctx_provider", deniedQuery)
+		checks["reconnect_foreign_project_refused"] = errors.As(err, &permission)
 		responses = map[string]string{}
 	}
 	passed := len(checks) >= 5

@@ -152,6 +152,24 @@ def verify(
                         checks["source_policy_removal_closes_session"] = False
                 finally:
                     policy.write_text(rules)
+                with context.reconnect() as reconnected:
+                    snapshot = reconnected.call("ctx_provider", query)
+                    observed = subprocess.run(
+                        [sys.executable, os.environ["LEANCTX_REFERENCE_SNAPSHOT_OBSERVER"]],
+                        input=snapshot.text.encode(), capture_output=True, timeout=15,
+                    )
+                    checks["reconnect_selected_gitlab"] = observed.returncode == 0
+                    fresh = reconnected.read("login.py", "full").text
+                    checks["reconnect_protected_read"] = (
+                        "REFRESH_SESSION_FIRST" in fresh and "REDACTED" in fresh
+                        and "CUS-1234" not in fresh
+                    )
+                    try:
+                        reconnected.call("ctx_provider", {**query, "project": "other/project"})
+                    except AgentPermissionError:
+                        checks["reconnect_foreign_project_refused"] = True
+                    else:
+                        checks["reconnect_foreign_project_refused"] = False
             metrics = {
                 "original_tokens": context.metrics.original_tokens,
                 "output_tokens": context.metrics.output_tokens,
