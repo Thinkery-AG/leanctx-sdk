@@ -865,7 +865,7 @@ mod tests {
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.10.2",
+            "engine_version": "4.0.0",
             "schema_version": 1,
             "transport_version": 1
         });
@@ -905,7 +905,7 @@ done"#,
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.10.2",
+            "engine_version": "4.0.0",
             "schema_version": 1,
             "transport_version": 1
         });

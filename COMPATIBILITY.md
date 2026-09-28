@@ -3,7 +3,7 @@
 ## Stable SDK 1.1.0
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
-contract. This source candidate's `AgentContext` requires LeanCTX Engine 3.10.2 and negotiates interface
+contract. This source candidate's `AgentContext` requires LeanCTX Engine 4.0.0 and negotiates interface
 `1.0.0`, schema `1`, and transport `1` before exposing any tool.
 
 | Component | Declared scope | Release status |
@@ -15,12 +15,12 @@ contract. This source candidate's `AgentContext` requires LeanCTX Engine 3.10.2 
 | Rust | Rust 1.76+ and stable | supported |
 | JVM | Java 21 / Kotlin 2.1 | supported |
 | .NET | .NET 8+ | supported |
-| Agent Tools Engine | `3.10.2` | exact source-candidate pairing; release certification remains separate |
+| Agent Tools Engine | `4.0.0` | exact source-candidate pairing; release certification remains separate |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
 
 The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras install
-their exact 3.10.2 companion Engine packages. Source checkouts may instead pass
+their exact 4.0.0 companion Engine packages. Source checkouts may instead pass
 `engine_binary=` explicitly. No compatibility is inferred from a newer Engine
 or an executable found on `PATH`.
 

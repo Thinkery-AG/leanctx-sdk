@@ -15,7 +15,7 @@
     <RepositoryUrl>https://github.com/Thinkery-AG/leanctx-sdk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Thinkery-AG/leanctx-sdk</PackageProjectUrl>
-    <PackageReleaseNotes>LeanCTX SDK 1.1. Requires LeanCTX Engine 3.10.2 for Agent Tools.</PackageReleaseNotes>
+    <PackageReleaseNotes>LeanCTX SDK 1.1. Requires LeanCTX Engine 4.0.0 for Agent Tools.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>

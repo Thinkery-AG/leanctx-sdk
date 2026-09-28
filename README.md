@@ -24,14 +24,14 @@ your model / agent loop
           ↓
 AgentContext or AsyncAgentContext
           ↓  versioned local Agent Tools Interface
-LeanCTX Engine 3.10.2 (source candidate)
+LeanCTX Engine 4.0.0 (source candidate)
           ↓
 project-jailed files, cache, search, patches, approved commands
 ```
 
 ## Install
 
-This source candidate requires exactly Engine 3.10.2. Its source compatibility
+This source candidate requires exactly Engine 4.0.0. Its source compatibility
 does not certify a public release. For local qualification, build this checkout's
 SDK wheel and pass the matching candidate through `engine_binary=`.
 
@@ -57,7 +57,7 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 
 All SDK 1.1 packages implement the five stable Product primitives, Engine
 Interface v1, and PR #8 Agent Tools 1.1 contract. Their Agent Tools clients now
-require exactly Engine 3.10.2. Package builds, installed reference workflows and
+require exactly Engine 4.0.0. Package builds, installed reference workflows and
 registry promotion are separate qualification steps.
 
 | Runtime | Package source | Package identity |
@@ -141,7 +141,7 @@ the Engine's raw-output baseline; they are not a promise for every workload.
 The five SDK 1.0 lifecycle primitives remain available unchanged:
 `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
 `ContextReceipt`. `AgentContext` requires Agent Tools Interface v1 from Engine
-3.10.2; the older context-view/recover Engine Interface v1 remains unchanged.
+4.0.0; the older context-view/recover Engine Interface v1 remains unchanged.
 
 See:
 

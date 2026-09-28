@@ -5,7 +5,7 @@ The Go module `github.com/Thinkery-AG/leanctx-sdk/packages/go` implements LeanCT
 Interface v1 subprocess adapter, and the persistent Agent Tools 1.1 client.
 
 The module is released from this monorepo with the Go-standard
-`packages/go/vX.Y.Z` tag. This source candidate requires exactly LeanCTX Engine 3.10.2 for Agent Tools.
+`packages/go/vX.Y.Z` tag. This source candidate requires exactly LeanCTX Engine 4.0.0 for Agent Tools.
 The local pairing does not certify a published Engine or SDK release.
 
 ```go

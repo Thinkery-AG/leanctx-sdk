@@ -278,7 +278,7 @@ class AgentToolsTest {
                 + "while IFS= read -r line; do\n"
                 + "  id=$((id + 1))\n"
                 + "  case \"$line\" in\n"
-                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.10.2\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
+                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"4.0.0\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
                 + "    *\\\"tool\\\":\\\"ctx_shell\\\"*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_shell:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":{\"exit_code\":0}}}' ;;\n"
                 + "    *call*) " + delay + "printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_read:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":null}}' ;;\n"
                 + "    *close*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{}}'; exit 0 ;;\n"

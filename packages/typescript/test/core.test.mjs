@@ -147,7 +147,7 @@ lines.on("line", (line) => {
   const request = JSON.parse(line);
   let result;
   if (request.op === "hello") {
-    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.10.2", schema_version: 1, transport_version: 1 };
+    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "4.0.0", schema_version: 1, transport_version: 1 };
   } else if (request.op === "call") {
     result = { text: request.tool + ":ok", content_blocks: [], original_tokens: 10, output_tokens: 4, saved_tokens: 6, mode: null, changed: request.tool === "ctx_patch", shell: request.tool === "ctx_shell" ? { exit_code: 0 } : null };
   } else if (request.op === "close") {
