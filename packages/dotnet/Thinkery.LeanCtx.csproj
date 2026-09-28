@@ -4,7 +4,7 @@
     <AssemblyName>Thinkery.LeanCtx</AssemblyName>
     <RootNamespace>Thinkery.LeanCtx</RootNamespace>
     <PackageId>Thinkery.LeanCtx</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Thinkery AG</Authors>
     <Company>Thinkery AG</Company>
     <Description>Source-available .NET 8 SDK for LeanCTX Product evidence, Engine v1, and Agent Tools 1.1.</Description>

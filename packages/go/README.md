@@ -1,7 +1,7 @@
 # LeanCTX Go SDK
 
 The Go module `github.com/Thinkery-AG/leanctx-sdk/packages/go` implements LeanCTX SDK
-1.1.0. It provides the five stable Product primitives, a strict Engine
+1.2.0. It provides the five stable Product primitives, a strict Engine
 Interface v1 subprocess adapter, and the persistent Agent Tools 1.1 client.
 
 The module is released from this monorepo with the Go-standard

@@ -45,8 +45,8 @@ _ENGINE_CHECKSUMS_SHA256 = (
 def _validate(values: dict[str, str]) -> None:
     if values.get("publication_authorization") != "APPROVED":
         raise ValueError("final evidence requires explicit publication authorization")
-    if values.get("sdk_version") != "1.1.0":
-        raise ValueError("final evidence requires SDK version 1.1.0")
+    if values.get("sdk_version") != "1.2.0":
+        raise ValueError("final evidence requires SDK version 1.2.0")
     if (
         values.get("engine_version") != "3.10.1"
         or values.get("engine_tag") != "v3.10.1"
@@ -230,7 +230,7 @@ rejected. LICENSE SHA-256: `{license_sha256}`.
         "PUBLISH-STATUS.md": """# Publish status
 
 Repository: `{public_repository}`. PyPI project: `{pypi_project}`. Publication
-is available only from the exact `v1.1.0` tag after all technical gates and the
+is available only from the exact `v1.2.0` tag after all technical gates and the
 approved wheel-hash guard pass, using GitHub OIDC Trusted Publishing.
 """,
     }

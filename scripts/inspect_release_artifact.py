@@ -17,9 +17,9 @@ from typing import Dict
 
 
 _DIST = "thinkery-leanctx-sdk"
-_VERSION = "1.1.0"
+_VERSION = "1.2.0"
 _PYTHON_REQUIRES = "<3.15,>=3.9"
-_DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
+_DIST_INFO = "thinkery_leanctx_sdk-1.2.0.dist-info"
 _DIST_INFO_FILES = {
     "METADATA",
     "RECORD",
@@ -135,7 +135,7 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
         if not all(
             marker in notices
             for marker in (
-                b"LeanCTX SDK v1.1.0",
+                b"LeanCTX SDK v1.2.0",
                 b"Third-Party Notices",
                 b"exact 41-wheel",
                 b"openai-agents 0.8.4",

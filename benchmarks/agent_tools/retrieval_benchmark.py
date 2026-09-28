@@ -190,7 +190,7 @@ def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
             "network_access": "denied",
             "repeats": repeats,
             "scope": "controlled context retrieval only; no provider billing claim",
-            "sdk_version": "1.1.0",
+            "sdk_version": "1.2.0",
             "status": "PASS"
             if all(item["status"] == "PASS" for item in reports)
             and median_savings >= MINIMUM_SAVINGS_PERCENT

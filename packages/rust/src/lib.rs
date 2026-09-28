@@ -15,7 +15,7 @@ mod receipt;
 mod session;
 
 #[allow(non_upper_case_globals)]
-pub const __version__: &str = "1.1.0";
+pub const __version__: &str = "1.2.0";
 
 pub use agent::{
     AgentContext, AgentContextBuilder, AgentMetrics, AgentPermissions, ExecutionPolicy,

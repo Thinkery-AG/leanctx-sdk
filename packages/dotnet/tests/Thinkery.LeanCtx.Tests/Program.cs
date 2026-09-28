@@ -44,7 +44,7 @@ internal static class Program
 
     private static void ConstantsTest()
     {
-        Equal("1.1.0", Constants.__version__);
+        Equal("1.2.0", Constants.__version__);
         Equal("1.0.0", Constants.ENGINE_INTERFACE_VERSION);
         Equal("1.0.0", Constants.AGENT_TOOLS_INTERFACE_VERSION);
         Equal("4.0.0", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);

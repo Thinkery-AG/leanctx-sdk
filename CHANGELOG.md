@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Pair all six SDK packages with LeanCTX Engine 4.0.0.
+- Keep the existing interface, schema and transport versions and public-surface contract.
+- Preserve the published 1.1.0 packages; 1.2.0 uses a new release identity.
+- Include the TypeScript Engine process-group cleanup correction.
+
 ## 1.1.0
 
 - Stable PR #8 Agent Tools contract with explicit read/write/execute policy,

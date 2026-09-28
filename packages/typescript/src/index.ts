@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** LeanCTX SDK Stable v1 and additive Agent Tools v1.1 surface. */
 
-export const __version__ = "1.1.0" as const;
+export const __version__ = "1.2.0" as const;
 
 export {
   AGENT_TOOLS_INTERFACE_VERSION,

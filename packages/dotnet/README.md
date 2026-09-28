@@ -1,4 +1,4 @@
-# Thinkery.LeanCtx 1.1.0
+# Thinkery.LeanCtx 1.2.0
 
 Thinkery.LeanCtx is a source-available .NET 8 SDK for the LeanCTX Product
 primitives, Engine Interface v1, and Agent Tools 1.1.

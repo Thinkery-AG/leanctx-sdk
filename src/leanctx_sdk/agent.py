@@ -349,7 +349,7 @@ class AgentContext:
                     "schema_version": AGENT_TOOLS_SCHEMA_VERSION,
                     "transport_version": AGENT_TOOLS_TRANSPORT_VERSION,
                     "agent_tools_interface_version": AGENT_TOOLS_INTERFACE_VERSION,
-                    "sdk_version": "1.1.0",
+                    "sdk_version": "1.2.0",
                 }
             )
             self._accept_hello(result)

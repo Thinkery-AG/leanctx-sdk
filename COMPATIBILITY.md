@@ -1,6 +1,6 @@
 # Compatibility
 
-## Stable SDK 1.1.0
+## Stable SDK 1.2.0
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
 contract. This source candidate's `AgentContext` requires LeanCTX Engine 4.0.0 and negotiates interface

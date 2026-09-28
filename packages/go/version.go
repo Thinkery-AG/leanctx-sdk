@@ -3,7 +3,7 @@ package leanctx
 // Stable SDK and protocol versions.  The Agent Tools contract is deliberately
 // separate from the Product/Engine Interface v1 contract.
 const (
-	Version                          = "1.1.0"
+	Version                          = "1.2.0"
 	EngineInterfaceVersion           = "1.0.0"
 	SchemaVersion                    = 1
 	TransportVersion                 = 1

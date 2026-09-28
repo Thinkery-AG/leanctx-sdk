@@ -27,7 +27,7 @@ pub(crate) fn hello_request(
         "agent_tools_interface_version".to_owned(),
         Value::String(interface_version.to_owned()),
     );
-    request.insert("sdk_version".to_owned(), Value::String("1.1.0".to_owned()));
+    request.insert("sdk_version".to_owned(), Value::String("1.2.0".to_owned()));
     Value::Object(request)
 }
 

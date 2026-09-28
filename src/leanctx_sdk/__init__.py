@@ -9,7 +9,7 @@ The v4 integration adds planning and guarded context-read types documented in
 docs/ENGINE-PLANNING.md.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from .agent import (
     AGENT_TOOLS_INTERFACE_VERSION,

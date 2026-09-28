@@ -41,13 +41,13 @@ or qualify this source candidate:
 Standard Engine:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent]==1.2.0"
 ```
 
 With the certified OpenAI Agents integration:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.2.0"
 ```
 
 CUDA and Windows-GNU builds use the documented `agent-cuda` and

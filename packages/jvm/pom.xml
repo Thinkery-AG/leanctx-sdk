@@ -7,7 +7,7 @@
 
   <groupId>com.leanctx</groupId>
   <artifactId>leanctx-sdk</artifactId>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
   <name>LeanCTX JVM SDK</name>
   <description>LeanCTX stable Product and Agent Tools SDK for Java 21 and Kotlin.</description>
   <packaging>jar</packaging>

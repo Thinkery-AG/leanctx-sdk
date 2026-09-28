@@ -534,7 +534,7 @@ fn execution_policy_is_canonical_and_loader_variables_are_forbidden() {
 
 #[test]
 fn public_constants_are_frozen() {
-    assert_eq!(leanctx_sdk::__version__, "1.1.0");
+    assert_eq!(leanctx_sdk::__version__, "1.2.0");
     assert_eq!(leanctx_sdk::SCHEMA_VERSION, 1);
     assert_eq!(leanctx_sdk::TRANSPORT_VERSION, 1);
     assert_eq!(leanctx_sdk::ENGINE_INTERFACE_VERSION, "1.0.0");

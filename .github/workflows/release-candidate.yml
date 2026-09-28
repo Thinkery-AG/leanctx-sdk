@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - v1.1.0
+      - v1.2.0
 
 permissions:
   contents: read
@@ -215,7 +215,7 @@ jobs:
           cache: maven
           cache-dependency-path: packages/jvm/pom.xml
       - run: mvn --batch-mode --no-transfer-progress verify 2>&1 | tee ../../jvm-sdk.log
-      - run: jar tf target/leanctx-sdk-1.1.0.jar | sort > ../../jvm-package-contents.txt
+      - run: jar tf target/leanctx-sdk-1.2.0.jar | sort > ../../jvm-package-contents.txt
       - run: grep -Fx META-INF/LICENSE ../../jvm-package-contents.txt
       - run: grep -Fx com/thinkery/leanctx/AgentContext.class ../../jvm-package-contents.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -244,7 +244,7 @@ jobs:
       - run: dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-restore
       - run: set -o pipefail; dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-build 2>&1 | tee ../../dotnet-sdk.log
       - run: dotnet pack Thinkery.LeanCtx.csproj --configuration Release --no-build --output "$RUNNER_TEMP/nuget"
-      - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.1.0.nupkg | tee ../../dotnet-package-contents.txt
+      - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.2.0.nupkg | tee ../../dotnet-package-contents.txt
       - run: grep -F LICENSE ../../dotnet-package-contents.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -601,7 +601,7 @@ jobs:
     timeout-minutes: 5
     env:
       SDK_COMMIT: ${{ needs.sdk-artifact.outputs.sdk_commit }}
-      SDK_VERSION: 1.1.0
+      SDK_VERSION: 1.2.0
       SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
       ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
       ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
@@ -752,12 +752,12 @@ jobs:
         with:
           persist-credentials: false
       - if: startsWith(github.ref, 'refs/tags/')
-        run: test "$GITHUB_REF" = refs/tags/v1.1.0
+        run: test "$GITHUB_REF" = refs/tags/v1.2.0
       - if: github.event_name != 'pull_request'
         run: |
           test "$SDK_V1_PUBLICATION_AUTHORIZED" = APPROVED
           test "$GITHUB_SHA" = "$SDK_V1_APPROVED_SDK_COMMIT"
-          test "$SDK_V1_APPROVED_VERSION" = 1.1.0
+          test "$SDK_V1_APPROVED_VERSION" = 1.2.0
           test "$SDK_WHEEL_SHA256" = "$SDK_V1_APPROVED_WHEEL_SHA256"
           test "$(sha256sum LICENSE | cut -d ' ' -f1)" = "$SDK_V1_APPROVED_LICENSE_SHA256"
           test "$GITHUB_REPOSITORY" = "$SDK_V1_APPROVED_REPOSITORY"
@@ -808,9 +808,9 @@ jobs:
           BUILT_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
         run: |
           test "$BUILT_SHA256" = "$APPROVED_SHA256"
-          test "$(sha256sum download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
+          test "$(sha256sum download/thinkery_leanctx_sdk-1.2.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
           mkdir publish
-          cp download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl publish/
+          cp download/thinkery_leanctx_sdk-1.2.0-py3-none-any.whl publish/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: publish

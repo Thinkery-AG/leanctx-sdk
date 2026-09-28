@@ -1,6 +1,6 @@
 # Thinkery LeanCTX SDK for Rust
 
-Source-available Rust SDK 1.1.0 for the governed LeanCTX Product lifecycle
+Source-available Rust SDK 1.2.0 for the governed LeanCTX Product lifecycle
 and Agent Tools Interface v1. It provides the five stable Product primitives
 (`ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
 `ContextReceipt`) plus a persistent, permissioned `AgentContext`.

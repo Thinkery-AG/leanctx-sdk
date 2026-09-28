@@ -5,7 +5,7 @@
 For a released Engine companion package:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent]==1.2.0"
 ```
 
 During source validation, point the SDK at a locally built Engine:

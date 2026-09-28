@@ -1,6 +1,6 @@
 [package]
 name = "thinkery-leanctx-sdk"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 rust-version = "1.76"
 description = "Source-available Rust SDK for governed LeanCTX context and Agent Tools"
