@@ -8,6 +8,7 @@ import {
   AsyncAgentContext,
   AgentPermissionError,
   EngineCrashed,
+  EngineExecutionError,
   EngineProtocolError,
   ExecutionPolicy,
   ReadMode,
@@ -28,6 +29,15 @@ function project() {
   const root = mkdtempSync(join(tmpdir(), "leanctx-agent-test-"));
   temporaryRoots.add(root);
   return { root, dirs: () => readdirSync(root).filter((entry) => entry.startsWith(".leanctx-agent-")) };
+}
+
+async function waitForProcessGone(pid, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    try { process.kill(pid, 0); } catch (error) { if (error.code === "ESRCH") return true; throw error; }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  } while (Date.now() < deadline);
+  return false;
 }
 
 function engine(root, source) {
@@ -85,6 +95,80 @@ for (const [name, source] of [
     assert.deepEqual(dirs(), []);
   });
 }
+
+test("cancellation kills process group after Engine leader exits with inherited pipes open", { skip: process.platform === "win32" }, async () => {
+  const { root, dirs } = project();
+  const source = `
+import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import readline from "node:readline";
+const projectRoot = ${JSON.stringify(root)};
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.op !== "hello") return;
+  const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });
+  writeFileSync(join(projectRoot, "descendant.pid"), String(descendant.pid));
+  process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: false, allow_write: false, capabilities: ${JSON.stringify(READ_CAPABILITIES)}, engine_version: "4.0.0", schema_version: 1, transport_version: 1 } }) + "\\n");
+  process.exit(0);
+});
+`;
+  let context = null;
+  let descendantPid = null;
+  let descendantGone = false;
+  try {
+    context = await AgentContext.open(root, { engineBinary: engine(root, source), timeout: 1 });
+    const child = context.process;
+    assert.ok(child);
+    const deadline = Date.now() + 2_000;
+    while (child.exitCode === null && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(child.exitCode, 0);
+    descendantPid = Number(readFileSync(join(root, "descendant.pid"), "utf8"));
+    assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0);
+    await context.cancel();
+    descendantGone = await waitForProcessGone(descendantPid);
+    assert.equal(descendantGone, true, "the process-group descendant should be gone after close");
+    assert.deepEqual(dirs(), []);
+  } finally {
+    if (descendantPid === null) {
+      try { descendantPid = Number(readFileSync(join(root, "descendant.pid"), "utf8")); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
+    if (descendantPid !== null && Number.isSafeInteger(descendantPid) && descendantPid > 0 && !descendantGone) {
+      try { process.kill(descendantPid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+      await waitForProcessGone(descendantPid);
+    }
+    if (context) await context.close().catch(() => {});
+  }
+});
+
+test("process-group failure falls back to the live Engine and remains an error", { skip: process.platform === "win32" }, async () => {
+  const { root, dirs } = project();
+  const context = await AgentContext.open(root, { engineBinary: engine(root, helloAndLoop()), timeout: 1 });
+  const child = context.process;
+  assert.ok(child?.pid);
+  const originalKill = process.kill;
+  process.kill = function (pid, signal) {
+    if (pid === -child.pid) {
+      const error = new Error("simulated process-group permission failure");
+      error.code = "EPERM";
+      throw error;
+    }
+    return originalKill.call(process, pid, signal);
+  };
+  try {
+    await assert.rejects(context.cancel(), EngineExecutionError);
+    assert.equal(child.signalCode, "SIGKILL");
+    assert.deepEqual(dirs(), []);
+  } finally {
+    process.kill = originalKill;
+    if (child.exitCode === null && child.signalCode === null) {
+      try { child.kill("SIGKILL"); } catch {}
+    }
+    await context.close().catch(() => {});
+  }
+});
 
 test("unexpected response id is terminal and reaped", async () => {
   const { root, dirs } = project();

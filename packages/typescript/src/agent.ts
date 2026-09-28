@@ -24,6 +24,7 @@ export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "4.0.0" as const;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+const PROCESS_CLEANUP_TIMEOUT_MS = 5_000;
 
 export enum ReadMode {
   AUTO = "auto",
@@ -196,6 +197,7 @@ export class AgentContext {
   private inputBuffer = Buffer.alloc(0);
   private nextId = 0;
   private closed = false;
+  private processClosed = false;
   private helloAccepted = false;
   private reapPromise: Promise<void> | null = null;
   private policyPath: string | null = null;
@@ -247,7 +249,7 @@ export class AgentContext {
         this.failPending(failure);
         void this.terminate().catch(() => {});
       });
-      child.once("close", () => { if (!this.closed) this.failPending(new EngineCrashed(this.crashMessage())); });
+      child.once("close", () => { this.processClosed = true; if (!this.closed) this.failPending(new EngineCrashed(this.crashMessage())); });
     } catch (error) {
       this.removePolicy();
       void this.terminate().catch(() => {});
@@ -382,27 +384,42 @@ export class AgentContext {
     this.failPending(new EngineCrashed("AgentContext terminated"));
     const child = this.process;
     this.reapPromise = new Promise((resolvePromise, rejectPromise) => {
-      if (child === null || child.exitCode !== null || child.signalCode !== null) {
+      if (child === null || this.processClosed) {
         this.removePolicy();
         resolvePromise();
         return;
       }
       let cleanupError: EngineExecutionError | null = null;
-      child.once("close", () => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (error: EngineExecutionError | null): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        child.removeListener("close", onClose);
         this.removePolicy();
-        if (cleanupError) rejectPromise(cleanupError); else resolvePromise();
-      });
+        if (error) rejectPromise(error); else resolvePromise();
+      };
+      const onClose = (): void => finish(cleanupError);
+      child.once("close", onClose);
+      timer = setTimeout(() => finish(cleanupError ?? new EngineExecutionError("Agent Tools process tree did not close within 5000 ms")), PROCESS_CLEANUP_TIMEOUT_MS);
       const pid = child.pid;
+      const processGroup = pid !== undefined && process.platform !== "win32";
+      const signalLeaderAsFallback = (): void => {
+        if (!processGroup || this.processClosed || child.exitCode !== null || child.signalCode !== null) return;
+        try { child.kill("SIGKILL"); } catch { /* preserve the process-group failure */ }
+      };
       try {
-        const signalled = pid && process.platform !== "win32" ? process.kill(-pid, "SIGKILL") : child.kill("SIGKILL");
-        if (!signalled) cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
-      } catch {
-        cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
-        try {
-          if (!child.kill("SIGKILL") && child.exitCode === null && child.signalCode === null) throw cleanupError;
-        } catch {
-          this.removePolicy();
-          rejectPromise(cleanupError);
+        const signalled = processGroup ? process.kill(-pid, "SIGKILL") : child.kill("SIGKILL");
+        if (!signalled) {
+          cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
+          signalLeaderAsFallback();
+        }
+      } catch (error) {
+        // ESRCH means the exact group or child target is already absent; still wait for close.
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+          cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
+          signalLeaderAsFallback();
         }
       }
     });
