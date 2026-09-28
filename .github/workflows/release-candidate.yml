@@ -16,7 +16,7 @@ concurrency:
 
 env:
   AGENT_TOOLS_ENGINE_VERSION: 4.0.0
-  ENGINE_COMMIT: 7f3ce144e80ce389e55ab686a59aeafb3167a1c6
+  ENGINE_COMMIT: 5c6d8902a63860ca490f4ae84057d341a3bbf5c7
   ENGINE_VERSION: 4.0.0
   ENGINE_TAG: v4.0.0
   ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
@@ -26,7 +26,7 @@ env:
   ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
   ENGINE_LINUX_ARCHIVE_SHA256: a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8
   ENGINE_MACOS_ARCHIVE_SHA256: f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d
-  ENGINE_CHECKSUMS_SHA256: 4247a9a0c53c3e372a5a3b2cacec1112173e57d4df83bef27c7d46dcfcc0c49b
+  ENGINE_CHECKSUMS_SHA256: e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37
   ENGINE_LINUX_X86_64_SHA256: fc96d1fc9e864dd9d1ee1aa112ff7d1c57c1ca0db61707042e6a117dadf725f5
   ENGINE_MACOS_ARM64_SHA256: d025fcf4eb222043d045de5c1eb4aadb3cc47ef0305bb40e1866d37d124c34b8
   ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v4.0.0
@@ -611,7 +611,7 @@ jobs:
       ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
       ENGINE_LINUX_ARCHIVE_SHA256: a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8
       ENGINE_MACOS_ARCHIVE_SHA256: f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d
-      ENGINE_CHECKSUMS_SHA256: 4247a9a0c53c3e372a5a3b2cacec1112173e57d4df83bef27c7d46dcfcc0c49b
+      ENGINE_CHECKSUMS_SHA256: e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37
       ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v4.0.0
       DEPENDENCY_MANIFEST_SHA256: ${{ needs.dependency-audit.outputs.manifest_sha256 }}
       DEPENDENCY_POLICY_SHA256: ${{ needs.dependency-audit.outputs.policy_sha256 }}

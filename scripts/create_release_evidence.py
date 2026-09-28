@@ -26,7 +26,7 @@ _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # Frozen 4.0.0 candidate bytes. Publication still requires the signed public
 # release and exact protected approval; inventory changes require new pins.
-_ENGINE_COMMIT = "7f3ce144e80ce389e55ab686a59aeafb3167a1c6"
+_ENGINE_COMMIT = "5c6d8902a63860ca490f4ae84057d341a3bbf5c7"
 _ENGINE_LINUX_SHA256 = (
     "fc96d1fc9e864dd9d1ee1aa112ff7d1c57c1ca0db61707042e6a117dadf725f5"
 )
@@ -40,7 +40,7 @@ _ENGINE_MACOS_ARCHIVE_SHA256 = (
     "f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d"
 )
 _ENGINE_CHECKSUMS_SHA256 = (
-    "4247a9a0c53c3e372a5a3b2cacec1112173e57d4df83bef27c7d46dcfcc0c49b"
+    "e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37"
 )
 
 

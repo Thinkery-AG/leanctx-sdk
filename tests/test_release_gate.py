@@ -331,14 +331,14 @@ class ReleaseGateTests(unittest.TestCase):
         for action_ref in action_refs:
             self.assertRegex(action_ref, r"^[0-9a-f]{40}$")
         for required in (
-            "ENGINE_COMMIT: 7f3ce144e80ce389e55ab686a59aeafb3167a1c6",
+            "ENGINE_COMMIT: 5c6d8902a63860ca490f4ae84057d341a3bbf5c7",
             "AGENT_TOOLS_ENGINE_VERSION: 4.0.0",
             "ENGINE_VERSION: 4.0.0",
             "ENGINE_TAG: v4.0.0",
             "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
             "ENGINE_LINUX_ARCHIVE_SHA256: a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8",
             "ENGINE_MACOS_ARCHIVE_SHA256: f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d",
-            "ENGINE_CHECKSUMS_SHA256: 4247a9a0c53c3e372a5a3b2cacec1112173e57d4df83bef27c7d46dcfcc0c49b",
+            "ENGINE_CHECKSUMS_SHA256: e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37",
             "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v4.0.0",
             "PYTHONPATH: src:.",
             "static-quality:",
@@ -493,7 +493,7 @@ class ReleaseGateTests(unittest.TestCase):
             "sdk_commit": "a" * 40,
             "sdk_version": "1.2.0",
             "wheel_sha256": "b" * 64,
-            "engine_commit": "7f3ce144e80ce389e55ab686a59aeafb3167a1c6",
+            "engine_commit": "5c6d8902a63860ca490f4ae84057d341a3bbf5c7",
             "engine_version": "4.0.0",
             "engine_tag": "v4.0.0",
             "engine_linux_sha256": "fc96d1fc9e864dd9d1ee1aa112ff7d1c57c1ca0db61707042e6a117dadf725f5",
@@ -506,7 +506,7 @@ class ReleaseGateTests(unittest.TestCase):
             "engine_macos_asset": "lean-ctx-aarch64-apple-darwin.tar.gz",
             "engine_linux_archive_sha256": "a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8",
             "engine_macos_archive_sha256": "f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d",
-            "engine_checksums_sha256": "4247a9a0c53c3e372a5a3b2cacec1112173e57d4df83bef27c7d46dcfcc0c49b",
+            "engine_checksums_sha256": "e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37",
             "engine_cosign_identity": (
                 "https://github.com/yvgude/lean-ctx/.github/workflows/"
                 "release.yml@refs/tags/v4.0.0"
