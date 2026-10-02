@@ -34,6 +34,10 @@ project-jailed files, cache, search, patches, approved commands
 Engine 3.10.1 and its companion wheels are published and cryptographically
 bound by the SDK release gate. Install the Python SDK and Engine together with:
 
+> The commands below install the published SDK 1.1.0, which requires Engine
+> 3.10.1. The unreleased `main` branch targets Engine 3.10.5; see
+> [COMPATIBILITY.md](COMPATIBILITY.md#main-unreleased).
+
 Standard Engine:
 
 ```bash

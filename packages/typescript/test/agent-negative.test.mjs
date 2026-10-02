@@ -46,7 +46,7 @@ const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.op === "hello") {
-    process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: allowExec, allow_write: false, capabilities, engine_version: "3.10.1", schema_version: 1, transport_version: 1 } }) + "\\n");
+    process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: allowExec, allow_write: false, capabilities, engine_version: "3.10.5", schema_version: 1, transport_version: 1 } }) + "\\n");
     return;
   }
   ${body}
@@ -73,7 +73,7 @@ test("project root is canonicalized through symlinks", async () => {
 
 for (const [name, source] of [
   ["malformed hello", "process.stdout.write('{\"bad\":true}\\n');"],
-  ["incompatible hello", "process.stdout.write(JSON.stringify({ agent_tools_interface_version: '9.0.0', allow_exec: false, allow_write: false, capabilities: [], engine_version: '3.10.1', schema_version: 1, transport_version: 1 }) + '\\n');"],
+  ["incompatible hello", "process.stdout.write(JSON.stringify({ agent_tools_interface_version: '9.0.0', allow_exec: false, allow_write: false, capabilities: [], engine_version: '3.10.5', schema_version: 1, transport_version: 1 }) + '\\n');"],
 ]) {
   test(`${name} tears down process and exact temp policy`, async () => {
     const { root, dirs } = project();

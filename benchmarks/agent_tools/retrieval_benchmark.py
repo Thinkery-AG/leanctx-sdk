@@ -185,7 +185,7 @@ def run(engine: Path, *, repeats: int = DEFAULT_REPEATS) -> dict[str, object]:
     report.update(
         {
             "benchmark": "leanctx.agent-tools-retrieval/v1",
-            "engine_version": "3.10.1",
+            "engine_version": "3.10.5",
             "median_savings_percent": median_savings,
             "network_access": "denied",
             "repeats": repeats,
