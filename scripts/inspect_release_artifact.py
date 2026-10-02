@@ -164,7 +164,7 @@ def inspect_wheel(path: Path) -> Dict[str, object]:
                 "openai-agents (==0.8.4) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
                 "pydantic (==2.12.3) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
                 "requests (==2.33.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
-                "urllib3 (==2.7.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
+                "urllib3 (==2.8.0) ; (python_version >= \"3.10\") and extra == 'openai-agents'",
             ]
         )
         if requirements != expected_requirements:

@@ -21,6 +21,33 @@
   `cargo package` verification on 1.76 could no longer resolve the crate's
   dependencies. The MSRV CI leg runs on 1.77.0.
 
+### Security
+
+- The certified OpenAI Agents 0.8.4 wheelhouse is re-certified with
+  **PyJWT 2.15.1** (was 2.13.0) and **urllib3 2.8.0** (was 2.7.0). The old pins
+  carried 13 PyJWT advisories (one critical, five high: for example asymmetric
+  PEM detection bypass, public keys or JWK containers accepted as HMAC secrets,
+  a BOM bypass) and 3 urllib3 advisories (two high: HTTPS proxy TLS
+  configuration ignored, unbounded buffering in `stream()` / `read_chunked()`),
+  published 2026-09-29/30.
+  - Both replacements are the official PyPI `py3-none-any` wheels. The urllib3
+    source provenance is its `2.8.0` tag commit
+    `b1d30ab61fe0db8f11092805e8c5ac43e091064a`, following the existing
+    convention.
+  - The closure stays at 41 artifacts: neither wheel adds a dependency on
+    Python 3.11, and the bounds that pull them in still hold (`mcp` needs
+    `pyjwt>=2.10.1`, `requests` needs `urllib3<3`).
+  - The new artifacts digest is
+    `255295d47432f88f38dbf1adbefd8b07df044085f0ef47e41f752e76f97e6c15`.
+  - The user-facing `[openai-agents]` extra pinned the same vulnerable
+    `urllib3==2.7.0`; it now pins `urllib3==2.8.0`. PyJWT is not pinned by
+    the extra and resolves to a current release. The published 1.1.0 extra
+    still pins 2.7.0 until the next SDK release.
+  - The per-wheel checks of `dependency_wheel_audit` pass for both wheels
+    (MIT, no secrets, no build-path findings, so the audit policy is
+    unchanged), and an OSV query over all 41 pinned artifacts finds no known
+    vulnerability.
+
 ### Compatibility notes
 
 - **3.10.1 → 3.10.5:** the Agent Tools and Engine Interface code is unchanged

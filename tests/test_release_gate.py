@@ -42,7 +42,7 @@ Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra ==
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: requests (==2.33.0) ; (python_version >= "3.10") and extra == 'openai-agents'
-Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'openai-agents'
+Requires-Dist: urllib3 (==2.8.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 
 """.encode()
     files = {
@@ -226,7 +226,7 @@ class ReleaseGateTests(unittest.TestCase):
             any(line.startswith("requests==2.33.0 ") for line in requirements)
         )
         self.assertTrue(
-            any(line.startswith("urllib3==2.7.0 ") for line in requirements)
+            any(line.startswith("urllib3==2.8.0 ") for line in requirements)
         )
         self.assertTrue(all(" --hash=sha256:" in line for line in requirements))
 
