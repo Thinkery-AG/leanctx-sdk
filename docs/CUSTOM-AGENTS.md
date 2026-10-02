@@ -112,7 +112,8 @@ cache. Async task cancellation terminates the process before propagating
 
 ## Reproduce the Agent Tools evidence
 
-Use an Engine 3.10.1 binary; both commands are provider-free and make no
+For the public SDK 1.1.0 release, use an Engine 3.10.1 binary; current `main`
+sources target Engine 3.10.5. Both commands below are provider-free and make no
 network calls:
 
 ```bash

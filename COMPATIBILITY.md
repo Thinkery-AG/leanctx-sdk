@@ -2,10 +2,11 @@
 
 ## `main` (unreleased)
 
-The next SDK release is prepared against LeanCTX Engine **3.10.5**, the newest
-published Engine. The published SDK 1.1.0 below is unchanged and still requires
-Engine 3.10.1. Install from PyPI or another registry, and you get 1.1.0 and
-3.10.1. A source checkout of `main` needs Engine 3.10.5.
+The current `main` source is prepared against LeanCTX Engine **3.10.5**, the
+newest published Engine. The public SDK 1.1.0 release below remains bound to
+Engine 3.10.1. Package version fields in this source checkout do not establish
+that an artifact has been published; verify the specific registry artifact
+before installation. A source checkout of `main` needs Engine 3.10.5.
 
 | Component | Declared scope | Status |
 | --- | --- | --- |

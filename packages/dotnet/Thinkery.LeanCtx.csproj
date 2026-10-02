@@ -7,7 +7,7 @@
     <Version>1.1.0</Version>
     <Authors>Thinkery AG</Authors>
     <Company>Thinkery AG</Company>
-    <Description>Source-available .NET 8 SDK for LeanCTX Product evidence, Engine v1, and Agent Tools 1.1.</Description>
+    <Description>SDK for embedding LeanCTX context control in .NET applications.</Description>
     <PackageTags>leanctx;context;agent;engine;sdk</PackageTags>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -15,7 +15,7 @@
     <RepositoryUrl>https://github.com/Thinkery-AG/leanctx-sdk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Thinkery-AG/leanctx-sdk</PackageProjectUrl>
-    <PackageReleaseNotes>LeanCTX SDK 1.1. Requires LeanCTX Engine 3.10.5 for Agent Tools.</PackageReleaseNotes>
+    <PackageReleaseNotes>Current main source targets Engine 3.10.5; the public SDK 1.1.0 release requires Engine 3.10.1.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
