@@ -132,7 +132,7 @@ lines.on("line", (line) => {
   const request = JSON.parse(line);
   let result;
   if (request.op === "hello") {
-    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.10.1", schema_version: 1, transport_version: 1 };
+    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.10.5", schema_version: 1, transport_version: 1 };
   } else if (request.op === "call") {
     result = { text: request.tool + ":ok", content_blocks: [], original_tokens: 10, output_tokens: 4, saved_tokens: 6, mode: null, changed: request.tool === "ctx_patch", shell: request.tool === "ctx_shell" ? { exit_code: 0 } : null };
   } else if (request.op === "close") {
@@ -160,7 +160,7 @@ function verifiedView(source, sourceText = "original\n") {
   const invocation = {
     schema_version: 1,
     invocation_id: invocationId,
-    engine: { engine_id: "lean-ctx-local", engine_version: "3.10.1" },
+    engine: { engine_id: "lean-ctx-local", engine_version: "3.10.5" },
     operation: { capability_id: "capability://leanctx/context-optimization", capability_version: "1.0.0" },
     input_ref: inputRef,
     input_digest: `sha256:${"c".repeat(64)}`,

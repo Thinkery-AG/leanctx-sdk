@@ -1,5 +1,37 @@
 # Compatibility
 
+## `main` (unreleased)
+
+The next SDK release is prepared against LeanCTX Engine **3.10.5**, the newest
+published Engine. The published SDK 1.1.0 below is unchanged and still requires
+Engine 3.10.1. Install from PyPI or another registry, and you get 1.1.0 and
+3.10.1. A source checkout of `main` needs Engine 3.10.5.
+
+| Component | Declared scope | Status |
+| --- | --- | --- |
+| Agent Tools Engine | `v3.10.5` | published; required by `main` in every language package |
+| Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.10.5` | published on PyPI |
+| Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
+
+The Engine release is
+[`v3.10.5`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5).
+The tag resolves to commit
+`102330a77c36061483f60d914aeb14d3551b6e24`.
+Its signed `SHA256SUMS` has SHA-256
+`de8f527bbd7accdb02109e2cc31f8571b3dc78b083a54418643ffedc338c794f`.
+Release CI verifies the Sigstore identity
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.5`.
+
+| Platform | Release archive SHA-256 | Extracted binary SHA-256 |
+| --- | --- | --- |
+| Linux x86_64 GNU | `917b292beca6aee29f81b58407452e5193ca62702557ab8abcbd1a6282abb878` | `24971ded2c3ce3f4374c67323798cdd3734693ee0bdd952a4179bd6d2b0ff0c1` |
+| macOS arm64 | `b5a899ea2010205af97263b0d2fdd86f785d7a4522f16c520c79685b72fb9dbd` | `e8bc76cc825d9534b0eaad48bfb13931a9b8dd0c00cf4a3ef5aef1e96b87a5af` |
+
+`scripts/verify_agent_context_e2e.py` passes against the released macOS arm64
+binary. The Agent Tools and Engine Interface code did not change between 3.10.1
+and 3.10.5.
+
 ## Stable SDK 1.1.0
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle

@@ -8,13 +8,13 @@
     {"distribution": "openai", "version": "2.19.0"},
     {"distribution": "pydantic", "version": "2.12.3"},
     {"distribution": "requests", "version": "2.33.0"},
-    {"distribution": "urllib3", "version": "2.7.0"}
+    {"distribution": "urllib3", "version": "2.8.0"}
   ],
   "source_overrides": [
     {"distribution": "requests", "version": "2.33.0", "repository": "https://github.com/psf/requests.git", "commit": "bc04dfd6dad4cb02cd92f5daa81eb562d280a761"},
-    {"distribution": "urllib3", "version": "2.7.0", "repository": "https://github.com/urllib3/urllib3.git", "commit": "9a950b92d999f906b6020bb2d1076ee56cddd5d2"}
+    {"distribution": "urllib3", "version": "2.8.0", "repository": "https://github.com/urllib3/urllib3.git", "commit": "b1d30ab61fe0db8f11092805e8c5ac43e091064a"}
   ],
-  "artifacts_digest": "2a0a53adb0bf16f78653b001db8bf667bfb9c5ab8fe9d5344544471a8a1e6cd5",
+  "artifacts_digest": "255295d47432f88f38dbf1adbefd8b07df044085f0ef47e41f752e76f97e6c15",
   "artifacts": [
     {"distribution": "annotated-types", "version": "0.8.0", "filename": "annotated_types-0.8.0-py3-none-any.whl", "sha256": "f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0"},
     {"distribution": "anyio", "version": "4.14.2", "filename": "anyio-4.14.2-py3-none-any.whl", "sha256": "9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494"},
@@ -42,7 +42,7 @@
     {"distribution": "pydantic", "version": "2.12.3", "filename": "pydantic-2.12.3-py3-none-any.whl", "sha256": "6986454a854bc3bc6e5443e1369e06a3a456af9d339eda45510f517d9ea5c6bf"},
     {"distribution": "pydantic_core", "version": "2.41.4", "filename": "pydantic_core-2.41.4-cp311-cp311-macosx_11_0_arm64.whl", "sha256": "61760c3925d4633290292bad462e0f737b840508b4f722247d8729684f6539ae"},
     {"distribution": "pydantic-settings", "version": "2.15.0", "filename": "pydantic_settings-2.15.0-py3-none-any.whl", "sha256": "0ba092c291c94baceb5eff768aa0d56400a457585bc0175925a5a5510303da42"},
-    {"distribution": "PyJWT", "version": "2.13.0", "filename": "pyjwt-2.13.0-py3-none-any.whl", "sha256": "66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728"},
+    {"distribution": "PyJWT", "version": "2.15.1", "filename": "pyjwt-2.15.1-py3-none-any.whl", "sha256": "42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193"},
     {"distribution": "python-dotenv", "version": "1.2.3", "filename": "python_dotenv-1.2.3-py3-none-any.whl", "sha256": "904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9"},
     {"distribution": "python-multipart", "version": "0.0.32", "filename": "python_multipart-0.0.32-py3-none-any.whl", "sha256": "ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23"},
     {"distribution": "referencing", "version": "0.37.0", "filename": "referencing-0.37.0-py3-none-any.whl", "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231"},
@@ -55,7 +55,7 @@
     {"distribution": "types-requests", "version": "2.33.0.20260712", "filename": "types_requests-2.33.0.20260712-py3-none-any.whl", "sha256": "de027e28c171d3da529689cbfa023b0b4eab188c8dfa22fd834eebd2cee6e7bb"},
     {"distribution": "typing_extensions", "version": "4.16.0", "filename": "typing_extensions-4.16.0-py3-none-any.whl", "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"},
     {"distribution": "typing-inspection", "version": "0.4.4", "filename": "typing_inspection-0.4.4-py3-none-any.whl", "sha256": "65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147"},
-    {"distribution": "urllib3", "version": "2.7.0", "filename": "urllib3-2.7.0-py3-none-any.whl", "sha256": "9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897"},
+    {"distribution": "urllib3", "version": "2.8.0", "filename": "urllib3-2.8.0-py3-none-any.whl", "sha256": "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3"},
     {"distribution": "uvicorn", "version": "0.52.4", "filename": "uvicorn-0.52.4-py3-none-any.whl", "sha256": "f86e41a149d7d05a9969337e3946a9c171c06a5d42680896daaba624aeac8da1"}
   ]
 }

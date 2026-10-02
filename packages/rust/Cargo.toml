@@ -2,7 +2,7 @@
 name = "thinkery-leanctx-sdk"
 version = "1.1.0"
 edition = "2021"
-rust-version = "1.76"
+rust-version = "1.77"
 description = "Source-available Rust SDK for governed LeanCTX context and Agent Tools"
 license-file = "LICENSE"
 repository = "https://github.com/thinkery-ag/leanctx-sdk"

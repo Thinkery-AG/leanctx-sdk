@@ -24,21 +24,21 @@ REQUIRED_FILES = (
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_ENGINE_COMMIT = "4a76710a6c792229f170a66fdda1f4a0a64f47ee"
+_ENGINE_COMMIT = "102330a77c36061483f60d914aeb14d3551b6e24"
 _ENGINE_LINUX_SHA256 = (
-    "0385c8169a4b20df84dc0f1e8b32788c3b7a402cb0b5ff484d391f8cd67a5bbc"
+    "24971ded2c3ce3f4374c67323798cdd3734693ee0bdd952a4179bd6d2b0ff0c1"
 )
 _ENGINE_MACOS_SHA256 = (
-    "00e08272eb443ab9c9539c58ec24cd0d9ae02d789ec0944ab56919e24a39fa23"
+    "e8bc76cc825d9534b0eaad48bfb13931a9b8dd0c00cf4a3ef5aef1e96b87a5af"
 )
 _ENGINE_LINUX_ARCHIVE_SHA256 = (
-    "dae5bde18c58b7976b98f967f261bbdece8d3072dda23e6509f3da7d581b5c58"
+    "917b292beca6aee29f81b58407452e5193ca62702557ab8abcbd1a6282abb878"
 )
 _ENGINE_MACOS_ARCHIVE_SHA256 = (
-    "25a14a6bc597739c8f5e8a8d18e85e38f89711e4fcb82bdd648b060d201360fd"
+    "b5a899ea2010205af97263b0d2fdd86f785d7a4522f16c520c79685b72fb9dbd"
 )
 _ENGINE_CHECKSUMS_SHA256 = (
-    "86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170"
+    "de8f527bbd7accdb02109e2cc31f8571b3dc78b083a54418643ffedc338c794f"
 )
 
 
@@ -48,17 +48,17 @@ def _validate(values: dict[str, str]) -> None:
     if values.get("sdk_version") != "1.1.0":
         raise ValueError("final evidence requires SDK version 1.1.0")
     if (
-        values.get("engine_version") != "3.10.1"
-        or values.get("engine_tag") != "v3.10.1"
+        values.get("engine_version") != "3.10.5"
+        or values.get("engine_tag") != "v3.10.5"
     ):
-        raise ValueError("final evidence requires Engine v3.10.1")
+        raise ValueError("final evidence requires Engine v3.10.5")
     if values.get("pypi_project") != "thinkery-leanctx-sdk":
         raise ValueError(
             "final evidence requires the thinkery-leanctx-sdk PyPI project"
         )
     if values.get("engine_release_repository") != "yvgude/lean-ctx":
         raise ValueError("final evidence requires the public Engine repository")
-    expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1"
+    expected_release_url = "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5"
     if values.get("engine_release_url") != expected_release_url:
         raise ValueError("final evidence requires the public Engine release URL")
     if values.get("engine_linux_asset") != "lean-ctx-x86_64-unknown-linux-gnu.tar.gz":
@@ -67,7 +67,7 @@ def _validate(values: dict[str, str]) -> None:
         raise ValueError("final evidence requires the supported macOS Engine asset")
     expected_cosign_identity = (
         "https://github.com/yvgude/lean-ctx/.github/workflows/"
-        "release.yml@refs/tags/v3.10.1"
+        "release.yml@refs/tags/v3.10.5"
     )
     if values.get("engine_cosign_identity") != expected_cosign_identity:
         raise ValueError("final evidence requires the Engine release signer identity")
