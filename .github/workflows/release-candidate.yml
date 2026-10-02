@@ -177,7 +177,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["1.76.0", "stable"]
+        rust: ["1.77.0", "stable"]
     defaults:
       run:
         working-directory: packages/rust

@@ -103,11 +103,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.76.0 --profile minimal --component clippy,rustfmt
-      - run: cargo +1.76.0 fmt --check
-      - run: cargo +1.76.0 test --locked
-      - run: cargo +1.76.0 clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo +1.76.0 package --locked
+      - run: rustup toolchain install 1.77.0 --profile minimal --component clippy,rustfmt
+      - run: cargo +1.77.0 fmt --check
+      - run: cargo +1.77.0 test --locked
+      - run: cargo +1.77.0 clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo +1.77.0 package --locked
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: crate-${{ github.sha }}

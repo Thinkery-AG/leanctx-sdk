@@ -430,7 +430,7 @@ class ReleaseGateTests(unittest.TestCase):
             "npm run pack:dry-run",
             "go test ./...",
             "go vet ./...",
-            'rust: ["1.76.0", "stable"]',
+            'rust: ["1.77.0", "stable"]',
             "cargo +${{ matrix.rust }} test --locked",
             "cargo +${{ matrix.rust }} clippy --locked --all-targets --all-features -- -D warnings",
             "mvn --batch-mode --no-transfer-progress verify",

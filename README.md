@@ -65,7 +65,7 @@ every registry artifact from the same commit.
 | Python 3.9–3.14 | repository root | `thinkery-leanctx-sdk` |
 | Node.js 22+ / TypeScript | `packages/typescript` | `@thinkery/leanctx-sdk` |
 | Go 1.24+ | `packages/go` | `github.com/Thinkery-AG/leanctx-sdk/packages/go` |
-| Rust 1.76+ | `packages/rust` | `thinkery-leanctx-sdk` |
+| Rust 1.77+ | `packages/rust` | `thinkery-leanctx-sdk` |
 | Java 21 / Kotlin 2.1 | `packages/jvm` | `com.leanctx:leanctx-sdk` |
 | .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
 

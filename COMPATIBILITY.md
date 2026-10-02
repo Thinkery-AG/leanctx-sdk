@@ -12,6 +12,7 @@ Engine 3.10.1. Install from PyPI or another registry, and you get 1.1.0 and
 | Agent Tools Engine | `v3.10.5` | published; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
 | Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.10.5` | published on PyPI |
+| Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
 The Engine release is
 [`v3.10.5`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5).

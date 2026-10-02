@@ -16,6 +16,11 @@
   `SHA256SUMS` and the Linux x86_64 / macOS arm64 archive and binary digests
   (see `COMPATIBILITY.md`).
 
+- The Rust package's minimum supported Rust version is now **1.77** (was
+  1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so
+  `cargo package` verification on 1.76 could no longer resolve the crate's
+  dependencies. The MSRV CI leg runs on 1.77.0.
+
 ### Compatibility notes
 
 - **3.10.1 → 3.10.5:** the Agent Tools and Engine Interface code is unchanged
