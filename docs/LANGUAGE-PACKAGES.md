@@ -12,12 +12,16 @@ cross-SDK acceptance gate.
 | TypeScript | `@thinkery/leanctx-sdk` | `packages/typescript/vX.Y.Z` |
 | Go | `github.com/Thinkery-AG/leanctx-sdk/packages/go` | `packages/go/vX.Y.Z` |
 | Rust | `thinkery-leanctx-sdk` | `packages/rust/vX.Y.Z` |
-| JVM | `com.thinkery.leanctx:leanctx-sdk` | `packages/jvm/vX.Y.Z` |
+| JVM | `com.leanctx:leanctx-sdk` | `packages/jvm/vX.Y.Z` |
 | .NET | `Thinkery.LeanCtx` | `packages/dotnet/vX.Y.Z` |
 
 Go requires no upload: the scoped Git tag is the module release. The other
 language tags publish only after all five non-Python SDK build, test, package,
 and clean-install jobs pass.
+
+The public SDK 1.1.0 release requires Engine 3.10.1; current `main` sources
+target Engine 3.10.5. Verify each registry artifact before describing it as
+published; source package version metadata alone is not publication evidence.
 
 ## Registry trust
 
