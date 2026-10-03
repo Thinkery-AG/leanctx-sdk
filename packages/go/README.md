@@ -9,7 +9,7 @@ its model, agent loop, and UI. The module provides the five Stable lifecycle
 primitives plus the separate Stable Agent Tools API.
 
 The module uses the Go-standard `packages/go/vX.Y.Z` tag. The published SDK
-1.1.0 release requires Engine 3.10.1; current `main` sources target Engine
+1.1.1 release requires Engine 3.10.1; current `main` sources target Engine
 3.10.5. Check the release-specific compatibility record before choosing an
 Engine binary.
 
