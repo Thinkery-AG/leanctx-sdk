@@ -74,6 +74,23 @@ from ..gateway import (
     parse_egress_admission,
 )
 
+from ..context_store import (
+    ContextPolicyEvidence,
+    DeliverySummary,
+    LineageDelivery,
+    LineageStep,
+    QualityEvidence,
+    SecurityEvidence,
+    StrategyEvaluation,
+    StrategyOutcomeRecord,
+    TaskLineage,
+    Workload,
+    parse_policy_evidence,
+    parse_task_lineage,
+    read_policy_evidence,
+    read_task_lineage,
+)
+
 ContextCheckpoint = ContextCheckpointV2
 ContextDelta = ContextDeltaV1
 ContextHandoff = ContextHandoffV1
@@ -90,6 +107,20 @@ __all__ = [
     "admit_egress",
     "parse_decision_receipt",
     "parse_egress_admission",
+    "ContextPolicyEvidence",
+    "DeliverySummary",
+    "LineageDelivery",
+    "LineageStep",
+    "QualityEvidence",
+    "SecurityEvidence",
+    "StrategyEvaluation",
+    "StrategyOutcomeRecord",
+    "TaskLineage",
+    "Workload",
+    "parse_policy_evidence",
+    "parse_task_lineage",
+    "read_policy_evidence",
+    "read_task_lineage",
     "ContextCheckpointV2",
     "ContextCheckpoint",
     "ConflictEntryV1",

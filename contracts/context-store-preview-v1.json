@@ -1,0 +1,58 @@
+{
+  "contract": "leanctx-context-store-preview",
+  "version": "0.1.0",
+  "stability": "preview",
+  "engine_operations": ["context-policy-evidence", "context-lineage"],
+  "engine_contract": "lean-ctx docs/contracts/engine-context-store-v1.md (Experimental)",
+  "engine_wire": {
+    "request": "ContextStoreRequestV1 {schema_version: 1, transport_version: 1, engine_interface_version: \"1.0.0\", project_id?, tenant_id?, task_id?}",
+    "response": "{schema_version: 1, transport_version: 1, engine_interface_version: \"1.0.0\", evidence | lineage}",
+    "encoding": "UTF-8 JSON",
+    "unknown_fields": "reject",
+    "unknown_enum_values": "reject"
+  },
+  "limits": {
+    "request_bytes": 16384,
+    "response_bytes": 8388608,
+    "ref_bytes": 512,
+    "text_bytes": 4096,
+    "evidence_records": 4096,
+    "lineage_items": 4096
+  },
+  "types": [
+    "Workload",
+    "QualityEvidence",
+    "SecurityEvidence",
+    "StrategyOutcomeRecord",
+    "StrategyEvaluation",
+    "ContextPolicyEvidence",
+    "LineageStep",
+    "DeliverySummary",
+    "LineageDelivery",
+    "TaskLineage"
+  ],
+  "invariants": [
+    "every read is confined to one tenant/project scope; task_id is required for lineage and refused for evidence",
+    "unmeasured quality or security carries no counts; measured carries all of them",
+    "accepted + rejected = samples > 0; overrides and token samples never exceed samples",
+    "runtime signal counts never exceed their attributed tasks (signal_samples <= samples); absent counts are zero",
+    "tokens only with token samples; delivered tokens never exceed original",
+    "records strictly sorted by (workload, strategy, day); evaluations one per strategy, sorted",
+    "an evaluation names a known strategy, has ci_low <= ci_high and margin >= 0, and is powered only with pairs",
+    "a ledger error goes with the ledger_unverified gap; an unverified delivery with the delivery_unverified gap",
+    "a verified delivery has a summary and no error; an unverified one an error and no summary",
+    "gaps never repeat; a lineage without gaps is complete"
+  ],
+  "surface": {
+    "python": "leanctx_sdk.preview.read_policy_evidence / read_task_lineage / parse_policy_evidence / parse_task_lineage",
+    "typescript": "@thinkery/leanctx-sdk/preview: readPolicyEvidence / readTaskLineage / parsePolicyEvidence / parseTaskLineage",
+    "go": "SubprocessEngineClient.ReadPolicyEvidence / ReadTaskLineage; ParsePolicyEvidence / ParseTaskLineage",
+    "rust": "SubprocessEngineClient::read_policy_evidence / read_task_lineage; leanctx_sdk::preview::{parse_policy_evidence, parse_task_lineage}",
+    "jvm": "com.thinkery.leanctx.ContextStorePreview.readPolicyEvidence / readTaskLineage / parsePolicyEvidence / parseTaskLineage",
+    "dotnet": "Thinkery.LeanCtx.Preview.ContextStorePreview.ReadPolicyEvidenceAsync / ReadTaskLineageAsync / ParsePolicyEvidence / ParseTaskLineage"
+  },
+  "conformance": {
+    "fixtures": "fixtures/context-store-preview-v1 (valid documents in the Engine's wire shape; invalid: one violated rule each)",
+    "live": "every SDK reads a fresh scope (no evidence) and an unknown task (gaps, scope named) when LEANCTX_ENGINE_BINARY is set"
+  }
+}

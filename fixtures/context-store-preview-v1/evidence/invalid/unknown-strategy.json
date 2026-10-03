@@ -1,0 +1,131 @@
+{
+  "evaluations": [
+    {
+      "ci_high_milli": 10,
+      "ci_low_milli": -10,
+      "delta_milli": 0,
+      "evidence_tier": "live_task_evaluation",
+      "margin_milli": 30,
+      "pairs": 60,
+      "powered": true,
+      "strategy": "full",
+      "verdict": "non_inferior"
+    },
+    {
+      "ci_high_milli": 30,
+      "ci_low_milli": -40,
+      "delta_milli": -4,
+      "evidence_tier": "live_task_evaluation",
+      "margin_milli": 30,
+      "pairs": 12,
+      "powered": false,
+      "strategy": "map",
+      "verdict": "underpowered"
+    }
+  ],
+  "records": [
+    {
+      "accepted": 8,
+      "bounce_tasks": 2,
+      "edit_failure_tasks": 0,
+      "expand_tasks": 1,
+      "explicit_overrides": 1,
+      "observed_day": 20000,
+      "quality": {
+        "recovery": {
+          "critical_failures": 0,
+          "failures": 1,
+          "handles_emitted": 5,
+          "handles_verified": 5
+        },
+        "retention": {
+          "lost": 0,
+          "recoverable": 2,
+          "retained": 40
+        },
+        "state": "measured"
+      },
+      "rejected": 2,
+      "samples": 10,
+      "security": {
+        "regressions": 0,
+        "state": "measured"
+      },
+      "signal_samples": 9,
+      "strategy": "lines:1-9",
+      "token_samples": 10,
+      "tokens_delivered": 20000,
+      "tokens_original": 50000,
+      "workload": {
+        "language": "rust",
+        "size": "medium",
+        "task_class": "bug_fix"
+      }
+    },
+    {
+      "accepted": 8,
+      "bounce_tasks": 0,
+      "edit_failure_tasks": 0,
+      "expand_tasks": 0,
+      "explicit_overrides": 1,
+      "observed_day": 20000,
+      "quality": {
+        "state": "unmeasured"
+      },
+      "rejected": 2,
+      "samples": 10,
+      "security": {
+        "state": "unmeasured"
+      },
+      "signal_samples": 0,
+      "strategy": "map",
+      "token_samples": 10,
+      "tokens_delivered": 20000,
+      "tokens_original": 50000,
+      "workload": {
+        "language": "rust",
+        "size": "medium",
+        "task_class": "bug_fix"
+      }
+    },
+    {
+      "accepted": 8,
+      "bounce_tasks": 2,
+      "edit_failure_tasks": 0,
+      "expand_tasks": 1,
+      "explicit_overrides": 1,
+      "observed_day": 20001,
+      "quality": {
+        "recovery": {
+          "critical_failures": 0,
+          "failures": 1,
+          "handles_emitted": 5,
+          "handles_verified": 5
+        },
+        "retention": {
+          "lost": 0,
+          "recoverable": 2,
+          "retained": 40
+        },
+        "state": "measured"
+      },
+      "rejected": 2,
+      "samples": 10,
+      "security": {
+        "regressions": 0,
+        "state": "measured"
+      },
+      "signal_samples": 9,
+      "strategy": "map",
+      "token_samples": 10,
+      "tokens_delivered": 20000,
+      "tokens_original": 50000,
+      "workload": {
+        "language": "rust",
+        "size": "medium",
+        "task_class": "bug_fix"
+      }
+    }
+  ],
+  "schema_version": 1
+}

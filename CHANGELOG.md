@@ -9,6 +9,16 @@ packages keep their release identity.
 
 ### Added
 
+- Preview `leanctx-context-store-preview` 0.1 in all six SDKs: read-only task
+  lineage (`engine context-lineage`) and read-strategy policy evidence
+  (`engine context-policy-evidence`) within one tenant/project scope; typed
+  `TaskLineage`, `LineageStep`, `LineageDelivery`, `DeliverySummary`,
+  `ContextPolicyEvidence`, `StrategyOutcomeRecord`, `StrategyEvaluation`,
+  `QualityEvidence`, `SecurityEvidence`, `Workload`. Unmeasured evidence never
+  reads as measured. Shared fixtures `fixtures/context-store-preview-v1`,
+  contract `contracts/context-store-preview-v1.json`, guide
+  `docs/context-store-preview.md`, decision record
+  `docs/decisions/2026-10-03-context-store-preview.md`.
 - Preview `leanctx-gateway-preview` 0.1 in all six SDKs: egress admission
   through the Engine's `egress-admit` with typed `ContextPrincipal`,
   `ContextDestination`, `ContextDecision`, `SecuritySignal`,

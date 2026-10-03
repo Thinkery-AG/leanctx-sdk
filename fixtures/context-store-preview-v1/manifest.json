@@ -1,0 +1,59 @@
+{
+  "contract": "leanctx-context-store-preview",
+  "documents": {
+    "evidence": {
+      "invalid": [
+        "accepted-rejected-mismatch",
+        "boolean-as-count",
+        "evaluation-inverted-interval",
+        "evaluation-other-strategy",
+        "evaluation-powered-without-pairs",
+        "evaluations-unsorted",
+        "impossible-recovery",
+        "negative-count",
+        "records-unsorted",
+        "schema-version",
+        "signal-exceeds-attributed",
+        "tokens-delivered-exceed-original",
+        "tokens-without-token-samples",
+        "unknown-language",
+        "unknown-quality-state",
+        "unknown-record-field",
+        "unknown-strategy",
+        "unknown-top-level-field",
+        "unknown-verdict",
+        "unmeasured-with-counts",
+        "zero-samples"
+      ],
+      "valid": [
+        "empty",
+        "rich"
+      ]
+    },
+    "lineage": {
+      "invalid": [
+        "control-character-in-text",
+        "ledger-error-without-gap",
+        "malformed-delivery-digest",
+        "repeated-gap",
+        "schema-version",
+        "step-field-invalid-name",
+        "step-field-not-text",
+        "summary-tokens-exceed-original",
+        "unknown-gap",
+        "unknown-outcome",
+        "unknown-step-kind",
+        "unknown-top-level-field",
+        "unverified-delivery-without-gap",
+        "verified-delivery-with-error",
+        "verified-delivery-without-summary"
+      ],
+      "valid": [
+        "complete",
+        "gapped"
+      ]
+    }
+  },
+  "source": "Engine wire shapes ContextPolicyEvidenceV1 / TaskLineageV1 (lean-ctx 4ed88f98ea); each invalid document breaks one rule",
+  "version": "0.1.0"
+}
