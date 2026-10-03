@@ -212,6 +212,7 @@ def main() -> int:
         report = {
             "benchmark": "leanctx.agent-tools-retrieval/v1",
             "error": type(error).__name__,
+            "detail": str(error)[:2000],
             "status": "FAIL",
         }
     encoded = json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n"
