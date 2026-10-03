@@ -236,7 +236,7 @@ export class AgentContext {
   }
 
   private async start(): Promise<this> {
-    const result = await this.exchangeRaw({ op: "hello", schema_version: AGENT_TOOLS_SCHEMA_VERSION, transport_version: AGENT_TOOLS_TRANSPORT_VERSION, agent_tools_interface_version: AGENT_TOOLS_INTERFACE_VERSION, sdk_version: "1.1.0" }, true);
+    const result = await this.exchangeRaw({ op: "hello", schema_version: AGENT_TOOLS_SCHEMA_VERSION, transport_version: AGENT_TOOLS_TRANSPORT_VERSION, agent_tools_interface_version: AGENT_TOOLS_INTERFACE_VERSION, sdk_version: "1.1.1" }, true);
     this.acceptHello(result);
     this.helloAccepted = true;
     this.removePolicy();

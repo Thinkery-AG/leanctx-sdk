@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1
+
+- Align package descriptions and documentation with LeanCTX's Context Gateway
+  positioning and the SDK's role in embedding context control.
+- Preserve the 1.1.0 Stable and Preview APIs, exact Agent Tools Engine 3.10.1
+  requirement, protocol versions, and supported language runtime minimums.
+- Backport the audited PyJWT 2.15.1 and urllib3 2.8.0 wheelhouse security
+  corrections; update the optional OpenAI Agents urllib3 dependency accordingly.
+- Pin the existing Rust `thiserror` 2.0.20 dependency so clean package resolution
+  retains the declared Rust 1.76 minimum; 2.0.21 requires Rust 1.77.
+- Release artifacts and approval records use the exact maintenance version;
+  Engine digests, license terms, signing, provenance and publication gates remain.
+
 ## 1.1.0
 
 - Stable PR #8 Agent Tools contract with explicit read/write/execute policy,

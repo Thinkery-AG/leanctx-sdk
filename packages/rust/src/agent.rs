@@ -1156,7 +1156,7 @@ fn hello_request() -> Value {
         "agent_tools_interface_version".to_owned(),
         Value::String(AGENT_TOOLS_INTERFACE_VERSION.to_owned()),
     );
-    request.insert("sdk_version".to_owned(), Value::String("1.1.0".to_owned()));
+    request.insert("sdk_version".to_owned(), Value::String("1.1.1".to_owned()));
     Value::Object(request)
 }
 

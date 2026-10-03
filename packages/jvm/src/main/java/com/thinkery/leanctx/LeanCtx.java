@@ -2,7 +2,7 @@ package com.thinkery.leanctx;
 
 /** Stable package-level version and wire constants. */
 public final class LeanCtx {
-    public static final String __version__ = "1.1.0";
+    public static final String __version__ = "1.1.1";
     public static final String VERSION = __version__;
     public static final String ENGINE_INTERFACE_VERSION = "1.0.0";
     public static final int SCHEMA_VERSION = 1;

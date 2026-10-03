@@ -6,7 +6,7 @@ ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 from .agent import (
     AGENT_TOOLS_INTERFACE_VERSION,

@@ -1,9 +1,12 @@
 # @thinkery/leanctx-sdk
 
-LeanCTX SDK 1.1 for Node.js and TypeScript. The package exposes the five
-stable lifecycle values (`ContextSession`, `ContextSource`, `ContextView`,
-`ContextPlan`, and `ContextReceipt`) plus the host-owned `AgentContext` and
-`AsyncAgentContext` tool clients.
+**Embed LeanCTX context control into your application.** LeanCTX is the
+**Context Gateway for AI Systems**: **Control what your AI can see.**
+
+This Node.js and TypeScript SDK connects your host-owned model and workflow to
+a local LeanCTX Engine. Your application keeps its model, agent loop, and UI.
+It exposes the five Stable lifecycle primitives plus the separate Stable
+`AgentContext` and `AsyncAgentContext` tool clients.
 
 The package has no runtime dependencies. Engine subprocesses are always started
 with `shell: false`, bounded request/response streams, secure temporary files,
@@ -22,7 +25,7 @@ try {
 }
 ```
 
-Agent Tools requires the published LeanCTX Engine 3.10.1. Registry releases are
-produced from the same commit and cross-SDK release gate as every other LeanCTX
-SDK. The five Product primitives remain independently compatible with Engine
-Interface v1 and provider-independent.
+SDK 1.1.1 preserves the Engine 3.10.1 requirement of SDK 1.1.0. Check the release-specific compatibility record before
+choosing an Engine binary. The SDK source license permits non-production use;
+production use, OEM embedding, and commercial redistribution require a separate
+written agreement signed by Thinkery AG.

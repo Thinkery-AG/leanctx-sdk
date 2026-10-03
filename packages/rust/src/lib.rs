@@ -10,7 +10,7 @@ mod receipt;
 mod session;
 
 #[allow(non_upper_case_globals)]
-pub const __version__: &str = "1.1.0";
+pub const __version__: &str = "1.1.1";
 
 pub use agent::{
     AgentContext, AgentMetrics, AgentPermissions, AsyncAgentContext, ExecutionPolicy, ReadMode,

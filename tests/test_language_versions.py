@@ -12,7 +12,7 @@ class LanguageVersionContractTests(unittest.TestCase):
     def test_repository_versions_are_synchronized(self) -> None:
         root = Path(__file__).resolve().parents[1]
         found = versions(root)
-        self.assertEqual(set(found.values()), {"1.1.0"})
+        self.assertEqual(set(found.values()), {"1.1.1"})
         self.assertEqual(
             set(found),
             {"python", "typescript", "go", "rust", "jvm", "dotnet"},

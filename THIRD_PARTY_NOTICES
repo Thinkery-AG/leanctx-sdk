@@ -1,4 +1,4 @@
-LeanCTX SDK v1.1.0 — Third-Party Notices
+LeanCTX SDK v1.1.1 — Third-Party Notices
 
 The core LeanCTX SDK wheel has no mandatory third-party runtime dependency.
 LeanCTX Engine is a separate Apache-2.0 work and is not relicensed by the SDK.
@@ -39,7 +39,7 @@ The audited wheel metadata declared:
   pydantic 2.12.3 — MIT
   pydantic-core 2.41.4 — MIT
   pydantic-settings 2.15.0 — MIT
-  PyJWT 2.13.0 — MIT
+  PyJWT 2.15.1 — MIT
   python-dotenv 1.2.3 — BSD-3-Clause
   python-multipart 0.0.32 — Apache-2.0
   referencing 0.37.0 — MIT
@@ -52,7 +52,7 @@ The audited wheel metadata declared:
   types-requests 2.33.0.20260712 — Apache-2.0
   typing-extensions 4.16.0 — PSF-2.0
   typing-inspection 0.4.4 — MIT
-  urllib3 2.7.0 — MIT
+  urllib3 2.8.0 — MIT
   uvicorn 0.52.4 — BSD-3-Clause
 
 The license expressions above reproduce audited distribution metadata; the

@@ -1,19 +1,37 @@
 # LeanCTX SDK
 
-Build Python, TypeScript, Go, Rust, JVM, and .NET coding agents that read,
-search, edit, and run approved commands without sending raw repository output
-to the model every time.
+**Embed LeanCTX context control into your application.**
 
-Your framework owns the model and agent loop. LeanCTX owns the local context
-tools, compression, cache, permissions, token measurements, and recovery path.
+LeanCTX is the **Context Gateway for AI Systems**. **Control what your AI can see.**
+The SDK lets an application select task-relevant context, apply the controls
+supported by its integration, and inspect the resulting output and evidence.
+Your application keeps its model, workflow, and user interface.
 
-## Choose the right product
+## SELECT → CONTROL → PROVE
 
-| You want to… | Use |
-| --- | --- |
-| improve an existing coding agent through CLI/MCP | LeanCTX Engine |
-| build your own agent with LeanCTX tools | LeanCTX SDK + Engine |
-| keep your own model/framework but add governed context | `AgentContext` |
+- **Select:** gather relevant context with supported search, read, tree, compose,
+  and lifecycle APIs.
+- **Control:** apply the permissions and command policy available in the chosen
+  integration and Engine release.
+- **Prove:** inspect returned results and measurements; the stable lifecycle also
+  exposes receipts. A context-only integration cannot observe what the host later
+  sends to its model.
+
+## Choose your path
+
+- **Coding agent:** use Stable `AgentContext` or `AsyncAgentContext` for local
+  context tools with explicit permissions; your host keeps the model and agent
+  loop.
+- **Enterprise copilot:** use only the five Stable lifecycle primitives:
+  `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
+  `ContextReceipt`.
+- **Product builder:** embed the SDK and Engine in your application. The source
+  license permits non-production use; production use, OEM embedding, and
+  commercial redistribution require a written agreement signed by Thinkery AG.
+
+Build with the SDK when your application needs its own LeanCTX integration. Use
+the Engine's CLI or MCP integration directly when an existing supported agent
+already provides the context tools you need.
 
 The SDK does not contain a second implementation of the Engine. It starts one
 verified local Engine process and exposes its negotiated capabilities as stable
@@ -24,26 +42,25 @@ your model / agent loop
           ↓
 AgentContext or AsyncAgentContext
           ↓  versioned local Agent Tools Interface
-LeanCTX Engine 3.10.1
+LeanCTX Engine (release-specific; see [Compatibility](COMPATIBILITY.md))
           ↓
 project-jailed files, cache, search, patches, approved commands
 ```
 
 ## Install
 
-Engine 3.10.1 and its companion wheels are published and cryptographically
-bound by the SDK release gate. Install the Python SDK and Engine together with:
-
+This SDK 1.1.1 maintenance release preserves Engine 3.10.1 compatibility and
+its exact companion-wheel dependencies. Install the Python SDK and Engine together:
 Standard Engine:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent]==1.1.1"
 ```
 
 With the certified OpenAI Agents integration:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.1"
 ```
 
 CUDA and Windows-GNU builds use the documented `agent-cuda` and
@@ -51,10 +68,10 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 
 ## Language SDKs
 
-All SDK 1.1 packages implement the five stable Product primitives, Engine
-Interface v1, and PR #8 Agent Tools 1.1 contract. Engine 3.10.1 satisfies their
-runtime dependency. One cross-SDK gate builds, installs, verifies, and promotes
-every registry artifact from the same commit.
+All six language SDKs implement the five Stable lifecycle primitives and the
+separate Stable Agent Tools surface. The table describes this maintenance
+release, which requires Engine 3.10.1. Registry publication is per artifact;
+verify the version at the registry before installation.
 
 | Runtime | Package source | Package identity |
 | --- | --- | --- |
@@ -65,11 +82,9 @@ every registry artifact from the same commit.
 | Java 21 / Kotlin 2.1 | `packages/jvm` | `com.leanctx:leanctx-sdk` |
 | .NET 8+ | `packages/dotnet` | `Thinkery.LeanCtx` |
 
-Each package includes language-native tests against the same canonical
-serialization fixture, strict protocol validation, explicit execution policy,
-package-content checks, and source-available license notices. The release
-workflow requires every language job before pull-request validation or
-publication provenance can pass. The Engine remains a separate local binary.
+Each package follows the shared protocol and release gate. The Engine remains a
+separate local binary. Python's Preview workspace APIs live only under
+`leanctx_sdk.preview`; they are outside the Stable v1 guarantee.
 
 Registry releases use language-scoped tags from the same commit:
 `packages/typescript/vX.Y.Z`, `packages/go/vX.Y.Z`,
@@ -81,7 +96,7 @@ Go follows the standard monorepo module convention and is tagged
 `packages/go/vX.Y.Z`. Registry-backed packages use their native registries:
 PyPI, npm, crates.io, Maven Central, and NuGet.
 
-## Five-minute custom agent
+## Custom agent example
 
 ```python
 from leanctx_sdk import AgentContext
@@ -118,7 +133,7 @@ with AgentContext(
 The permission policy is immutable for the session and is enforced again by
 the Engine. `call()` cannot bypass it, and process tools must use `run(argv)`.
 
-## SDK 1.1 Agent Tools capabilities
+## SDK 1.1 Stable Agent Tools
 
 - `read`, `search`, `glob`, `tree`, `compose`, and `symbol`
 - safe `create_file`, `patch`, and `replace_unique`
@@ -136,8 +151,9 @@ the Engine's raw-output baseline; they are not a promise for every workload.
 
 The five SDK 1.0 lifecycle primitives remain available unchanged:
 `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
-`ContextReceipt`. `AgentContext` requires Agent Tools Interface v1 from Engine
-3.10.1; the older context-view/recover Engine Interface v1 remains unchanged.
+`ContextReceipt`. Stable Agent Tools is a separate API surface. SDK 1.1.1
+preserves SDK 1.1.0's exact Agent Tools Engine 3.10.1 requirement. The older
+context-view/recover Engine Interface v1 remains separate.
 
 See:
 
@@ -151,6 +167,7 @@ See:
 
 ## License
 
-LeanCTX SDK is source-available. Commercial Production Use, OEM embedding, and
-commercial redistribution require a written agreement with Thinkery AG.
-LeanCTX Engine and its companion binary distributions remain Apache-2.0.
+The SDK is source-available under a license that permits non-production use.
+Production use, OEM embedding, and commercial redistribution require a separate
+written agreement signed by Thinkery AG. LeanCTX Engine is licensed separately
+under Apache-2.0; that license does not grant SDK production or OEM rights.

@@ -18,7 +18,7 @@ from scripts.public_release_guard import PublicReleaseGuardError, check_files
 from scripts.source_secret_scan import SecretScanError, scan_files
 
 
-DIST_INFO = "thinkery_leanctx_sdk-1.1.0.dist-info"
+DIST_INFO = "thinkery_leanctx_sdk-1.1.1.dist-info"
 
 
 def _record_hash(data):
@@ -29,7 +29,7 @@ def _record_hash(data):
 def _wheel(path, *, extra=None, python_requires=">=3.9,<3.15"):
     metadata = f"""Metadata-Version: 2.1
 Name: thinkery-leanctx-sdk
-Version: 1.1.0
+Version: 1.1.1
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
 Provides-Extra: agent
@@ -42,7 +42,7 @@ Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra ==
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: requests (==2.33.0) ; (python_version >= "3.10") and extra == 'openai-agents'
-Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'openai-agents'
+Requires-Dist: urllib3 (==2.8.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 
 """.encode()
     files = {
@@ -59,7 +59,7 @@ Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'open
             b"Terms require an executed agreement with Thinkery AG.\n"
         ),
         f"{DIST_INFO}/licenses/THIRD_PARTY_NOTICES": (
-            "LeanCTX SDK v1.1.0 — Third-Party Notices\n"
+            "LeanCTX SDK v1.1.1 — Third-Party Notices\n"
             "The exact 41-wheel audit includes openai-agents 0.8.4 — MIT.\n"
         ).encode("utf-8"),
     }
@@ -226,7 +226,7 @@ class ReleaseGateTests(unittest.TestCase):
             any(line.startswith("requests==2.33.0 ") for line in requirements)
         )
         self.assertTrue(
-            any(line.startswith("urllib3==2.7.0 ") for line in requirements)
+            any(line.startswith("urllib3==2.8.0 ") for line in requirements)
         )
         self.assertTrue(all(" --hash=sha256:" in line for line in requirements))
 
@@ -411,7 +411,7 @@ class ReleaseGateTests(unittest.TestCase):
         )[0]
         self.assertIn("path: download", publication)
         self.assertIn(
-            "cp download/thinkery_leanctx_sdk-1.1.0-py3-none-any.whl",
+            "cp download/thinkery_leanctx_sdk-1.1.1-py3-none-any.whl",
             publication,
         )
         self.assertNotIn("path: dist", publication)
@@ -491,7 +491,7 @@ class ReleaseGateTests(unittest.TestCase):
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
             "sdk_commit": "a" * 40,
-            "sdk_version": "1.1.0",
+            "sdk_version": "1.1.1",
             "wheel_sha256": "b" * 64,
             "engine_commit": "4a76710a6c792229f170a66fdda1f4a0a64f47ee",
             "engine_version": "3.10.1",
@@ -552,7 +552,7 @@ class ReleaseGateTests(unittest.TestCase):
             )
             self.assertNotIn("All ten authority rows remain", decision_gate)
             publish_status = (output / "PUBLISH-STATUS.md").read_text(encoding="utf-8")
-            self.assertIn("exact `v1.1.0` tag", publish_status)
+            self.assertIn("exact `v1.1.1` tag", publish_status)
             self.assertNotIn("v1.0.0", publish_status)
 
             blocked = dict(values, publication_authorization="PENDING")

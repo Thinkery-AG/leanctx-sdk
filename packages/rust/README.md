@@ -1,9 +1,11 @@
 # Thinkery LeanCTX SDK for Rust
 
-Source-available Rust SDK 1.1.0 for the governed LeanCTX Product lifecycle
-and Agent Tools Interface v1. It provides the five stable Product primitives
-(`ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
-`ContextReceipt`) plus a persistent, permissioned `AgentContext`.
+**Embed LeanCTX context control into your application.** LeanCTX is the
+**Context Gateway for AI Systems**: **Control what your AI can see.**
+
+This Rust SDK connects your host-owned model and workflow to a local LeanCTX
+Engine. Your application keeps its model, agent loop, and UI. It provides the
+five Stable lifecycle primitives plus the separate Stable Agent Tools API.
 
 The SDK launches a local LeanCTX Engine subprocess with a project-root jail,
 bounded UTF-8 JSON/JSONL transport, strict protocol validation, and typed
@@ -21,10 +23,10 @@ context.close()?;
 # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
 ```
 
-Agent Tools requires the published Engine 3.10.1 and negotiates the exact v1
-capability set. Registry releases are produced from the monorepo's cross-SDK
-promotion gate. See the repository contracts and
-`PUBLIC-SURFACE-MANIFEST.md` for the frozen wire and public API contracts.
+SDK 1.1.1 preserves the Engine 3.10.1 requirement of SDK 1.1.0. Check the release-specific compatibility record before
+choosing an Engine binary. The SDK source license permits non-production use;
+production use, OEM embedding, and commercial redistribution require a separate
+written agreement signed by Thinkery AG.
 
 License and commercial-use terms are in `LICENSE` and
 `COMMERCIAL-LICENSE.md`; dependency notices are in `THIRD_PARTY_NOTICES`.

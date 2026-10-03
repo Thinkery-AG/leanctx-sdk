@@ -1,5 +1,18 @@
 # Compatibility
 
+## Stable SDK 1.1.1 maintenance release
+
+SDK 1.1.1 retains the runtime and protocol compatibility of SDK 1.1.0 below.
+Agent Tools still requires Engine 3.10.1; the exact signed Engine artifacts
+and companion-wheel dependencies are unchanged. Rust still supports 1.76.
+The release updates product documentation and package descriptions, and
+backports compatible security corrections to the optional Agents wheelhouse.
+It does not promote Preview APIs or add support for a different Engine version.
+
+This maintenance line is distinct from the newer, unreleased `main` source.
+Verify each version at its package registry; a source manifest does not prove
+that an artifact has been published.
+
 ## Stable SDK 1.1.0
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
