@@ -1,4 +1,4 @@
-# Thinkery.LeanCtx 1.1.0
+# Thinkery.LeanCtx 1.1.1
 
 **Embed LeanCTX context control into your application.** LeanCTX is the
 **Context Gateway for AI Systems**: **Control what your AI can see.**
@@ -8,7 +8,7 @@ workflow to a local LeanCTX Engine. Your application keeps its model, agent
 loop, and UI. It provides the five Stable lifecycle primitives plus the
 separate Stable Agent Tools API.
 
-The published SDK 1.1.0 release requires Engine 3.10.1; current `main` sources
+The published SDK 1.1.1 release requires Engine 3.10.1; current `main` sources
 target Engine 3.10.5. Check the release-specific compatibility record before
 choosing an Engine binary. The package does not embed an Engine and does not
 grant Engine rights. Use

@@ -49,11 +49,11 @@ project-jailed files, cache, search, patches, approved commands
 
 ## Install
 
-The public SDK 1.1.0 release uses Engine 3.10.1 and its companion wheels. The
+The public SDK 1.1.1 release uses Engine 3.10.1 and its companion wheels. The
 current `main` source targets Engine 3.10.5. Install the public Python SDK and
 Engine together with:
 
-> These commands install the published SDK 1.1.0, which requires Engine
+> These commands install the published SDK 1.1.1, which requires Engine
 > 3.10.1. Current `main` sources target Engine 3.10.5; package version metadata
 > alone does not identify a published artifact. See
 > [COMPATIBILITY.md](COMPATIBILITY.md#main-unreleased).
@@ -61,13 +61,13 @@ Engine together with:
 Standard Engine:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent]==1.1.1"
 ```
 
 With the certified OpenAI Agents integration:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.0"
+python -m pip install "thinkery-leanctx-sdk[agent,openai-agents]==1.1.1"
 ```
 
 CUDA and Windows-GNU builds use the documented `agent-cuda` and
@@ -77,7 +77,7 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 
 All six language SDKs implement the five Stable lifecycle primitives and the
 separate Stable Agent Tools surface. The table describes current `main` source
-compatibility. The published SDK 1.1.0 release requires Engine 3.10.1; current
+compatibility. The published SDK 1.1.1 release requires Engine 3.10.1; current
 `main` targets Engine 3.10.5. Registry publication is per artifact and must be
 verified at that registry.
 
@@ -160,7 +160,7 @@ the Engine's raw-output baseline; they are not a promise for every workload.
 The five SDK 1.0 lifecycle primitives remain available unchanged:
 `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
 `ContextReceipt`. Stable Agent Tools is a separate API surface. The published
-SDK 1.1.0 requires Agent Tools Interface v1 from Engine 3.10.1; current `main`
+SDK 1.1.1 requires Agent Tools Interface v1 from Engine 3.10.1; current `main`
 targets Engine 3.10.5. The older context-view/recover Engine Interface v1
 remains separate.
 

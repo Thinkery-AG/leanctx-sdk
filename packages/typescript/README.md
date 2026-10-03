@@ -25,7 +25,7 @@ try {
 }
 ```
 
-The published SDK 1.1.0 release requires Engine 3.10.1; current `main` sources
+The published SDK 1.1.1 release requires Engine 3.10.1; current `main` sources
 target Engine 3.10.5. Check the release-specific compatibility record before
 choosing an Engine binary. The SDK source license permits non-production use;
 production use, OEM embedding, and commercial redistribution require a separate

@@ -42,7 +42,7 @@
   - The user-facing `[openai-agents]` extra pinned the same vulnerable
     `urllib3==2.7.0`; it now pins `urllib3==2.8.0`. PyJWT is not pinned by
     the extra and resolves to a current release. The published 1.1.0 extra
-    still pins 2.7.0 until the next SDK release.
+    still pins 2.7.0; the 1.1.1 maintenance release below includes this correction.
   - The per-wheel checks of `dependency_wheel_audit` pass for both wheels
     (MIT, no secrets, no build-path findings, so the audit policy is
     unchanged), and an OSV query over all 41 pinned artifacts finds no known
@@ -62,6 +62,18 @@
   by a signal with exit code `128 + signal` instead of a flat `1`; and
   `ctx_read` keeps a `-N` tail window under `raw=true`. Supporting that release
   needs only the usual constant bump.
+
+## 1.1.1
+
+- Published from the Engine 3.10.1 maintenance line, separately from the newer
+  unreleased `main` source. Public APIs, wire versions, language minimums and
+  license terms are unchanged.
+- Updated the README and all six package descriptions for LeanCTX context
+  control and the Context Gateway for AI Systems positioning.
+- Backported the audited optional PyJWT 2.15.1 and urllib3 2.8.0 corrections.
+- Pinned already-locked thiserror 2.0.20 to preserve Rust 1.76 package resolution.
+- Exact source, wheel digest and Engine pairing are recorded in
+  [COMPATIBILITY.md](COMPATIBILITY.md#stable-sdk-111).
 
 ## 1.1.0
 

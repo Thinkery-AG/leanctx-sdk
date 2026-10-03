@@ -3,7 +3,7 @@
 ## `main` (unreleased)
 
 The current `main` source is prepared against LeanCTX Engine **3.10.5**, the
-newest published Engine. The public SDK 1.1.0 release below remains bound to
+newest published Engine. The public SDK 1.1.1 release below remains bound to
 Engine 3.10.1. Package version fields in this source checkout do not establish
 that an artifact has been published; verify the specific registry artifact
 before installation. A source checkout of `main` needs Engine 3.10.5.
@@ -33,7 +33,17 @@ Release CI verifies the Sigstore identity
 binary. The Agent Tools and Engine Interface code did not change between 3.10.1
 and 3.10.5.
 
-## Stable SDK 1.1.0
+## Stable SDK 1.1.1
+
+[SDK 1.1.1](https://github.com/Thinkery-AG/leanctx-sdk/releases/tag/v1.1.1)
+is a maintenance release from the published 1.1.0 compatibility line. It updates
+product documentation and audited optional dependencies while retaining Engine
+3.10.1, Rust 1.76, the public APIs, protocol versions and licenses. Its source
+is `392946aaf689e328d05a9c6fbac35f5316ec1649`; the Python wheel SHA-256 is
+`23cfa48772ad509404ad41a5cebbfa3610321b877cdc8a26ddb2f381cdeae172`.
+
+<a id="stable-sdk-110"></a>
+The compatibility matrix below also applies to the historical SDK 1.1.0 release.
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
 contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
