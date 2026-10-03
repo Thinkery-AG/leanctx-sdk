@@ -432,6 +432,17 @@ export class SubprocessEngineClient implements EngineClient {
     return this.run(operation, root, undefined, payload, MAX_SOURCE_RESPONSE_BYTES);
   }
 
+  /**
+   * Preview: run `engine egress-admit` on a canonical request document and
+   * return the raw response bytes. Use `admitEgress` from
+   * `@thinkery/leanctx-sdk/preview`, which validates both sides.
+   */
+  async egressAdmit(projectRoot: string, payload: Buffer, maxRequestBytes: number, maxResponseBytes: number): Promise<Buffer> {
+    const root = this.validateRoot(projectRoot);
+    if (payload.byteLength > maxRequestBytes) throw new EngineProtocolError("egress request exceeds the bound");
+    return this.run("egress-admit", root, undefined, payload, maxResponseBytes);
+  }
+
   private async run(
     operation: string,
     projectRoot: string,

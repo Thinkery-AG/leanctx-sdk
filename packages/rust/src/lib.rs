@@ -8,6 +8,7 @@ mod async_agent;
 mod engine;
 mod enterprise;
 mod errors;
+mod gateway_preview;
 mod planning;
 mod process;
 mod protocol;
@@ -42,3 +43,13 @@ pub use protocol::{
 };
 pub use receipt::ContextReceipt;
 pub use session::ContextSession;
+
+/// Preview APIs; they may change in minor releases.
+pub mod preview {
+    pub use crate::gateway_preview::{
+        parse_decision_receipt, parse_egress_admission, ContextDecision, ContextDecisionReceipt,
+        ContextDestination, ContextPrincipal, DetectorCoverage, EgressAdmission, EgressRequest,
+        SecuritySignal, EGRESS_SCHEMA_VERSION, GATEWAY_PREVIEW_CONTRACT, GATEWAY_PREVIEW_VERSION,
+        MAX_EGRESS_REQUEST_BYTES,
+    };
+}

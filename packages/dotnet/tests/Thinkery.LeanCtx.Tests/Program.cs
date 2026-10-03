@@ -23,6 +23,7 @@ internal static class Program
         Run("engine-v1-fixture", EngineV1Fixture);
         Run("engine-v1-optional", EngineV1Optional);
         Run("enterprise-http-transport-contract", EnterpriseHttpContractTests.Run);
+        Run("gateway-preview", GatewayPreviewTests.Run);
         if (failures != 0)
             throw new Exception($"{failures} test group(s) failed");
         Console.WriteLine("all .NET SDK tests passed");

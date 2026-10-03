@@ -263,11 +263,16 @@ public final class SubprocessEngineClient implements EngineClient {
 
     private EngineProtocol.ParsedResponse invoke(String operation, String projectRoot,
                                                  Map<String, Object> request) {
-        Path root = validateRoot(projectRoot);
         byte[] payload = Json.canonicalBytes(request);
         if (payload.length > Protocol.MAX_REQUEST_BYTES) {
             throw new EngineProtocolError("Engine request exceeds the bound");
         }
+        return EngineProtocol.parseResponse(runPayload(operation, projectRoot, payload));
+    }
+
+    /** Write one request document to a private file under the root and run the operation. */
+    byte[] runPayload(String operation, String projectRoot, byte[] payload) {
+        Path root = validateRoot(projectRoot);
         Path directory = null;
         Path requestPath = null;
         try {
@@ -279,7 +284,7 @@ public final class SubprocessEngineClient implements EngineClient {
                 channel.write(ByteBuffer.wrap(payload));
                 channel.force(true);
             }
-            return EngineProtocol.parseResponse(run(operation, root, requestPath));
+            return run(operation, root, requestPath);
         } catch (EngineError exception) {
             throw exception;
         } catch (IOException exception) {

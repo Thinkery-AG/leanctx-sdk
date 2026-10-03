@@ -61,12 +61,35 @@ from ..parallel_context import (
     WorkspaceStateRefV1,
 )
 
+from ..gateway import (
+    ContextDecision,
+    ContextDecisionReceipt,
+    ContextDestination,
+    ContextPrincipal,
+    DetectorCoverage,
+    EgressAdmission,
+    SecuritySignal,
+    admit_egress,
+    parse_decision_receipt,
+    parse_egress_admission,
+)
+
 ContextCheckpoint = ContextCheckpointV2
 ContextDelta = ContextDeltaV1
 ContextHandoff = ContextHandoffV1
 
 __all__ = [
     "CheckpointPackageInspection",
+    "ContextDecision",
+    "ContextDecisionReceipt",
+    "ContextDestination",
+    "ContextPrincipal",
+    "DetectorCoverage",
+    "EgressAdmission",
+    "SecuritySignal",
+    "admit_egress",
+    "parse_decision_receipt",
+    "parse_egress_admission",
     "ContextCheckpointV2",
     "ContextCheckpoint",
     "ConflictEntryV1",

@@ -905,32 +905,38 @@ func (c *SubprocessEngineClient) invoke(parent context.Context, operation, root 
 	if len(payload) > maxRequestBytes {
 		return parsedResponse{}, NewEngineProtocolError("Engine request exceeds the bound")
 	}
+	raw, err := c.runPayload(parent, operation, validatedRoot, payload)
+	if err != nil {
+		return parsedResponse{}, err
+	}
+	return parseResponse(raw)
+}
+
+// runPayload writes one request document to a private file under the
+// validated root, runs the operation on it and removes the file.
+func (c *SubprocessEngineClient) runPayload(parent context.Context, operation, validatedRoot string, payload []byte) ([]byte, error) {
 	temporary, err := os.CreateTemp(validatedRoot, ".leanctx-sdk-*.json")
 	if err != nil {
-		return parsedResponse{}, NewEngineUnavailable("Engine request file could not be created")
+		return nil, NewEngineUnavailable("Engine request file could not be created")
 	}
 	requestPath := temporary.Name()
 	defer os.Remove(requestPath)
 	if err := temporary.Chmod(0600); err != nil {
 		temporary.Close()
-		return parsedResponse{}, NewEngineUnavailable("Engine request file could not be secured")
+		return nil, NewEngineUnavailable("Engine request file could not be secured")
 	}
 	if _, err := temporary.Write(payload); err != nil {
 		temporary.Close()
-		return parsedResponse{}, NewEngineUnavailable("Engine request file could not be written")
+		return nil, NewEngineUnavailable("Engine request file could not be written")
 	}
 	if err := temporary.Sync(); err != nil {
 		temporary.Close()
-		return parsedResponse{}, NewEngineUnavailable("Engine request file could not be synced")
+		return nil, NewEngineUnavailable("Engine request file could not be synced")
 	}
 	if err := temporary.Close(); err != nil {
-		return parsedResponse{}, NewEngineUnavailable("Engine request file could not be closed")
+		return nil, NewEngineUnavailable("Engine request file could not be closed")
 	}
-	raw, err := c.run(parent, operation, validatedRoot, requestPath)
-	if err != nil {
-		return parsedResponse{}, err
-	}
-	return parseResponse(raw)
+	return c.run(parent, operation, validatedRoot, requestPath)
 }
 
 type streamResult struct {

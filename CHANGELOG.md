@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Preview `leanctx-gateway-preview` 0.1 in all six SDKs: egress admission
+  through the Engine's `egress-admit` with typed `ContextPrincipal`,
+  `ContextDestination`, `ContextDecision`, `SecuritySignal`,
+  `DetectorCoverage`, `ContextDecisionReceipt` and `EgressAdmission`; strict
+  parsing that mirrors the Engine's validation.
+- Shared conformance fixtures (`fixtures/gateway-preview-v1`: real Engine
+  responses plus 29 single-violation documents) and a live-Engine journey in
+  every SDK; reference apps A (minimal app) and B (own agent loop) without
+  MCP, UI or cloud. See `docs/gateway-preview.md`.
+- The stable root surfaces are unchanged (Python `leanctx_sdk.preview`,
+  TypeScript `@thinkery/leanctx-sdk/preview` subpath).
+
 ## 1.2.0
 
 - Pair all six SDK packages with LeanCTX Engine 4.0.0.

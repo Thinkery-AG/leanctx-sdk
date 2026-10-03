@@ -1,0 +1,65 @@
+{
+  "contract": "leanctx-gateway-preview",
+  "invalid": [
+    "admitted-with-refusal",
+    "admitted-without-body",
+    "blocked-count-mismatch",
+    "boolean-as-count",
+    "complete-coverage-partial-bytes",
+    "confidence-above-1000",
+    "coverage-inspects-more-than-total",
+    "delivered-without-final-context",
+    "failed-detector-claims-complete",
+    "invalid-reason-code",
+    "known-principal-without-id",
+    "malformed-object-digest",
+    "negative-count",
+    "non-allow-without-reason",
+    "refused-with-body",
+    "schema-version",
+    "source-counts-inconsistent",
+    "unknown-classification",
+    "unknown-context-disposition",
+    "unknown-disposition",
+    "unknown-locality",
+    "unknown-mode",
+    "unknown-principal-with-id",
+    "unknown-severity",
+    "unknown-signal-category",
+    "unknown-signal-field",
+    "unknown-top-level-field",
+    "unknown-transformation",
+    "withheld-with-final-context"
+  ],
+  "source": "lean-ctx engine egress-admit (real Engine output, 2026-10-03)",
+  "valid": {
+    "confidential": {
+      "classification": "confidential",
+      "decisions": 1,
+      "denied": 0,
+      "disposition": "forward",
+      "outcome": "delivered",
+      "redactions": 0,
+      "signals": 4
+    },
+    "masked": {
+      "classification": "public",
+      "decisions": 1,
+      "denied": 0,
+      "disposition": "rewritten",
+      "outcome": "delivered",
+      "redactions": 1,
+      "signals": 4
+    },
+    "restricted": {
+      "classification": "restricted",
+      "decisions": 1,
+      "denied": 1,
+      "disposition": "rewritten",
+      "outcome": "withheld",
+      "redactions": 0,
+      "signals": 4
+    }
+  },
+  "version": "0.1.0"
+}

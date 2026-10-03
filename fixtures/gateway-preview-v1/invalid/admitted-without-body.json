@@ -1,0 +1,130 @@
+{
+  "classification": "confidential",
+  "disposition": "forward",
+  "receipt": {
+    "decisions": [
+      {
+        "disposition": "allow",
+        "object": "sha256:836dca9c377f3edb2a59ea5ddbc7a198240f026755b7d6e4347b887f101b0b7a",
+        "reason_codes": [
+          "classification.flagged"
+        ],
+        "signals": [
+          {
+            "calibrated": false,
+            "category": "secret",
+            "coverage": {
+              "bytes_inspected": 42,
+              "bytes_total": 42,
+              "chunks_inspected": 1,
+              "chunks_total": 1,
+              "kind": "complete"
+            },
+            "detector": {
+              "id": "builtin.secrets",
+              "version": "1.1.0"
+            },
+            "evidence_count": 0,
+            "latency_us": 3965,
+            "severity": "info",
+            "status": "completed"
+          },
+          {
+            "calibrated": false,
+            "category": "pii",
+            "coverage": {
+              "bytes_inspected": 42,
+              "bytes_total": 42,
+              "chunks_inspected": 1,
+              "chunks_total": 1,
+              "kind": "complete"
+            },
+            "detector": {
+              "id": "builtin.pii_checksum",
+              "version": "1.1.0"
+            },
+            "evidence_count": 0,
+            "latency_us": 2788,
+            "severity": "info",
+            "status": "completed"
+          },
+          {
+            "calibrated": false,
+            "category": "prompt_injection",
+            "coverage": {
+              "bytes_inspected": 42,
+              "bytes_total": 42,
+              "chunks_inspected": 1,
+              "chunks_total": 1,
+              "kind": "complete"
+            },
+            "detector": {
+              "id": "builtin.injection",
+              "version": "1.1.0"
+            },
+            "evidence_count": 0,
+            "latency_us": 610,
+            "severity": "info",
+            "status": "completed"
+          },
+          {
+            "calibrated": false,
+            "category": "classification",
+            "coverage": {
+              "bytes_inspected": 42,
+              "bytes_total": 42,
+              "chunks_inspected": 1,
+              "chunks_total": 1,
+              "kind": "complete"
+            },
+            "detector": {
+              "id": "builtin.classification_marking",
+              "version": "1.1.0"
+            },
+            "evidence_count": 1,
+            "latency_us": 1937,
+            "severity": "medium",
+            "status": "completed"
+          }
+        ]
+      }
+    ],
+    "destination": {
+      "locality": "remote",
+      "model": "gpt-x",
+      "organization_managed": false,
+      "provider": "openai"
+    },
+    "duration_us": 9374,
+    "final_context": "sha256:25abd07e42742bc01522d3b1f5d39f8617a24e13601e2b64a36b221692b23186",
+    "mode": "developer",
+    "outcome": "delivered",
+    "policy": {
+      "digest": "sha256:1f65b9659319fea28524986d47d0c1514f95438237d3d56291d45f14be38b610",
+      "id": "context-gateway"
+    },
+    "principal": {
+      "kind": "unknown"
+    },
+    "receipt_id": "rcpt-3ba026628c2bf6698d5d000aa1098f82",
+    "schema_version": 1,
+    "security": {
+      "blocked_objects": 0,
+      "incomplete_coverage": 0,
+      "injection_signals": 0,
+      "quarantined_objects": 0,
+      "redactions": 0
+    },
+    "sources": {
+      "blocked": 0,
+      "inspected": 1,
+      "permitted": 1,
+      "selected": 1
+    },
+    "tokens": {
+      "delivered": 25,
+      "original": 25
+    }
+  },
+  "schema_version": 1
+}

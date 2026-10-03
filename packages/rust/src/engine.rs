@@ -70,7 +70,7 @@ impl SubprocessEngineClient {
         self.timeout
     }
 
-    fn validate_root(&self, project_root: &Path) -> SdkResult<PathBuf> {
+    pub(crate) fn validate_root(&self, project_root: &Path) -> SdkResult<PathBuf> {
         existing_directory(project_root)
             .map_err(|_| boxed(SourceUnavailableError::new("project_root is unavailable")))
     }
@@ -138,7 +138,12 @@ impl SubprocessEngineClient {
         result.and_then(|raw| parse_response(&raw))
     }
 
-    fn run(&self, operation: &str, project_root: &Path, request_path: &Path) -> SdkResult<Vec<u8>> {
+    pub(crate) fn run(
+        &self,
+        operation: &str,
+        project_root: &Path,
+        request_path: &Path,
+    ) -> SdkResult<Vec<u8>> {
         let binary = self.resolve_binary()?;
         let mut command = Command::new(binary);
         command
@@ -1210,7 +1215,7 @@ fn safe_relative_path(path: &str) -> SdkResult<String> {
     Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
 
-fn create_request_file(root: &Path, payload: &[u8]) -> SdkResult<PathBuf> {
+pub(crate) fn create_request_file(root: &Path, payload: &[u8]) -> SdkResult<PathBuf> {
     static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
     for _ in 0..100 {
         let counter = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
