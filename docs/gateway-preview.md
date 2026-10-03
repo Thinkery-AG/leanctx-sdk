@@ -72,6 +72,31 @@ receipts, for example a withheld receipt that names a delivered context.
 - Live: with `LEANCTX_ENGINE_BINARY` set, every SDK runs the same three
   journeys against a real Engine.
 
+## Flagship journey: "Fix the production login issue"
+
+`examples/gateway_login_journey.py` runs the task through the real Engine.
+There are 21 candidate sources: the login code, the issue, a failing deploy
+log, an `.env` the agent may not use, and 15 unrelated documents.
+
+1. The source plan refuses the `.env` by permission. It selects the relevant
+   permitted sources within the budget.
+2. The agent builds its request from the selected sources only.
+3. `egress-admit` masks the credentials that slipped into the issue and the
+   log, and writes a receipt.
+4. The HUD line is computed from the plan and the receipt. The considered
+   tokens are measured by the Engine, not estimated.
+
+Reference run (Engine `merge/v4-into-main` @ `28708237a6`, budget 1200 tokens):
+
+```text
+LeanCTX 🛡  7.4k → 1.6k  ↓78%
+2 credentials redacted · 1 source blocked · 7/21 sources used
+```
+
+All five relevant sources were selected. Two unrelated documents also filled
+the remaining budget, because the planner has no relevance floor yet. The
+journey reports them under `irrelevant_selected` instead of hiding them.
+
 ## Reference apps
 
 These need no MCP, no UI and no cloud:

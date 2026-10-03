@@ -109,6 +109,21 @@ class GatewayReferenceApps(unittest.TestCase):
                          ("restricted", "withheld"))
         self.assertNotIn("customer list", restricted["provider_saw"])
 
+    def test_login_journey_hud_is_measured_and_nothing_forbidden_leaves(self):
+        (journey,) = self.run_example("gateway_login_journey.py")
+        self.assertEqual(journey["sources_total"], 21)
+        self.assertEqual(journey["sources_blocked"], [".env"])
+        self.assertEqual(journey["credentials_left"], [])
+        self.assertEqual(journey["redactions"], 2)
+        relevant = {"src/auth/login.py", "src/auth/session.py", "src/auth/middleware.py",
+                    "issue/LOGIN-482", "logs/deploy-14-05.log"}
+        self.assertEqual(set(journey["relevant_selected"]), relevant)
+        self.assertLess(journey["receipt_tokens"]["delivered"], journey["considered_tokens"])
+        # The HUD line is derived from the measured plan and receipt.
+        used = len(journey["sources_selected"])
+        self.assertIn(f"{journey['redactions']} credentials redacted", journey["hud"])
+        self.assertIn(f"1 source blocked · {used}/21 sources used", journey["hud"])
+
     def test_agent_loop_never_shows_the_model_a_secret(self):
         (summary,) = self.run_example("gateway_agent_loop.py")
         self.assertFalse(summary["credential_reached_model"])
