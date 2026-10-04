@@ -1,6 +1,6 @@
 {
   "name": "@thinkery/leanctx-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": false,
   "description": "SDK for embedding LeanCTX context control in Node.js and TypeScript applications",
   "type": "module",
@@ -23,6 +23,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js",
+      "default": "./dist/preview.js"
     }
   },
   "scripts": {

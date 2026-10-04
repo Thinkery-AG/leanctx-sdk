@@ -7,7 +7,7 @@
 
   <groupId>com.leanctx</groupId>
   <artifactId>leanctx-sdk</artifactId>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
   <name>LeanCTX JVM SDK</name>
   <description>SDK for embedding LeanCTX context control in Java and Kotlin applications.</description>
   <packaging>jar</packaging>

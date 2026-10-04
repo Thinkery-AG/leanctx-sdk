@@ -1,0 +1,68 @@
+{
+  "contract": "leanctx-guarded-context-read",
+  "version": "1.0.0",
+  "status": "unreleased SDK projection of the existing public Engine tool boundary",
+  "authority": {
+    "request": "public Engine ctx_read engine_interface=v1",
+    "response": "public Engine server/call_tool/guarded.rs and server/native_receipts.rs",
+    "not_a_new_engine_protocol": true
+  },
+  "transport": {
+    "method": "POST",
+    "path": "/v1/tools/call",
+    "authentication": "bearer header; no credential in URL, body or errors",
+    "tls": "required except explicitly opted-in literal loopback HTTP",
+    "redirects": false,
+    "environment_proxies": false,
+    "automatic_retries": false
+  },
+  "request": {
+    "name": "ctx_read",
+    "arguments": {
+      "path": "one non-empty UTF-8 host-relative or absolute path",
+      "mode": "aggressive",
+      "engine_interface": "v1"
+    },
+    "path_controls": "reject Unicode Cc, including NUL, DEL and C1"
+  },
+  "response": {
+    "top_level_keys": ["result"],
+    "content": "exactly one text block; valid UTF-8",
+    "isError": "absent, null or false; true and other types rejected",
+    "metadata": "result._meta.canonical_receipt required",
+    "unknown_result_content_and_metadata_fields": "preserved",
+    "duplicate_json_keys": "reject"
+  },
+  "receipt_metadata": {
+    "schema_version": 1,
+    "receipt_id": "1..512 printable ASCII bytes; distinct from artifact digest",
+    "receipt_digest": "sha256:<64 lowercase hexadecimal characters>",
+    "receipt_ref": "id: followed by the exact receipt_digest",
+    "outcome": "unknown",
+    "delivery": "native_engine_view",
+    "optional_refs": ["context_decision_ref", "outcome_observation_ref"],
+    "optional_ref_validation": "when present, 1..512 printable ASCII bytes"
+  },
+  "limits": {
+    "request_bytes": 65536,
+    "response_bytes": 16777216,
+    "text_bytes": 8388608,
+    "path_bytes": 4096,
+    "credential_bytes": 4096,
+    "timeout_seconds": [0.1, 120]
+  },
+  "typed_failures": {
+    "401|other_4xx": "EngineRejected",
+    "403": "PolicyAdmissionError",
+    "3xx|malformed_wire|invalid_receipt_metadata": "EngineProtocolError",
+    "5xx|connection_failure": "EngineUnavailable",
+    "deadline": "EngineTimeout"
+  },
+  "authority_limits": [
+    "Host owns path policy and signer configuration; SDK supplies neither.",
+    "No invented tenant prerequisite or response tenant-binding guarantee.",
+    "Receipt metadata is not signed receipt bytes or cryptographic verification.",
+    "A delivered context view is not an accepted task outcome."
+  ],
+  "fixture": "fixtures/guarded-context-read-v1/conformance.json"
+}

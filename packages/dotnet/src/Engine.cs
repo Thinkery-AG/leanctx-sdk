@@ -213,6 +213,18 @@ public sealed class SubprocessEngineClient : EngineClient
         var payload = WireJson.CanonicalBytes(request);
         if (payload.Length > WireJson.MaxRequestBytes)
             throw new EngineProtocolError("Engine request exceeds the bound");
+        var responseBytes = await RunPayloadAsync(operation, projectRoot, payload, cancellationToken)
+            .ConfigureAwait(false);
+        return ParseResponse(responseBytes);
+    }
+
+    /// <summary>Writes one request document to a private file under the root and runs the operation.</summary>
+    internal async Task<byte[]> RunPayloadAsync(
+        string operation,
+        string projectRoot,
+        byte[] payload,
+        CancellationToken cancellationToken)
+    {
         var directory = Path.Combine(projectRoot, $".leanctx-sdk-{Guid.NewGuid():N}");
         var requestPath = Path.Combine(directory, "request.json");
         try
@@ -221,15 +233,16 @@ public sealed class SubprocessEngineClient : EngineClient
             SetDirectoryMode(directory);
             await File.WriteAllBytesAsync(requestPath, payload, cancellationToken).ConfigureAwait(false);
             SetFileMode(requestPath);
-            var responseBytes = await RunAsync(operation, projectRoot, requestPath, cancellationToken)
+            return await RunAsync(operation, projectRoot, requestPath, cancellationToken)
                 .ConfigureAwait(false);
-            return ParseResponse(responseBytes);
         }
         finally
         {
             TryDeleteDirectory(directory);
         }
     }
+
+    internal static string ValidatedRoot(string projectRoot) => ValidateRoot(projectRoot);
 
     private async Task<byte[]> RunAsync(
         string operation,

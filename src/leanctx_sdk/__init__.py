@@ -1,12 +1,15 @@
+# SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 """LeanCTX SDK Stable v1 public surface.
 
 The five Product primitives are ContextSession, ContextSource, ContextView,
 ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 ``leanctx_sdk.preview`` and are outside the Stable compatibility guarantee.
 SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
+The v4 integration adds planning and guarded context-read types documented in
+docs/ENGINE-PLANNING.md.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from .agent import (
     AGENT_TOOLS_INTERFACE_VERSION,
@@ -17,11 +20,18 @@ from .agent import (
     AgentPermissions,
     AsyncAgentContext,
     ExecutionPolicy,
+    GitLabSource,
     ReadMode,
     SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
     ToolResult,
 )
-from .engine import EngineClient, SubprocessEngineClient
+from .engine import EngineClient, EnginePlanningClient, SubprocessEngineClient
+from .enterprise_engine import (
+    EngineContextClient,
+    EngineContextReadResult,
+    EnterpriseEngineClient,
+)
+from .planning import EnginePlanningRequest, EngineSource
 from .errors import (
     AgentPermissionError,
     ArtifactIntegrityError,
@@ -88,7 +98,13 @@ __all__ = [
     "ContextSource",
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
+    "EngineContextClient",
+    "EngineContextReadResult",
     "EngineClient",
+    "EnginePlanningClient",
+    "EnginePlanningRequest",
+    "EngineSource",
+    "EnterpriseEngineClient",
     "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
@@ -98,6 +114,7 @@ __all__ = [
     "EngineTimeout",
     "EngineUnavailable",
     "ExecutionPolicy",
+    "GitLabSource",
     "FailureCode",
     "Freshness",
     "FrameworkCompatibilityError",

@@ -1,4 +1,5 @@
-"""Strict subprocess client for the two public Engine Interface v1 operations."""
+# SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
+"""Public Engine transport; v4 adds bounded, digest-validated planning operations."""
 
 from __future__ import annotations
 
@@ -24,6 +25,12 @@ from .errors import (
     SourceUnavailableError,
     UnsupportedEngineError,
     ValidationError,
+)
+from .planning import (
+    EnginePlanningRequest,
+    EngineSource,
+    parse_context_plan,
+    parse_source_plan,
 )
 from .protocol import (
     ENGINE_INTERFACE_VERSION,
@@ -69,6 +76,21 @@ class EngineClient(Protocol):
         source_ref: str,
         source_digest: str,
     ) -> RecoveredSource: ...
+
+
+class EnginePlanningClient(Protocol):
+    """Additive planning seam; existing injected EngineClient implementations remain valid."""
+
+    def context_plan(
+        self, project_root: str, request: EnginePlanningRequest
+    ) -> Mapping[str, object]: ...
+
+    def context_plan_sources(
+        self,
+        project_root: str,
+        request: EnginePlanningRequest,
+        sources: Sequence[EngineSource],
+    ) -> Mapping[str, object]: ...
 
 
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -512,6 +534,43 @@ class SubprocessEngineClient:
         )
         self.timeout = float(timeout)
 
+    def context_plan(
+        self, project_root: str, request: EnginePlanningRequest
+    ) -> Mapping[str, object]:
+        """Return the canonical local plan, not an execution receipt or admission."""
+        if not isinstance(request, EnginePlanningRequest):
+            raise ValidationError("context_plan requires EnginePlanningRequest")
+        raw = self._invoke_bytes(
+            "context-plan", project_root, request.to_dict(), stdin=True
+        )
+        return parse_context_plan(raw, request)
+
+    def context_plan_sources(
+        self,
+        project_root: str,
+        request: EnginePlanningRequest,
+        sources: Sequence[EngineSource],
+    ) -> Mapping[str, object]:
+        """Plan explicit bounded sources; permission labels never authenticate a caller."""
+        if not isinstance(request, EnginePlanningRequest):
+            raise ValidationError("context_plan_sources requires EnginePlanningRequest")
+        if not isinstance(sources, (list, tuple)) or len(sources) > 64:
+            raise ValidationError("sources must be a bounded list or tuple")
+        if any(not isinstance(source, EngineSource) for source in sources):
+            raise ValidationError("sources must contain EngineSource values")
+        descriptors = [source.to_dict() for source in sources]
+        references = [source.descriptor["object_ref"] for source in sources]
+        if len(set(references)) != len(references):
+            raise ValidationError("source object references must be unique")
+        raw = self._invoke_bytes(
+            "context-plan-sources",
+            project_root,
+            {"planning": request.to_dict(), "sources": descriptors},
+            maximum=1024 * 1024,
+            stdin=True,
+        )
+        return parse_source_plan(raw, request, sources)
+
     def context_view(self, plan: ContextPlan) -> ContextView:
         if not isinstance(plan, ContextPlan):
             raise ValidationError("context_view requires ContextPlan")
@@ -648,10 +707,23 @@ class SubprocessEngineClient:
         return candidate
 
     def _invoke(self, operation: str, project_root: str, request: Mapping[str, object]):
+        return _parse_response(self._invoke_bytes(operation, project_root, request))
+
+    def _invoke_bytes(
+        self,
+        operation: str,
+        project_root: str,
+        request: Mapping[str, object],
+        *,
+        maximum: int = MAX_REQUEST_BYTES,
+        stdin: bool = False,
+    ) -> bytes:
         root = self._validate_root(project_root)
         payload = canonical_bytes(request)
-        if len(payload) > MAX_REQUEST_BYTES:
+        if len(payload) > maximum:
             raise EngineProtocolError("Engine request exceeds the bound")
+        if stdin:
+            return self._run(operation, root, "-", input_bytes=payload)
         request_path = None
         try:
             fd, request_path = tempfile.mkstemp(
@@ -669,9 +741,16 @@ class SubprocessEngineClient:
                     os.unlink(request_path)
                 except FileNotFoundError:
                     pass
-        return _parse_response(raw)
+        return raw
 
-    def _run(self, operation: str, project_root: str, request_path: str) -> bytes:
+    def _run(
+        self,
+        operation: str,
+        project_root: str,
+        request_path: str,
+        *,
+        input_bytes: Optional[bytes] = None,
+    ) -> bytes:
         binary = self._resolve_binary()
         argv = [
             binary,
@@ -693,7 +772,9 @@ class SubprocessEngineClient:
                 argv,
                 cwd=project_root,
                 env=env,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE
+                if input_bytes is not None
+                else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
@@ -702,13 +783,18 @@ class SubprocessEngineClient:
             raise EngineUnavailable("Engine process could not be started") from exc
         stdout = bytearray()
         stderr = bytearray()
-        selector = selectors.DefaultSelector()
-        assert process.stdout is not None
-        assert process.stderr is not None
-        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
-        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        selector: Optional[selectors.BaseSelector] = None
+        input_offset = 0
         deadline = time.monotonic() + self.timeout
         try:
+            selector = selectors.DefaultSelector()
+            if process.stdout is None or process.stderr is None:
+                raise EngineProtocolError("Engine output pipe is unavailable")
+            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+            if process.stdin is not None:
+                os.set_blocking(process.stdin.fileno(), False)
+                selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -721,6 +807,26 @@ class SubprocessEngineClient:
                     process.wait()
                     raise EngineTimeout("Engine process exceeded its deadline")
                 for key, _ in events:
+                    if key.data == "stdin":
+                        if process.stdin is None or input_bytes is None:
+                            raise EngineProtocolError(
+                                "Engine input pipe is unavailable"
+                            )
+                        try:
+                            # Never let pipe backpressure bypass the shared deadline.
+                            written = os.write(
+                                process.stdin.fileno(),
+                                input_bytes[input_offset : input_offset + 512],
+                            )
+                            input_offset += written
+                        except BlockingIOError:
+                            continue
+                        except BrokenPipeError:
+                            input_offset = len(input_bytes)
+                        if input_offset == len(input_bytes):
+                            selector.unregister(process.stdin)
+                            process.stdin.close()
+                        continue
                     fileobj = key.fileobj
                     descriptor = (
                         fileobj if isinstance(fileobj, int) else fileobj.fileno()
@@ -740,14 +846,27 @@ class SubprocessEngineClient:
                         raise EngineProtocolError(
                             "Engine process output exceeds its bound"
                         )
-            return_code = process.wait()
+            try:
+                return_code = process.wait(
+                    timeout=max(0.0, deadline - time.monotonic())
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise EngineTimeout("Engine process exceeded its deadline") from exc
         except (EngineTimeout, EngineProtocolError):
             if process.poll() is None:
                 process.kill()
                 process.wait()
             raise
+        except OSError as exc:
+            raise EngineExecutionError("Engine process I/O failed") from exc
         finally:
-            selector.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if selector is not None:
+                selector.close()
+            if process.stdin is not None:
+                process.stdin.close()
             if process.stdout is not None:
                 process.stdout.close()
             if process.stderr is not None:

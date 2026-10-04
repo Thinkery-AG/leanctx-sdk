@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -122,7 +123,8 @@ func validEnvironmentName(value string) bool {
 
 func uniqueStrings(values []string) []string {
 	if len(values) == 0 {
-		return nil
+		// Engine policy lists are JSON arrays, including an empty deny-all list.
+		return []string{}
 	}
 	result := values[:0]
 	for _, value := range values {
@@ -184,6 +186,44 @@ type AgentContextOptions struct {
 	ExecutionPolicy ExecutionPolicy
 	EngineBinary    string
 	Timeout         time.Duration
+	GitLabSource    *GitLabSource
+}
+
+// GitLabSource selects a host-owned GitLab CLI source for one Agent Tools session.
+type GitLabSource struct {
+	Host      string
+	Project   int64
+	Namespace string
+	Glab      string
+	ConfigDir string
+}
+
+const maxSafeGitLabProject int64 = 9007199254740991
+
+func copyGitLabSource(source *GitLabSource) (*GitLabSource, error) {
+	if source == nil {
+		return nil, nil
+	}
+	snapshot := *source
+	for _, field := range []struct{ name, value string }{{"host", snapshot.Host}, {"namespace", snapshot.Namespace}} {
+		name, value := field.name, field.value
+		if value == "" || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return nil, NewValidationError("GitLabSource " + name + " must be a non-empty string without control characters")
+		}
+	}
+	if snapshot.Project < 1 || snapshot.Project > maxSafeGitLabProject {
+		return nil, NewValidationError("GitLabSource project must be a safe positive integer")
+	}
+	for _, field := range []struct{ name, value string }{{"glab", snapshot.Glab}, {"config_dir", snapshot.ConfigDir}} {
+		name, value := field.name, field.value
+		if name == "config_dir" && value == "" {
+			continue
+		}
+		if value == "" || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 || !filepath.IsAbs(value) {
+			return nil, NewValidationError("GitLabSource " + name + " must be an absolute path without control characters")
+		}
+	}
+	return &snapshot, nil
 }
 
 // ReadOptions configures Read.
@@ -227,6 +267,7 @@ type AgentContext struct {
 	ExecutionPolicy ExecutionPolicy
 	EngineBinary    string
 	Timeout         time.Duration
+	gitlabSource    *GitLabSource
 
 	mu             sync.Mutex
 	command        *exec.Cmd
@@ -254,6 +295,10 @@ func OpenAgentContext(ctx context.Context, projectRoot string, options ...AgentC
 	option := AgentContextOptions{}
 	if len(options) == 1 {
 		option = options[0]
+	}
+	selectedGitLab, err := copyGitLabSource(option.GitLabSource)
+	if err != nil {
+		return nil, err
 	}
 	root, err := validateAgentRoot(projectRoot)
 	if err != nil {
@@ -286,7 +331,7 @@ func OpenAgentContext(ctx context.Context, projectRoot string, options ...AgentC
 	if binary == "" {
 		binary = "lean-ctx"
 	}
-	client := &AgentContext{ProjectRoot: root, Task: option.Task, Permissions: option.Permissions, ExecutionPolicy: policy, EngineBinary: binary, Timeout: timeout, stderrDone: make(chan struct{})}
+	client := &AgentContext{ProjectRoot: root, Task: option.Task, Permissions: option.Permissions, ExecutionPolicy: policy, EngineBinary: binary, Timeout: timeout, gitlabSource: selectedGitLab, stderrDone: make(chan struct{})}
 	if err := client.start(ctx); err != nil {
 		client.terminate()
 		return nil, err
@@ -329,6 +374,13 @@ func (a *AgentContext) start(ctx context.Context) error {
 	}
 	policyPath := filepath.Join(policyDir, "policy.json")
 	policy := map[string]any{"allow_exec": a.Permissions.Execute, "allow_write": a.Permissions.Write, "allowed_env": a.ExecutionPolicy.AllowedEnv, "allowed_executables": a.ExecutionPolicy.AllowedExecutables, "max_timeout_ms": int64(a.ExecutionPolicy.MaxTimeout / time.Millisecond), "schema_version": int64(AgentToolsSchemaVersion)}
+	if a.gitlabSource != nil {
+		selected := map[string]any{"host": a.gitlabSource.Host, "project": a.gitlabSource.Project, "namespace": a.gitlabSource.Namespace, "glab": a.gitlabSource.Glab}
+		if a.gitlabSource.ConfigDir != "" {
+			selected["config_dir"] = a.gitlabSource.ConfigDir
+		}
+		policy["selected_gitlab"] = selected
+	}
 	payload, err := canonicalJSON(policy)
 	if err != nil {
 		return NewEngineUnavailable("Agent Tools policy could not be encoded")
@@ -353,6 +405,12 @@ func (a *AgentContext) start(ctx context.Context) error {
 	command := exec.Command(binary, "engine", "tool-session", "--project-root", a.ProjectRoot, "--policy-file", policyPath)
 	command.Dir = a.ProjectRoot
 	command.Env = []string{"LC_ALL=C", "LANG=C", "TZ=UTC", "PYTHONHASHSEED=0"}
+	// Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+	for _, name := range []string{"LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK"} {
+		if value, ok := os.LookupEnv(name); ok {
+			command.Env = append(command.Env, name+"="+value)
+		}
+	}
 	configureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -640,6 +698,9 @@ func (a *AgentContext) acceptHello(result map[string]any) error {
 	}
 	if a.Permissions.Execute {
 		expectedCapabilities = append(expectedCapabilities, agentExecuteTools...)
+	}
+	if a.gitlabSource != nil {
+		expectedCapabilities = append(expectedCapabilities, "ctx_provider")
 	}
 	sort.Strings(expectedCapabilities)
 	if !equalStrings(capabilities, uniqueStrings(expectedCapabilities)) {
@@ -1084,7 +1145,7 @@ func (a *AgentContext) Reconnect(ctx context.Context) (*AgentContext, error) {
 	if err := a.Cancel(); err != nil {
 		return nil, err
 	}
-	return OpenAgentContext(ctx, a.ProjectRoot, AgentContextOptions{Task: a.Task, Permissions: a.Permissions, ExecutionPolicy: a.ExecutionPolicy, EngineBinary: a.EngineBinary, Timeout: a.Timeout})
+	return OpenAgentContext(ctx, a.ProjectRoot, AgentContextOptions{Task: a.Task, Permissions: a.Permissions, ExecutionPolicy: a.ExecutionPolicy, EngineBinary: a.EngineBinary, Timeout: a.Timeout, GitLabSource: a.gitlabSource})
 }
 
 func resolveExecutable(value string) (string, error) {
@@ -1137,6 +1198,11 @@ func NewAsyncAgentContext(projectRoot string, options ...AgentContextOptions) (*
 	if len(options) == 1 {
 		option = options[0]
 	}
+	selectedGitLab, err := copyGitLabSource(option.GitLabSource)
+	if err != nil {
+		return nil, err
+	}
+	option.GitLabSource = selectedGitLab
 	return &AsyncAgentContext{root: projectRoot, options: option}, nil
 }
 

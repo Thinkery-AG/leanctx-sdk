@@ -17,6 +17,7 @@ from leanctx_sdk import (
     EngineCrashed,
     EngineProtocolError,
     ExecutionPolicy,
+    GitLabSource,
     ValidationError,
 )
 
@@ -71,12 +72,14 @@ class _FakeProcess:
                 capabilities.extend(("ctx_edit", "ctx_fill", "ctx_patch"))
             if self.policy["allow_exec"]:
                 capabilities.append("ctx_shell")
+            if "selected_gitlab" in self.policy:
+                capabilities.append("ctx_provider")
             result = {
                 "agent_tools_interface_version": "1.0.0",
                 "allow_exec": self.policy["allow_exec"],
                 "allow_write": self.policy["allow_write"],
                 "capabilities": sorted(capabilities),
-                "engine_version": "3.10.5",
+                "engine_version": "3.11.0",
                 "schema_version": 1,
                 "transport_version": 1,
             }
@@ -139,6 +142,19 @@ class AgentContextTests(unittest.TestCase):
     def test_default_is_read_only_and_tracks_savings(self):
         with AgentContext(self.root.name, task="inspect") as context:
             self.assertNotIn("ctx_patch", context.capabilities)
+            self.assertNotIn("ctx_provider", context.capabilities)
+            self.assertNotIn("selected_gitlab", self.processes[-1].policy)
+            self.assertEqual(
+                set(self.processes[-1].policy),
+                {
+                    "allow_exec",
+                    "allow_write",
+                    "allowed_env",
+                    "allowed_executables",
+                    "max_timeout_ms",
+                    "schema_version",
+                },
+            )
             result = context.read("README.md")
             self.assertEqual(result.output_tokens, 25)
             self.assertEqual(result.saved_ratio, 0.75)
@@ -147,6 +163,86 @@ class AgentContextTests(unittest.TestCase):
                 context.create_file("new.txt", "content")
             with self.assertRaises(AgentPermissionError):
                 context.run(("git", "status"))
+
+    def test_selected_gitlab_policy_negotiates_and_snapshots_source(self):
+        source = {
+            "host": "gitlab.example.test",
+            "project": 42,
+            "namespace": "group/project",
+            "glab": "/usr/bin/glab",
+            "config_dir": self.root.name,
+        }
+        with AgentContext(self.root.name, gitlab_source=source) as context:
+            source["project"] = 7
+            self.assertIn("ctx_provider", context.capabilities)
+            policy = self.processes[-1].policy
+            self.assertEqual(
+                policy["selected_gitlab"],
+                {
+                    "host": "gitlab.example.test",
+                    "project": 42,
+                    "namespace": "group/project",
+                    "glab": "/usr/bin/glab",
+                    "config_dir": self.root.name,
+                },
+            )
+            self.assertEqual(
+                set(policy),
+                {
+                    "allow_exec",
+                    "allow_write",
+                    "allowed_env",
+                    "allowed_executables",
+                    "max_timeout_ms",
+                    "schema_version",
+                    "selected_gitlab",
+                },
+            )
+
+    def test_gitlab_source_validation_and_optional_config_dir(self):
+        valid = {
+            "host": "gitlab.example.test",
+            "project": 1,
+            "namespace": "group/project",
+            "glab": "/usr/bin/glab",
+        }
+        source = GitLabSource(**valid)
+        self.assertIsNone(source.config_dir)
+        with self.assertRaises(AttributeError):
+            source.project = 2
+        invalid_sources = (
+            {**valid, "host": "bad\nhost"},
+            {**valid, "namespace": 3},
+            {**valid, "project": True},
+            {**valid, "project": 0},
+            {**valid, "project": 9007199254740992},
+            {**valid, "glab": "glab"},
+            {**valid, "config_dir": "relative"},
+            {**valid, "token": "must not be accepted"},
+        )
+        for invalid in invalid_sources:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    AgentContext(self.root.name, gitlab_source=invalid)
+
+    def test_async_facade_snapshots_selected_gitlab_source(self):
+        async def exercise():
+            source = {
+                "host": "gitlab.example.test",
+                "project": 73,
+                "namespace": "group/project",
+                "glab": "/usr/bin/glab",
+            }
+            context = AsyncAgentContext(self.root.name, gitlab_source=source)
+            source["project"] = 74
+            await context.open()
+            self.assertIn("ctx_provider", context.capabilities)
+            self.assertEqual(
+                self.processes[-1].policy["selected_gitlab"]["project"], 73
+            )
+            await context.close()
+
+        asyncio.run(exercise())
 
     @unittest.skipIf(os.name == "nt", "POSIX directory mode test")
     def test_read_only_project_root_does_not_need_policy_file_writes(self):
@@ -245,7 +341,7 @@ class AgentContextTests(unittest.TestCase):
                 "allow_exec": False,
                 "allow_write": False,
                 "capabilities": sorted((*context.capabilities, "ctx_provider")),
-                "engine_version": "3.10.5",
+                "engine_version": "3.11.0",
                 "schema_version": 1,
                 "transport_version": 1,
             }

@@ -16,10 +16,14 @@ internal static class Program
         Run("validation-and-path-jail", ValidationAndPathJail);
         Run("engine-parser-negatives", EngineParserNegatives);
         Run("agent-permission-negative", AgentPermissionNegative);
+        Run("agent-gitlab-source", AgentGitLabSource);
+        Run("agent-reconnect-task", AgentReconnectTask);
         Run("agent-protocol-negative", AgentProtocolNegative);
         Run("agent-timeout-negative", AgentTimeoutNegative);
         Run("engine-v1-fixture", EngineV1Fixture);
         Run("engine-v1-optional", EngineV1Optional);
+        Run("enterprise-http-transport-contract", EnterpriseHttpContractTests.Run);
+        Run("gateway-preview", GatewayPreviewTests.Run);
         if (failures != 0)
             throw new Exception($"{failures} test group(s) failed");
         Console.WriteLine("all .NET SDK tests passed");
@@ -35,16 +39,16 @@ internal static class Program
         catch (Exception error)
         {
             failures++;
-            Console.Error.WriteLine($"FAIL {name}: {error.GetType().Name}: {error.Message}");
+            Console.Error.WriteLine($"FAIL {name}: {error}");
         }
     }
 
     private static void ConstantsTest()
     {
-        Equal("1.1.0", Constants.__version__);
+        Equal("1.2.0", Constants.__version__);
         Equal("1.0.0", Constants.ENGINE_INTERFACE_VERSION);
         Equal("1.0.0", Constants.AGENT_TOOLS_INTERFACE_VERSION);
-        Equal("3.10.5", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
+        Equal("3.11.0", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
         Equal(1, Constants.SCHEMA_VERSION);
         Equal(1, Constants.TRANSPORT_VERSION);
     }
@@ -153,6 +157,65 @@ internal static class Program
             throw new Exception("Agent policy directory was not cleaned");
     }
 
+    private static void AgentReconnectTask()
+    {
+        using var root = new TemporaryDirectory();
+        var binary = FakeAgent(root.Path, "good");
+        Throws<ValidationError>(() => AgentContext.Open(root.Path, task: "", engineBinary: binary));
+        foreach (var task in new string?[] { null, "investigate authentication" })
+        {
+            using var original = AgentContext.Open(root.Path, task: task, engineBinary: binary);
+            using var reconnected = original.Reconnect();
+            Equal(task ?? string.Empty, reconnected.Task);
+            Equal("ctx_read:ok", reconnected.Read("README.md").Text);
+            Throws<AgentPermissionError>(() => reconnected.Run(new[] { "echo" }));
+        }
+    }
+
+    private static void AgentGitLabSource()
+    {
+        var glab = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "glab"));
+        var configDir = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "glab-config"));
+        var source = new GitLabSource("gitlab.example", 17, "group/project", glab, configDir);
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example\n", 17,
+            "group/project", glab));
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example", 0,
+            "group/project", glab));
+        Throws<ValidationError>(() => new GitLabSource("gitlab.example", 17,
+            "group/project", "glab"));
+
+        using var root = new TemporaryDirectory();
+        var ordinary = AgentContext.Open(root.Path, engineBinary: FakeAgent(root.Path, "good"));
+        using (ordinary)
+        {
+            using var policy = JsonDocument.Parse(File.ReadAllText(
+                Path.Combine(root.Path, ".observed-policy.json")));
+            True(!policy.RootElement.TryGetProperty("selected_gitlab", out _));
+        }
+        var binary = FakeAgent(root.Path, "gitlab");
+        using var selected = AgentContext.OpenWithGitLabSourceAsync(root.Path, source, binary, 5)
+            .GetAwaiter().GetResult();
+        True(selected.Capabilities.Contains("ctx_provider", StringComparer.Ordinal));
+        Equal("gitlab.example", selected.GitLabSource!.Host);
+        Equal("ctx_read:ok", selected.Call("ctx_provider", new Dictionary<string, object?>
+        {
+            ["action"] = "query",
+            ["provider"] = "gitlab",
+            ["resource"] = "issues",
+            ["mode"] = "snapshot",
+            ["project"] = 17L,
+            ["limit"] = 1L,
+        }).Text);
+        using var selectedPolicy = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(root.Path, ".observed-policy.json")));
+        var gitlab = selectedPolicy.RootElement.GetProperty("selected_gitlab");
+        Equal("gitlab.example", gitlab.GetProperty("host").GetString());
+        Equal(17, gitlab.GetProperty("project").GetInt64());
+        Equal("group/project", gitlab.GetProperty("namespace").GetString());
+        Equal(glab, gitlab.GetProperty("glab").GetString());
+        Equal(configDir, gitlab.GetProperty("config_dir").GetString());
+    }
+
     private static void AgentProtocolNegative()
     {
         using var root = new TemporaryDirectory();
@@ -168,7 +231,8 @@ internal static class Program
     {
         using var root = new TemporaryDirectory();
         var fake = FakeAgent(root.Path, "hang");
-        using var context = AgentContext.Open(root.Path, engineBinary: fake, timeout: 0.2);
+        // This deadline also covers process startup; allow normal launch latency.
+        using var context = AgentContext.Open(root.Path, engineBinary: fake, timeout: 2);
         Throws<EngineTimeout>(() => context.Read("README.md"));
         Throws<EngineCrashed>(() => context.Read("README.md"));
     }
@@ -229,7 +293,7 @@ IFS= read -r line
 #!/bin/sh
 IFS= read -r line
 id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.10.5","schema_version":1,"transport_version":1}}\n' "$id"
+printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id"
 while :; do sleep 10; done
 """;
         }
@@ -238,19 +302,49 @@ while :; do sleep 10; done
             script = """
 #!/bin/sh
 IFS= read -r line
-printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.5","schema_version":1,"transport_version":1}}\n'
+printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n'
 IFS= read -r line
 while :; do sleep 10; done
+""";
+        }
+        else if (behavior == "gitlab")
+        {
+            script = """
+#!/bin/sh
+policy=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--policy-file" ]; then policy="$2"; shift; fi
+  shift
+done
+[ -f "$policy" ] || exit 17
+IFS= read -r policy_json < "$policy"
+printf '%s\n' "$policy_json" > .observed-policy.json
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  case "$line" in
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
+    *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
+  esac
+done
 """;
         }
         else
         {
             script = """
 #!/bin/sh
+policy=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--policy-file" ]; then policy="$2"; shift; fi
+  shift
+done
+[ -f "$policy" ] || exit 17
+IFS= read -r policy_json < "$policy"
+printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.10.5","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac

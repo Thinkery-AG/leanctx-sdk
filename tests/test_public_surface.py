@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
+# v4: exact additive planning and guarded context-read export allowlist.
 import importlib.util
 import os
 from pathlib import Path
@@ -37,6 +39,12 @@ ROOT_EXPORTS = {
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
     "EngineClient",
+    "EngineContextClient",
+    "EngineContextReadResult",
+    "EnginePlanningClient",
+    "EnginePlanningRequest",
+    "EngineSource",
+    "EnterpriseEngineClient",
     "EngineCrashed",
     "EngineError",
     "EngineExecutionError",
@@ -50,6 +58,7 @@ ROOT_EXPORTS = {
     "Freshness",
     "FrameworkCompatibilityError",
     "FrameworkIntegrationError",
+    "GitLabSource",
     "HostOutcome",
     "Integrity",
     "PolicyAdmissionError",
@@ -74,6 +83,16 @@ PREVIEW_EXPORTS = {
     "CheckpointPackageInspection",
     "ConflictEntryV1",
     "ConflictReportV1",
+    "ContextDecision",
+    "ContextDecisionReceipt",
+    "ContextDestination",
+    "ContextPrincipal",
+    "DetectorCoverage",
+    "EgressAdmission",
+    "SecuritySignal",
+    "admit_egress",
+    "parse_decision_receipt",
+    "parse_egress_admission",
     "ContextCheckpoint",
     "ContextCheckpointV2",
     "ContextDelta",

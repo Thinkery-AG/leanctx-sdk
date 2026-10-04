@@ -1,6 +1,6 @@
 # LeanCTX SDK v1 Public Surface Manifest
 
-This manifest is the allowlist for `thinkery-leanctx-sdk` 1.1.0. Public import tests and
+This manifest is the allowlist for `thinkery-leanctx-sdk` 1.2.0. Public import tests and
 wheel inspection must agree with it before release. Anything not listed is
 Internal unless a later version updates this file deliberately.
 
@@ -32,6 +32,11 @@ five-primitive compatibility promise.
 These symbols implement the separate Agent Tools Interface. They do not add
 Product primitives to the five-primitive lifecycle contract.
 
+`GitLabSource` (since 1.2.0, root export) is the supporting value type that
+binds one Agent Tools session to a selected GitLab project through the
+`selected_gitlab` policy extension; see `docs/LANGUAGE-PACKAGES.md`. It carries
+operator settings only, never credentials.
+
 ## Stable supporting surface
 
 These root exports are public support contracts for the five primitives:
@@ -59,6 +64,96 @@ additional product primitives.
 The supporting symbols are exported from `leanctx_sdk` and inherit the same
 owner. Their protocol/schema versions remain explicit; they do not authorize
 Cloud, scheduler, or private-service behavior.
+
+## Unreleased v4 Engine additions
+
+The unreleased v4 integration also adds `EnginePlanningClient`,
+`EnginePlanningRequest`, and `EngineSource` at the package root, plus
+`SubprocessEngineClient.context_plan` and `.context_plan_sources`. These consume
+the canonical public Engine planning contract and are not additional lifecycle
+primitives or execution receipts. Existing injected `EngineClient` implementations
+gain no new required methods. They are not present in published 1.1.0 artifacts;
+release compatibility remains gated by the Engine-first acceptance plan.
+
+`EnterpriseEngineClient` is the separate authenticated HTTP source consumer:
+`context_plan`, `context_materialize`, additive `context_execute`, explicit
+`context_execute_v2`, and `context_outcome` use the versioned standalone
+Enterprise Engine routes.
+The additive `provider_execute` method uses the separate canonical provider v1
+boundary. It validates explicit provider plans, output integrity and usage/cost
+provenance; the host owns egress authorization, dispatch and wallet settlement.
+It creates no receipt, signer trust or accepted-outcome claim and never retries
+the POST automatically. See `docs/ENGINE-PLANNING.md` for exact bounds and limits.
+TypeScript adds `EnterpriseEngineClient.providerExecute` on the same provider
+contract without adding required methods to the existing Engine client interface
+or new package-root exports. Its response types are inferred from the method;
+the supporting parser module is not an additional public lifecycle surface.
+Execution validates the original task/plan, source/output digests and unknown
+receipt projection. The v2 method additionally preserves the exact
+`receipt_document_json` string (whose UTF-8 bytes are the signed document) and
+checks its digest/size binding; it does not fetch signer keys, independently
+verify signatures, or admit accepted learning.
+Its tenant expectation and source-ID request are not the local process protocol;
+it does not extend `EngineClient` or implement server authorization.
+
+`context_outcome` carries only task/digest bindings and restricted signals to the
+authenticated outcome adapter. It preserves the exact returned receipt-document
+string and validates its digest/size, authenticated tenant and required document
+envelopes, canonical JSON/derived identity, and selected receipt joins for
+task/outcome/predecessor/runtime evidence. It does not fully validate nested
+receipt semantics or verify signer trust, learning, billing or accounting.
+
+TypeScript adds `EnterpriseEngineClient.contextOutcome` with supporting
+`EngineOutcomeSignal`/`EngineOutcomeResponse` type exports and the same selected
+wire/document joins. Its parser is internal, not a new lifecycle surface; no
+signer admission, evaluation, learning or accounting authority is added.
+
+`EngineContextClient` and `EngineContextReadResult` add the authenticated public
+Engine's guarded context-read boundary, without a tenant-ID prerequisite. They
+reuse the HTTP transport and validate returned text/receipt-reference metadata;
+they do not obtain signer credentials, fetch signed receipt bytes, or establish
+cryptographic verification or task acceptance. These are unreleased supporting
+adapters, not new lifecycle primitives or published 1.1.0 promises.
+
+The Go package's corresponding unreleased supporting surface is
+`NewEngineContextClient`, `EngineContextClientOptions`, `EngineContextClient`,
+`EngineContextReadResult`, and methods `ContextRead`/`ContextReadContext`.
+It consumes `contracts/guarded-context-read-v1.json` without extending the
+existing Go `EngineClient` interface. This addition does not claim planning or
+guarded-read parity across all SDK languages.
+
+Go additionally exposes the unreleased `EnterpriseEngineClient` constructor
+`NewEnterpriseEngineClient` and `ContextPlanSources`/`ContextPlanSourcesContext`
+for the standalone source-planning contract. Supporting planning request/result
+types do not extend the stable lifecycle interfaces. The adapter validates
+tenant, task, budget and source bindings using the existing strict JSON and
+bounded HTTP machinery. It adds no Engine algorithm, provider dispatch, signed
+receipt authority or automatic retry, and does not imply parity for Go
+execution/outcomes or other languages. `ContextMaterializeSources` and its
+cancellable context variant add digest-checked context materialization via
+`EngineSourceMaterializationRequest`/`EngineSourceMaterializationResponse`, bound
+to the original plan and expected governance revision. They do not create an
+execution receipt or accepted outcome.
+
+The unreleased Go `ContextExecuteV2` and `ContextExecuteV2Context` surface uses
+`EngineSourceExecutionV2Request`/`EngineSourceExecutionV2Response` for declared
+local-native source execution. Exact receipt-document bytes, canonical digest
+and task/plan/source lineage are checked without changing `EngineClient` or
+creating signing, provider or task-acceptance authority. Signature trust must be
+established separately; the receipt outcome stays `unknown`.
+
+The unreleased Go provider surface is `ProviderExecute`/`ProviderExecuteContext`
+with `EngineProviderExecutionRequest` and `EngineProviderExecutionResponse`.
+Its output/usage/cost/failure DTOs preserve the canonical provider projection,
+including unknown acceptance and unavailable metrics. It uses the existing
+authenticated transport and adds no Engine, retry, signing or billing authority.
+
+The unreleased Go `ContextOutcome`/`ContextOutcomeContext` surface uses
+`EngineOutcomeRequest`/`EngineOutcomeResponse` for the existing authenticated
+operator-attestation contract. It transports bounded signals, verifies selected
+response/document joins and preserves exact receipt bytes. Accepted/rejected
+state is a host projection: the SDK neither evaluates it nor admits signer
+trust, triggers learning, changes accounting or retries the POST automatically.
 
 ## Preview namespace
 
@@ -107,8 +202,8 @@ Versioned record names remain schema identifiers, not separate stability tiers.
 
 ## Release invariants
 
-1. Root `__all__` equals Stable primitives, Agent Tools, and Stable supporting
-   surface.
+1. Root `__all__` equals Stable primitives, Agent Tools, Stable supporting
+   surface, and the explicitly listed unreleased v4 Engine additions.
 2. Preview `__all__` equals the Preview namespace list above.
 3. Stable imports never depend on Preview modules.
 4. Public modules never import private research or Cloud implementation.

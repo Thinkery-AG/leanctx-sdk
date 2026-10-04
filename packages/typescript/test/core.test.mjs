@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ import {
 import { parseResponse } from "../dist/engine.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
 
-test("root exports equal the 1.1 Stable allowlist", async () => {
+test("root exports equal the accepted v4 integration-candidate allowlist", async () => {
   const module = await import("../dist/index.js");
   const expected = [
     "AGENT_TOOLS_INTERFACE_VERSION", "AGENT_TOOLS_SCHEMA_VERSION",
@@ -37,7 +38,18 @@ test("root exports equal the 1.1 Stable allowlist", async () => {
     "ContextView", "ContextPlan", "ContextReceipt", "ContextFailure",
     "ContextMeasurement", "ContextReceiptLink", "EngineStatus", "FailureCode",
     "Freshness", "HostOutcome", "Integrity", "RecoveredSource", "SessionState",
-    "SubprocessEngineClient", "SDKError", "ArtifactIntegrityError",
+    "SubprocessEngineClient", "EngineContextClient", "EnterpriseEngineClient",
+    "EnginePlanningRequest", "EngineSource", "EngineSourcePlanningClient",
+    "MAX_ENGINE_CONTEXT_PLAN_CANDIDATES", "MAX_ENGINE_CONTEXT_PLAN_QUERY_BYTES",
+    "MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES", "MAX_ENGINE_CONTEXT_PLAN_TOKENS",
+    "MAX_ENGINE_SOURCE_CONTENT_BYTES", "MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES",
+    "MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES", "MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES",
+    "MAX_ENGINE_SOURCE_PLAN_SOURCES", "parseMaterialization", "parseSourcePlan",
+    "MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES",
+    "MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES",
+    "MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES", "parseSourceExecutionV2Response",
+    "MAX_SOURCE_REQUEST_BYTES", "MAX_SOURCE_RESPONSE_BYTES",
+    "SDKError", "ArtifactIntegrityError",
     "CompatibilityError", "ConfigurationError", "EngineError", "EngineExecutionError",
     "EngineProtocolError", "EngineRejected", "EngineTimeout", "EngineUnavailable",
     "FrameworkCompatibilityError", "FrameworkIntegrationError", "PolicyAdmissionError",
@@ -117,12 +129,15 @@ function serializationFixtureView(source) {
 function fakeAgentEngine(root) {
   const path = join(root, "fake-agent-engine");
   const source = `#!${process.execPath}
-const { readFileSync } = require("node:fs");
+const { readFileSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 const { createInterface } = require("node:readline");
 const args = process.argv.slice(2);
 if (args[0] !== "engine" || args[1] !== "tool-session") process.exit(2);
 const policyPath = args[args.indexOf("--policy-file") + 1];
 const policy = JSON.parse(readFileSync(policyPath, "utf8"));
+const projectRoot = args[args.indexOf("--project-root") + 1];
+writeFileSync(join(projectRoot, "spawn-env." + (policy.allow_exec ? "exec" : "readonly") + ".json"), JSON.stringify(process.env));
 const capabilities = ["ctx_compose", "ctx_glob", "ctx_read", "ctx_search", "ctx_symbol", "ctx_tree"];
 if (policy.allow_write) capabilities.push("ctx_edit", "ctx_fill", "ctx_patch");
 if (policy.allow_exec) capabilities.push("ctx_shell");
@@ -132,7 +147,7 @@ lines.on("line", (line) => {
   const request = JSON.parse(line);
   let result;
   if (request.op === "hello") {
-    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.10.5", schema_version: 1, transport_version: 1 };
+    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.11.0", schema_version: 1, transport_version: 1 };
   } else if (request.op === "call") {
     result = { text: request.tool + ":ok", content_blocks: [], original_tokens: 10, output_tokens: 4, saved_tokens: 6, mode: null, changed: request.tool === "ctx_patch", shell: request.tool === "ctx_shell" ? { exit_code: 0 } : null };
   } else if (request.op === "close") {
@@ -279,6 +294,11 @@ test("path containment and receipt verification fail closed", () => {
 test("Agent Tools negotiates policy, records metrics, and gates mutation", async () => {
   const root = mkdtempSync(join(tmpdir(), "leanctx-ts-agent-test-"));
   const outside = mkdtempSync(join(tmpdir(), "leanctx-ts-agent-outside-"));
+  // Injected by the platform loader itself, never by the SDK.
+  const platformEnv = ["__CF_USER_TEXT_ENCODING"];
+  const sensitiveEnvName = "LEANCTX_TEST_SENSITIVE_TOKEN";
+  const previousSensitiveEnv = process.env[sensitiveEnvName];
+  process.env[sensitiveEnvName] = "must-not-be-inherited";
   try {
     const engineBinary = fakeAgentEngine(root);
     const readonly = await AgentContext.open(root, { engineBinary, task: "inspect" });
@@ -288,6 +308,8 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
     assert.equal(read.savedRatio, 0.6);
     assert.equal(readonly.metrics.toolCalls, 1);
     await assert.rejects(readonly.createFile("x.txt", "x"), AgentPermissionError);
+    const readonlyEnv = JSON.parse(readFileSync(join(root, "spawn-env.readonly.json"), "utf8"));
+    assert.deepEqual(Object.keys(readonlyEnv).filter((name) => !platformEnv.includes(name)).sort(), ["LANG", "LC_ALL", "PYTHONHASHSEED", "TZ"]);
     await readonly.close();
 
     const executing = await AgentContext.open(root, {
@@ -296,12 +318,18 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
       executionPolicy: { allowedExecutables: ["git"], allowedEnv: ["SAFE"] },
     });
     assert.equal((await executing.run(["git", "status"], { env: { SAFE: "1" } })).text, "ctx_shell:ok");
+    const execEnv = JSON.parse(readFileSync(join(root, "spawn-env.exec.json"), "utf8"));
+    assert.equal(execEnv.PATH, process.env.PATH);
+    assert.equal(execEnv[sensitiveEnvName], undefined);
+    assert.deepEqual(Object.keys(execEnv).filter((name) => !platformEnv.includes(name) && !["LANG", "LC_ALL", "PYTHONHASHSEED", "TZ", "PATH", "TMPDIR", "TEMP", "TMP"].includes(name)), []);
     await assert.rejects(executing.run(["sh", "-c", "true"]), AgentPermissionError);
     symlinkSync(outside, join(root, "escape-link"), "dir");
     await assert.rejects(executing.run(["git", "status"], { cwd: "escape-link" }), AgentPermissionError);
     await executing.close();
     assert.deepEqual(readdirSync(root).filter((name) => name.startsWith(".leanctx-agent-")), []);
   } finally {
+    if (previousSensitiveEnv === undefined) delete process.env[sensitiveEnvName];
+    else process.env[sensitiveEnvName] = previousSensitiveEnv;
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
   }

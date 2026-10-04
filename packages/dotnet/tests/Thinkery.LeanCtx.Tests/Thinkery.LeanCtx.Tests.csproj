@@ -13,5 +13,8 @@
     <None Include="../../../../fixtures/sdk-v1/serialization-sha256.json"
           Link="fixtures/serialization-sha256.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../fixtures/gateway-preview-v1/**/*.json"
+          LinkBase="fixtures/gateway-preview-v1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

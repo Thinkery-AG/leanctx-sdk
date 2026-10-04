@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /**
  * Clean-room Product values and strict Engine Interface v1 records.
  *
@@ -90,7 +91,7 @@ function utf8(value: unknown, fieldName: string): Buffer {
     const code = value.charCodeAt(index);
     if (code >= 0xd800 && code <= 0xdbff) {
       const next = value.charCodeAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) {
+      if (!Number.isFinite(next) || next < 0xdc00 || next > 0xdfff) {
         throw new ValidationError(`${fieldName} is not valid UTF-8`);
       }
       index += 1;
@@ -183,7 +184,8 @@ function canonicalValue(value: unknown, stack: Set<unknown>): JsonValue {
     if (!isPlainObject(value)) {
       throw new ValidationError("value is not canonical JSON data");
     }
-    const result: { [key: string]: JsonValue } = {};
+    // Prototype-named JSON keys are data, never object setters.
+    const result: { [key: string]: JsonValue } = Object.create(null);
     for (const key of Object.keys(value).sort(compareUnicodeCodePoints)) {
       utf8(key, "canonical JSON key");
       result[key] = canonicalValue(value[key], stack);
@@ -223,7 +225,11 @@ export function sha256Digest(data: Uint8Array | string): string {
  * Strict JSON parser that rejects duplicate object keys, non-finite constants,
  * malformed UTF-8, and trailing input. JSON.parse alone cannot detect keys.
  */
-export function strictJsonLoads(input: Uint8Array | string, label = "JSON"): unknown {
+export function strictJsonLoads(
+  input: Uint8Array | string,
+  label = "JSON",
+  integerPaths: readonly (readonly (string | number)[])[] = [],
+): unknown {
   let source: string;
   try {
     if (typeof input === "string") {
@@ -235,7 +241,7 @@ export function strictJsonLoads(input: Uint8Array | string, label = "JSON"): unk
   } catch (error) {
     throw new ValidationError(`invalid ${label}`, { cause: error });
   }
-  const parser = new JsonParser(source, label);
+  const parser = new JsonParser(source, label, new Set(integerPaths.map((path) => JSON.stringify(path))));
   const result = parser.parse();
   if (!isPlainObject(result)) {
     throw new ValidationError(`${label} must be a JSON object`);
@@ -246,7 +252,11 @@ export function strictJsonLoads(input: Uint8Array | string, label = "JSON"): unk
 class JsonParser {
   private index = 0;
 
-  constructor(private readonly source: string, private readonly label: string) {}
+  constructor(
+    private readonly source: string,
+    private readonly label: string,
+    private readonly integerPaths: ReadonlySet<string>,
+  ) {}
 
   parse(): unknown {
     this.skipWhitespace();
@@ -256,20 +266,20 @@ class JsonParser {
     return value;
   }
 
-  private parseValue(): unknown {
+  private parseValue(path: readonly (string | number)[] = []): unknown {
     const character = this.source[this.index];
     if (character === undefined) this.fail("unexpected end of input");
-    if (character === "{") return this.parseObject();
-    if (character === "[") return this.parseArray();
+    if (character === "{") return this.parseObject(path);
+    if (character === "[") return this.parseArray(path);
     if (character === '"') return this.parseString();
     if (character === "t" && this.take("true")) return true;
     if (character === "f" && this.take("false")) return false;
     if (character === "n" && this.take("null")) return null;
-    if (character === "-" || (character >= "0" && character <= "9")) return this.parseNumber();
+    if (character === "-" || (character >= "0" && character <= "9")) return this.parseNumber(path);
     this.fail("invalid value");
   }
 
-  private parseObject(): Record<string, unknown> {
+  private parseObject(path: readonly (string | number)[]): Record<string, unknown> {
     this.index += 1;
     const result: Record<string, unknown> = {};
     const keys = new Set<string>();
@@ -288,7 +298,10 @@ class JsonParser {
       if (this.source[this.index] !== ":") this.fail("object key missing colon");
       this.index += 1;
       this.skipWhitespace();
-      result[key] = this.parseValue();
+      // JSON keys are data, including __proto__; never invoke inherited setters.
+      Object.defineProperty(result, key, {
+        value: this.parseValue([...path, key]), enumerable: true, writable: true, configurable: true,
+      });
       this.skipWhitespace();
       const separator = this.source[this.index];
       if (separator === "}") {
@@ -300,7 +313,7 @@ class JsonParser {
     }
   }
 
-  private parseArray(): unknown[] {
+  private parseArray(path: readonly (string | number)[]): unknown[] {
     this.index += 1;
     const result: unknown[] = [];
     this.skipWhitespace();
@@ -310,7 +323,7 @@ class JsonParser {
     }
     while (true) {
       this.skipWhitespace();
-      result.push(this.parseValue());
+      result.push(this.parseValue([...path, result.length]));
       this.skipWhitespace();
       const separator = this.source[this.index];
       if (separator === "]") {
@@ -328,7 +341,10 @@ class JsonParser {
     while (this.index < this.source.length) {
       const character = this.source[this.index++];
       if (character === undefined) this.fail("unterminated string");
-      if (character === '"') return result;
+      if (character === '"') {
+        utf8(result, this.label);
+        return result;
+      }
       if (character === "\\") {
         const escape = this.source[this.index++];
         if (escape === undefined) this.fail("unterminated string escape");
@@ -360,9 +376,13 @@ class JsonParser {
     this.fail("unterminated string");
   }
 
-  private parseNumber(): number {
+  private parseNumber(path: readonly (string | number)[]): number {
     const match = this.source.slice(this.index).match(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/);
     if (!match) this.fail("invalid number");
+    // Version fields may forbid 1.0/1e0 even though Number converts both to 1.
+    if (this.integerPaths.has(JSON.stringify(path)) && /[.eE]/.test(match[0])) {
+      this.fail("integer field contains a non-integer JSON number");
+    }
     const value = Number(match[0]);
     if (!Number.isFinite(value)) this.fail("number is not finite");
     this.index += match[0].length;

@@ -2,20 +2,24 @@
 
 ## `main` (unreleased)
 
-The current `main` source is prepared against LeanCTX Engine **3.10.5**, the
-newest published Engine. The public SDK 1.1.1 release below remains bound to
-Engine 3.10.1. Package version fields in this source checkout do not establish
-that an artifact has been published; verify the specific registry artifact
-before installation. A source checkout of `main` needs Engine 3.10.5.
+The current `main` source is SDK **1.2.0**, prepared against LeanCTX Engine
+**3.11.0**, which is not yet published. The public SDK 1.1.1 release below
+remains bound to Engine 3.10.1. Package version fields in this source checkout
+do not establish that an artifact has been published; verify the specific
+registry artifact before installation. A source checkout of `main` needs
+Engine 3.11.0.
 
 | Component | Declared scope | Status |
 | --- | --- | --- |
-| Agent Tools Engine | `v3.10.5` | published; required by `main` in every language package |
+| Agent Tools Engine | `v3.11.0` | unreleased; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
-| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.10.5` | published on PyPI |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.0` | published with Engine 3.11.0 |
+| Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
 | Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
-The Engine release is
+Release evidence moves to v3.11.0 from the signed release download once that
+Engine is tagged. Until then the release-candidate pipeline keeps the last
+published pairing, recorded here: the Engine release
 [`v3.10.5`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5).
 The tag resolves to commit
 `102330a77c36061483f60d914aeb14d3551b6e24`.
@@ -67,13 +71,13 @@ their exact 3.10.1 companion Engine packages. Source checkouts may instead pass
 `engine_binary=` explicitly. No compatibility is inferred from a newer Engine
 or an executable found on `PATH`.
 
-The supported Agent Tools Engine release is
+The following historical release evidence is retained for
 [`v3.10.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.1).
 The tag resolves to commit
 `4a76710a6c792229f170a66fdda1f4a0a64f47ee`.
 Its signed `SHA256SUMS` has SHA-256
 `86fd1d4e4b27541e15664c8a2c93d9b6bcd8b1b2fd7e8914943496ba213bc170`.
-Release CI verifies the Sigstore identity
+It does not certify the current source candidate. That release's CI verifies the Sigstore identity
 `https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.1`.
 
 | Platform | Release archive SHA-256 | Extracted binary SHA-256 |

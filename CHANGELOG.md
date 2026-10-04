@@ -1,20 +1,47 @@
 # Changelog
 
-## Unreleased
+## Unreleased (1.2.0)
+
+SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.0** and
+adds the v4 preview surfaces below. Interface, schema and transport versions
+and the stable public-surface contract are unchanged. The published 1.1.x
+packages keep their release identity.
+
+### Added
+
+- Preview `leanctx-gateway-preview` 0.1 in all six SDKs: egress admission
+  through the Engine's `egress-admit` with typed `ContextPrincipal`,
+  `ContextDestination`, `ContextDecision`, `SecuritySignal`,
+  `DetectorCoverage`, `ContextDecisionReceipt` and `EgressAdmission`; strict
+  parsing that mirrors the Engine's validation.
+- Shared conformance fixtures (`fixtures/gateway-preview-v1`: real Engine
+  responses plus 29 single-violation documents) and a live-Engine journey in
+  every SDK; reference apps A (minimal app) and B (own agent loop) without
+  MCP, UI or cloud. See `docs/gateway-preview.md`.
+- The stable root surfaces are unchanged (Python `leanctx_sdk.preview`,
+  TypeScript `@thinkery/leanctx-sdk/preview` subpath).
+- Conformance and live-Engine journeys pass in all six SDKs (JVM verified on
+  JDK 21, .NET on .NET 8).
+- Flagship journey `examples/gateway_login_journey.py` ("Fix the production
+  login issue") reports a HUD line computed from the Engine's plan and the
+  receipt. With the Engine's relevance floor for explicit-source plans,
+  unrelated documents stay out even when budget remains.
+- Authorized source planning and materialization clients
+  (`EnterpriseEngineClient` and the local source-planning adapters) across the
+  six SDKs; see each package README.
+- TypeScript Engine process-group cleanup correction.
 
 ### Changed
 
-- Every language package now targets **LeanCTX Engine 3.10.5**, the newest
-  published Engine. Since 1.1.0 only the Python constant had moved
-  (3.10.2–3.10.5, #18–#21); the TypeScript, Go, Rust, JVM and .NET constants,
-  the `[agent]` companion-Engine extras, the Agent Tools contract and the
-  release-candidate evidence still named 3.10.1. A Python `[agent]` install
-  from `main` therefore pulled an Engine its own SDK rejected. All of them now
-  agree on 3.10.5.
-- The release-candidate pipeline and release-evidence scripts bind Engine
-  v3.10.5: commit `102330a77c36061483f60d914aeb14d3551b6e24`, signed
-  `SHA256SUMS` and the Linux x86_64 / macOS arm64 archive and binary digests
-  (see `COMPATIBILITY.md`).
+- Every language package, the `[agent]` companion-Engine extras and the Agent
+  Tools contract target **LeanCTX Engine 3.11.0** (not yet published). `main`
+  previously targeted 3.10.5; before that, only the Python constant had moved
+  past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
+  Engine its own SDK rejected. All six languages agree again.
+- The release-candidate pipeline and release-evidence scripts still bind the
+  published Engine v3.10.5 (commit `102330a77c36061483f60d914aeb14d3551b6e24`).
+  They move to v3.11.0 with digests taken from the signed release download once
+  that Engine is tagged.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
   1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so

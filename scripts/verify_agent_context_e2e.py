@@ -93,7 +93,7 @@ def verify(engine: Path, expected_engine_version: str) -> dict[str, object]:
                 "saved_ratio": round(context.metrics.saved_ratio, 6),
                 "saved_tokens": context.metrics.saved_tokens,
                 "schema_version": 1,
-                "sdk_version": "1.1.0",
+                "sdk_version": "1.2.0",
                 "status": "PASS",
                 "transport_version": 1,
             }

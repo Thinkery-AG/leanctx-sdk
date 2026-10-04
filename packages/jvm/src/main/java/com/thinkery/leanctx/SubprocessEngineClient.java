@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 package com.thinkery.leanctx;
 
 import java.io.ByteArrayOutputStream;
@@ -262,11 +263,16 @@ public final class SubprocessEngineClient implements EngineClient {
 
     private EngineProtocol.ParsedResponse invoke(String operation, String projectRoot,
                                                  Map<String, Object> request) {
-        Path root = validateRoot(projectRoot);
         byte[] payload = Json.canonicalBytes(request);
         if (payload.length > Protocol.MAX_REQUEST_BYTES) {
             throw new EngineProtocolError("Engine request exceeds the bound");
         }
+        return EngineProtocol.parseResponse(runPayload(operation, projectRoot, payload));
+    }
+
+    /** Write one request document to a private file under the root and run the operation. */
+    byte[] runPayload(String operation, String projectRoot, byte[] payload) {
+        Path root = validateRoot(projectRoot);
         Path directory = null;
         Path requestPath = null;
         try {
@@ -278,7 +284,7 @@ public final class SubprocessEngineClient implements EngineClient {
                 channel.write(ByteBuffer.wrap(payload));
                 channel.force(true);
             }
-            return EngineProtocol.parseResponse(run(operation, root, requestPath));
+            return run(operation, root, requestPath);
         } catch (EngineError exception) {
             throw exception;
         } catch (IOException exception) {
@@ -364,12 +370,15 @@ public final class SubprocessEngineClient implements EngineClient {
                 throw new EngineTimeout("Engine process exceeded its deadline", exception);
             }
         } finally {
-            if (process.isAlive()) {
-                terminate(process);
+            try {
+                if (process.isAlive()) {
+                    terminate(process);
+                }
+            } finally {
+                closeQuietly(process.getInputStream());
+                closeQuietly(process.getErrorStream());
+                closeQuietly(process.getOutputStream());
             }
-            closeQuietly(process.getInputStream());
-            closeQuietly(process.getErrorStream());
-            closeQuietly(process.getOutputStream());
         }
     }
 
@@ -518,20 +527,7 @@ public final class SubprocessEngineClient implements EngineClient {
     }
 
     private static void terminate(Process process) {
-        try {
-            ProcessHandle handle = process.toHandle();
-            List<ProcessHandle> descendants = handle.descendants().toList();
-            for (int i = descendants.size() - 1; i >= 0; i--) {
-                descendants.get(i).destroyForcibly();
-            }
-            handle.destroyForcibly();
-            process.waitFor(2, TimeUnit.SECONDS);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        } catch (RuntimeException ignored) {
-            process.destroyForcibly();
-        }
+        ProcessTreeTermination.terminate(process);
     }
 
     private static void deleteQuietly(Path path) {

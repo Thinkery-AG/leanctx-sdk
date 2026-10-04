@@ -1,0 +1,58 @@
+{
+  "contract": "leanctx-gateway-preview",
+  "version": "0.1.0",
+  "stability": "preview",
+  "engine_operation": "egress-admit",
+  "engine_wire": {
+    "request": "EngineEgressAdmissionRequestV1 {schema_version: 1, provider, upstream_base, body}",
+    "response": "EngineEgressAdmissionResponseV1 {schema_version: 1, disposition, body?, refusal?, classification?, receipt?}",
+    "encoding": "UTF-8 JSON; request is plain JSON because model requests carry fractional numbers",
+    "unknown_fields": "reject",
+    "unknown_enum_values": "reject"
+  },
+  "limits": {
+    "request_bytes": 8388608,
+    "response_bytes": 16777216,
+    "ref_bytes": 512,
+    "decisions": 4096,
+    "reason_codes": 32,
+    "signals": 32
+  },
+  "types": [
+    "ContextPrincipal",
+    "ContextDestination",
+    "ContextDecision",
+    "SecuritySignal",
+    "DetectorCoverage",
+    "ContextDecisionReceipt",
+    "EgressAdmission"
+  ],
+  "invariants": [
+    "a refused request carries a refusal and no body; an admitted one a body object and no refusal",
+    "an unknown principal carries no id; every other principal kind requires one",
+    "exactly a delivered receipt names the delivered context digest",
+    "blocked_objects equals the deny decisions and quarantined_objects the quarantine decisions",
+    "selected <= permitted and permitted + blocked <= inspected",
+    "every non-allow decision has at least one reason code",
+    "coverage never inspects more than the object holds; complete inspects every byte, partial not",
+    "a failed or timed-out detector cannot claim complete coverage",
+    "signals carry counts only, never the matched value"
+  ],
+  "callers_must": [
+    "send admission.body, never the original body",
+    "send only when may_send (disposition != refused)"
+  ],
+  "surface": {
+    "python": "leanctx_sdk.preview.admit_egress / parse_egress_admission / parse_decision_receipt",
+    "typescript": "@thinkery/leanctx-sdk/preview: admitEgress / parseEgressAdmission / parseDecisionReceipt",
+    "go": "SubprocessEngineClient.AdmitEgress / ParseEgressAdmission / ParseDecisionReceipt",
+    "rust": "SubprocessEngineClient::admit_egress; leanctx_sdk::preview::{parse_egress_admission, parse_decision_receipt}",
+    "jvm": "com.thinkery.leanctx.GatewayPreview.admitEgress / parseEgressAdmission / parseDecisionReceipt",
+    "dotnet": "Thinkery.LeanCtx.Preview.GatewayPreview.AdmitEgressAsync / ParseEgressAdmission / ParseDecisionReceipt"
+  },
+  "conformance": {
+    "fixtures": "fixtures/gateway-preview-v1 (valid: real Engine output; invalid: one violated invariant each)",
+    "live": "every SDK runs the same three journeys against a real Engine when LEANCTX_ENGINE_BINARY is set",
+    "reference_apps": ["examples/gateway_minimal_app.py", "examples/gateway_agent_loop.py"]
+  }
+}

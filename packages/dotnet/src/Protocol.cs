@@ -7,14 +7,14 @@ namespace Thinkery.LeanCtx;
 /// <summary>Stable protocol and package constants.</summary>
 public static class Constants
 {
-    public const string __version__ = "1.1.0";
+    public const string __version__ = "1.2.0";
     public const int SCHEMA_VERSION = 1;
     public const int TRANSPORT_VERSION = 1;
     public const string ENGINE_INTERFACE_VERSION = "1.0.0";
     public const string AGENT_TOOLS_INTERFACE_VERSION = "1.0.0";
     public const int AGENT_TOOLS_SCHEMA_VERSION = 1;
     public const int AGENT_TOOLS_TRANSPORT_VERSION = 1;
-    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.10.5";
+    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.0";
 }
 
 public enum FailureCode
