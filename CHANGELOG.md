@@ -13,6 +13,12 @@
   MCP, UI or cloud. See `docs/gateway-preview.md`.
 - The stable root surfaces are unchanged (Python `leanctx_sdk.preview`,
   TypeScript `@thinkery/leanctx-sdk/preview` subpath).
+- Conformance and live-Engine journeys pass in all six SDKs (JVM verified on
+  JDK 21, .NET on .NET 8).
+- Flagship journey `examples/gateway_login_journey.py` ("Fix the production
+  login issue") reports a HUD line computed from the Engine's plan and the
+  receipt. With the Engine's relevance floor for explicit-source plans,
+  unrelated documents stay out even when budget remains.
 
 ## 1.2.0
 

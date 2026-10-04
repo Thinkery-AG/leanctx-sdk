@@ -140,11 +140,13 @@ def run(engine_binary):
     planned = {s["source_ref"]: s for s in plan["selections"]}
     by_ref = {c.descriptor["object_ref"]: c for c in candidates}
     selected = [by_ref[ref] for ref, s in planned.items() if s["disposition"] == "selected"]
-    # The planner counts tokens only for what fits; to report what was
+    # The planner counts tokens only for what it selects; to report what was
     # considered, the Engine measures every permitted candidate once more
-    # without a budget limit. Nothing here is estimated by the app.
+    # without a budget limit and with a query that names no topic, so the
+    # relevance floor keeps them all. Nothing here is estimated by the app.
     measured = engine.context_plan_sources(
-        root, EnginePlanningRequest("login-measure", TASK, MAX_ENGINE_CONTEXT_PLAN_TOKENS),
+        root,
+        EnginePlanningRequest("login-measure", "qzxmeasure", MAX_ENGINE_CONTEXT_PLAN_TOKENS),
         candidates,
     )["result"]["plan"]["selections"]
     considered_tokens = sum(s["token_count"] for s in measured)

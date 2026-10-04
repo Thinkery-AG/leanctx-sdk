@@ -118,6 +118,8 @@ class GatewayReferenceApps(unittest.TestCase):
         relevant = {"src/auth/login.py", "src/auth/session.py", "src/auth/middleware.py",
                     "issue/LOGIN-482", "logs/deploy-14-05.log"}
         self.assertEqual(set(journey["relevant_selected"]), relevant)
+        # Scenario 24: unrelated documents stay out even with budget left.
+        self.assertEqual(journey["irrelevant_selected"], [])
         self.assertLess(journey["receipt_tokens"]["delivered"], journey["considered_tokens"])
         # The HUD line is derived from the measured plan and receipt.
         used = len(journey["sources_selected"])

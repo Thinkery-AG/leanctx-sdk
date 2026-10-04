@@ -86,16 +86,20 @@ log, an `.env` the agent may not use, and 15 unrelated documents.
 4. The HUD line is computed from the plan and the receipt. The considered
    tokens are measured by the Engine, not estimated.
 
-Reference run (Engine `merge/v4-into-main` @ `28708237a6`, budget 1200 tokens):
+Reference run (Engine `merge/v4-into-main` @ `e09342610d`, budget 1200 tokens):
 
 ```text
-LeanCTX 🛡  7.4k → 1.6k  ↓78%
-2 credentials redacted · 1 source blocked · 7/21 sources used
+LeanCTX 🛡  7.4k → 313  ↓96%
+2 credentials redacted · 1 source blocked · 5/21 sources used
 ```
 
-All five relevant sources were selected. Two unrelated documents also filled
-the remaining budget, because the planner has no relevance floor yet. The
-journey reports them under `irrelevant_selected` instead of hiding them.
+The five selected sources are exactly the relevant ones: the login and
+session code, the middleware, the issue and the deploy log. The Engine's
+relevance floor for explicit-source plans leaves the 15 unrelated documents
+out even though budget remains. A source stays when it shares a topic term
+with the task, or with a source that does. That is how the deploy log and
+`session.py` stay in: they share `SESSION_TTL` with `login.py`. No credential
+leaves.
 
 ## Reference apps
 
