@@ -58,6 +58,7 @@ ROOT_EXPORTS = {
     "Freshness",
     "FrameworkCompatibilityError",
     "FrameworkIntegrationError",
+    "GitLabSource",
     "HostOutcome",
     "Integrity",
     "PolicyAdmissionError",

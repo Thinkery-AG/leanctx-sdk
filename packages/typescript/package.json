@@ -2,7 +2,7 @@
   "name": "@thinkery/leanctx-sdk",
   "version": "1.2.0",
   "private": false,
-  "description": "Node.js TypeScript SDK for governed LeanCTX context and Agent Tools",
+  "description": "SDK for embedding LeanCTX context control in Node.js and TypeScript applications",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Thinkery AG",

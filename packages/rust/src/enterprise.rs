@@ -666,7 +666,7 @@ fn parse_object(raw: &[u8], limit: usize, field: &str) -> SdkResult<Map<String, 
     }
     let value = strict_json_loads(raw, field)
         .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))?;
-    response_object(&value, field).map(|object| object.clone())
+    response_object(&value, field).cloned()
 }
 
 fn response_object<'a>(value: &'a Value, field: &str) -> SdkResult<&'a Map<String, Value>> {

@@ -33,16 +33,16 @@ Version: 1.2.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
 Provides-Extra: agent
-Requires-Dist: thinkery-leanctx-engine (==4.0.0) ; extra == 'agent'
+Requires-Dist: thinkery-leanctx-engine (==3.11.0) ; extra == 'agent'
 Provides-Extra: agent-cuda
-Requires-Dist: thinkery-leanctx-engine-cuda (==4.0.0) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
+Requires-Dist: thinkery-leanctx-engine-cuda (==3.11.0) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
 Provides-Extra: agent-windows-gnu
-Requires-Dist: thinkery-leanctx-engine-windows-gnu (==4.0.0) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
+Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.11.0) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
 Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: requests (==2.33.0) ; (python_version >= "3.10") and extra == 'openai-agents'
-Requires-Dist: urllib3 (==2.7.0) ; (python_version >= "3.10") and extra == 'openai-agents'
+Requires-Dist: urllib3 (==2.8.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 
 """.encode()
     files = {
@@ -226,7 +226,7 @@ class ReleaseGateTests(unittest.TestCase):
             any(line.startswith("requests==2.33.0 ") for line in requirements)
         )
         self.assertTrue(
-            any(line.startswith("urllib3==2.7.0 ") for line in requirements)
+            any(line.startswith("urllib3==2.8.0 ") for line in requirements)
         )
         self.assertTrue(all(" --hash=sha256:" in line for line in requirements))
 
@@ -331,22 +331,22 @@ class ReleaseGateTests(unittest.TestCase):
         for action_ref in action_refs:
             self.assertRegex(action_ref, r"^[0-9a-f]{40}$")
         for required in (
-            "ENGINE_COMMIT: 5c6d8902a63860ca490f4ae84057d341a3bbf5c7",
-            "AGENT_TOOLS_ENGINE_VERSION: 4.0.0",
-            "ENGINE_VERSION: 4.0.0",
-            "ENGINE_TAG: v4.0.0",
+            "ENGINE_COMMIT: 102330a77c36061483f60d914aeb14d3551b6e24",
+            "AGENT_TOOLS_ENGINE_VERSION: 3.10.5",
+            "ENGINE_VERSION: 3.10.5",
+            "ENGINE_TAG: v3.10.5",
             "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
-            "ENGINE_LINUX_ARCHIVE_SHA256: a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8",
-            "ENGINE_MACOS_ARCHIVE_SHA256: f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d",
-            "ENGINE_CHECKSUMS_SHA256: e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37",
-            "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v4.0.0",
+            "ENGINE_LINUX_ARCHIVE_SHA256: 917b292beca6aee29f81b58407452e5193ca62702557ab8abcbd1a6282abb878",
+            "ENGINE_MACOS_ARCHIVE_SHA256: b5a899ea2010205af97263b0d2fdd86f785d7a4522f16c520c79685b72fb9dbd",
+            "ENGINE_CHECKSUMS_SHA256: de8f527bbd7accdb02109e2cc31f8571b3dc78b083a54418643ffedc338c794f",
+            "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.5",
             "PYTHONPATH: src:.",
             "static-quality:",
             "source-secret-scan:",
             "engine-artifact:",
             "engine-macos-artifact:",
-            "ENGINE_LINUX_X86_64_SHA256: fc96d1fc9e864dd9d1ee1aa112ff7d1c57c1ca0db61707042e6a117dadf725f5",
-            "ENGINE_MACOS_ARM64_SHA256: d025fcf4eb222043d045de5c1eb4aadb3cc47ef0305bb40e1866d37d124c34b8",
+            "ENGINE_LINUX_X86_64_SHA256: 24971ded2c3ce3f4374c67323798cdd3734693ee0bdd952a4179bd6d2b0ff0c1",
+            "ENGINE_MACOS_ARM64_SHA256: e8bc76cc825d9534b0eaad48bfb13931a9b8dd0c00cf4a3ef5aef1e96b87a5af",
             "cosign verify-blob",
             "runs-on: macos-26",
             "engine-linux-x86_64-",
@@ -430,7 +430,7 @@ class ReleaseGateTests(unittest.TestCase):
             "npm run pack:dry-run",
             "go test ./...",
             "go vet ./...",
-            'rust: ["1.76.0", "stable"]',
+            'rust: ["1.77.0", "stable"]',
             "cargo +${{ matrix.rust }} test --locked",
             "cargo +${{ matrix.rust }} clippy --locked --all-targets --all-features -- -D warnings",
             "mvn --batch-mode --no-transfer-progress verify",
@@ -493,23 +493,23 @@ class ReleaseGateTests(unittest.TestCase):
             "sdk_commit": "a" * 40,
             "sdk_version": "1.2.0",
             "wheel_sha256": "b" * 64,
-            "engine_commit": "5c6d8902a63860ca490f4ae84057d341a3bbf5c7",
-            "engine_version": "4.0.0",
-            "engine_tag": "v4.0.0",
-            "engine_linux_sha256": "fc96d1fc9e864dd9d1ee1aa112ff7d1c57c1ca0db61707042e6a117dadf725f5",
-            "engine_macos_sha256": "d025fcf4eb222043d045de5c1eb4aadb3cc47ef0305bb40e1866d37d124c34b8",
+            "engine_commit": "102330a77c36061483f60d914aeb14d3551b6e24",
+            "engine_version": "3.10.5",
+            "engine_tag": "v3.10.5",
+            "engine_linux_sha256": "24971ded2c3ce3f4374c67323798cdd3734693ee0bdd952a4179bd6d2b0ff0c1",
+            "engine_macos_sha256": "e8bc76cc825d9534b0eaad48bfb13931a9b8dd0c00cf4a3ef5aef1e96b87a5af",
             "engine_release_repository": "yvgude/lean-ctx",
             "engine_release_url": (
-                "https://github.com/yvgude/lean-ctx/releases/tag/v4.0.0"
+                "https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5"
             ),
             "engine_linux_asset": "lean-ctx-x86_64-unknown-linux-gnu.tar.gz",
             "engine_macos_asset": "lean-ctx-aarch64-apple-darwin.tar.gz",
-            "engine_linux_archive_sha256": "a69d8e3e05ceed03fda31ed38b4d50f552f91d51bc4affaa2a50fb028a8fdda8",
-            "engine_macos_archive_sha256": "f51ed94a154057f9a716babafef85cd97850aca830a90e2a2491496fe239060d",
-            "engine_checksums_sha256": "e8a669c35025db9630add8bb03255fbab72d363b900bfcf394093f40f4b42d37",
+            "engine_linux_archive_sha256": "917b292beca6aee29f81b58407452e5193ca62702557ab8abcbd1a6282abb878",
+            "engine_macos_archive_sha256": "b5a899ea2010205af97263b0d2fdd86f785d7a4522f16c520c79685b72fb9dbd",
+            "engine_checksums_sha256": "de8f527bbd7accdb02109e2cc31f8571b3dc78b083a54418643ffedc338c794f",
             "engine_cosign_identity": (
                 "https://github.com/yvgude/lean-ctx/.github/workflows/"
-                "release.yml@refs/tags/v4.0.0"
+                "release.yml@refs/tags/v3.10.5"
             ),
             "dependency_manifest_sha256": "f" * 64,
             "dependency_policy_sha256": "1" * 64,

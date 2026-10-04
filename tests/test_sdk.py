@@ -563,7 +563,7 @@ class SDKTests(unittest.TestCase):
                 ("openai", "2.19.0"),
                 ("pydantic", "2.12.3"),
                 ("requests", "2.33.0"),
-                ("urllib3", "2.7.0"),
+                ("urllib3", "2.8.0"),
             ],
         )
         wheelhouse = Path(

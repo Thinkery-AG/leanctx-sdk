@@ -18,6 +18,10 @@ from leanctx_sdk.planning import EnginePlanningRequest, EngineSource
 from leanctx_sdk.protocol import ContextPlan, ContextSource, sha256_digest
 
 
+@unittest.skipUnless(
+    os.environ.get("LEANCTX_TEST_ENGINE_BINARY") and os.environ.get("LEANCTX_TEST_ENGINE_SHA256"),
+    "set LEANCTX_TEST_ENGINE_BINARY and LEANCTX_TEST_ENGINE_SHA256 to a digest-pinned Engine",
+)
 class PlanningTransportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

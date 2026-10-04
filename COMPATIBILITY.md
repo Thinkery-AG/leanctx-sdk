@@ -1,9 +1,56 @@
 # Compatibility
 
-## Stable SDK 1.2.0
+## `main` (unreleased)
+
+The current `main` source is SDK **1.2.0**, prepared against LeanCTX Engine
+**3.11.0**, which is not yet published. The public SDK 1.1.1 release below
+remains bound to Engine 3.10.1. Package version fields in this source checkout
+do not establish that an artifact has been published; verify the specific
+registry artifact before installation. A source checkout of `main` needs
+Engine 3.11.0.
+
+| Component | Declared scope | Status |
+| --- | --- | --- |
+| Agent Tools Engine | `v3.11.0` | unreleased; required by `main` in every language package |
+| Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.0` | published with Engine 3.11.0 |
+| Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
+| Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
+
+Release evidence moves to v3.11.0 from the signed release download once that
+Engine is tagged. Until then the release-candidate pipeline keeps the last
+published pairing, recorded here: the Engine release
+[`v3.10.5`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5).
+The tag resolves to commit
+`102330a77c36061483f60d914aeb14d3551b6e24`.
+Its signed `SHA256SUMS` has SHA-256
+`de8f527bbd7accdb02109e2cc31f8571b3dc78b083a54418643ffedc338c794f`.
+Release CI verifies the Sigstore identity
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.10.5`.
+
+| Platform | Release archive SHA-256 | Extracted binary SHA-256 |
+| --- | --- | --- |
+| Linux x86_64 GNU | `917b292beca6aee29f81b58407452e5193ca62702557ab8abcbd1a6282abb878` | `24971ded2c3ce3f4374c67323798cdd3734693ee0bdd952a4179bd6d2b0ff0c1` |
+| macOS arm64 | `b5a899ea2010205af97263b0d2fdd86f785d7a4522f16c520c79685b72fb9dbd` | `e8bc76cc825d9534b0eaad48bfb13931a9b8dd0c00cf4a3ef5aef1e96b87a5af` |
+
+`scripts/verify_agent_context_e2e.py` passes against the released macOS arm64
+binary. The Agent Tools and Engine Interface code did not change between 3.10.1
+and 3.10.5.
+
+## Stable SDK 1.1.1
+
+[SDK 1.1.1](https://github.com/Thinkery-AG/leanctx-sdk/releases/tag/v1.1.1)
+is a maintenance release from the published 1.1.0 compatibility line. It updates
+product documentation and audited optional dependencies while retaining Engine
+3.10.1, Rust 1.76, the public APIs, protocol versions and licenses. Its source
+is `392946aaf689e328d05a9c6fbac35f5316ec1649`; the Python wheel SHA-256 is
+`23cfa48772ad509404ad41a5cebbfa3610321b877cdc8a26ddb2f381cdeae172`.
+
+<a id="stable-sdk-110"></a>
+The compatibility matrix below also applies to the historical SDK 1.1.0 release.
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
-contract. This source candidate's `AgentContext` requires LeanCTX Engine 4.0.0 and negotiates interface
+contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 `1.0.0`, schema `1`, and transport `1` before exposing any tool.
 
 | Component | Declared scope | Release status |
@@ -15,12 +62,12 @@ contract. This source candidate's `AgentContext` requires LeanCTX Engine 4.0.0 a
 | Rust | Rust 1.76+ and stable | supported |
 | JVM | Java 21 / Kotlin 2.1 | supported |
 | .NET | .NET 8+ | supported |
-| Agent Tools Engine | `4.0.0` | exact source-candidate pairing; release certification remains separate |
+| Agent Tools Engine | `v3.10.1` | published; required for `AgentContext` |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | exact matching required |
 | OpenAI Agents | `openai-agents==0.8.4`, CPython 3.10+ | optional exact-version integration |
 
 The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras install
-their exact 4.0.0 companion Engine packages. Source checkouts may instead pass
+their exact 3.10.1 companion Engine packages. Source checkouts may instead pass
 `engine_binary=` explicitly. No compatibility is inferred from a newer Engine
 or an executable found on `PATH`.
 

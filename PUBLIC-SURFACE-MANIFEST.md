@@ -32,6 +32,11 @@ five-primitive compatibility promise.
 These symbols implement the separate Agent Tools Interface. They do not add
 Product primitives to the five-primitive lifecycle contract.
 
+`GitLabSource` (since 1.2.0, root export) is the supporting value type that
+binds one Agent Tools session to a selected GitLab project through the
+`selected_gitlab` policy extension; see `docs/LANGUAGE-PACKAGES.md`. It carries
+operator settings only, never credentials.
+
 ## Stable supporting surface
 
 These root exports are public support contracts for the five primitives:

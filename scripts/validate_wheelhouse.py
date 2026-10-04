@@ -29,7 +29,7 @@ _CERTIFIED_REQUIREMENTS = [
     {"distribution": "openai", "version": "2.19.0"},
     {"distribution": "pydantic", "version": "2.12.3"},
     {"distribution": "requests", "version": "2.33.0"},
-    {"distribution": "urllib3", "version": "2.7.0"},
+    {"distribution": "urllib3", "version": "2.8.0"},
 ]
 _CERTIFIED_SOURCE_OVERRIDES = [
     {
@@ -40,13 +40,13 @@ _CERTIFIED_SOURCE_OVERRIDES = [
     },
     {
         "distribution": "urllib3",
-        "version": "2.7.0",
+        "version": "2.8.0",
         "repository": "https://github.com/urllib3/urllib3.git",
-        "commit": "9a950b92d999f906b6020bb2d1076ee56cddd5d2",
+        "commit": "b1d30ab61fe0db8f11092805e8c5ac43e091064a",
     },
 ]
 _CERTIFIED_ARTIFACTS_DIGEST = (
-    "2a0a53adb0bf16f78653b001db8bf667bfb9c5ab8fe9d5344544471a8a1e6cd5"
+    "255295d47432f88f38dbf1adbefd8b07df044085f0ef47e41f752e76f97e6c15"
 )
 _CERTIFIED_ARTIFACT_COUNT = 41
 
