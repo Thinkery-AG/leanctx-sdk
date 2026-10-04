@@ -311,7 +311,7 @@ fn one_of(value: &Value, allowed: &[&str], label: &str) -> Result<String> {
 }
 
 fn digest(value: &Value, label: &str) -> Result<String> {
-    let valid = value.as_str().map_or(false, |text| {
+    let valid = value.as_str().is_some_and(|text| {
         text.len() == 71
             && text.starts_with("sha256:")
             && text[7..]
