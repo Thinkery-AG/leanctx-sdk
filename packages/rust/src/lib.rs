@@ -5,6 +5,7 @@
 mod agent;
 mod agent_io;
 mod async_agent;
+mod context_store;
 mod engine;
 mod enterprise;
 mod errors;
@@ -46,6 +47,13 @@ pub use session::ContextSession;
 
 /// Preview APIs; they may change in minor releases.
 pub mod preview {
+    pub use crate::context_store::{
+        parse_policy_evidence, parse_task_lineage, ContextPolicyEvidence, ContextStoreScope,
+        DeliverySummary, LineageDelivery, LineageStep, QualityEvidence, SecurityEvidence,
+        StrategyEvaluation, StrategyOutcomeRecord, TaskLineage, Workload,
+        CONTEXT_STORE_PREVIEW_CONTRACT, CONTEXT_STORE_PREVIEW_VERSION, MAX_STORE_REQUEST_BYTES,
+        MAX_STORE_RESPONSE_BYTES,
+    };
     pub use crate::gateway_preview::{
         parse_decision_receipt, parse_egress_admission, ContextDecision, ContextDecisionReceipt,
         ContextDestination, ContextPrincipal, DetectorCoverage, EgressAdmission, EgressRequest,

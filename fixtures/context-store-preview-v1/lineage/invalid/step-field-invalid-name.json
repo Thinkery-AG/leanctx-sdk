@@ -1,0 +1,55 @@
+{
+  "deliveries": [
+    {
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "summary": {
+        "delivered": 3,
+        "destination": "anthropic / claude-opus",
+        "final_context": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "inspected": 4,
+        "outcome": "delivered",
+        "policy_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "redactions": 1,
+        "tokens_delivered": 3000,
+        "tokens_original": 9000,
+        "withheld": 1
+      },
+      "verified": true
+    }
+  ],
+  "gaps": [],
+  "outcome": "accepted",
+  "schema_version": 1,
+  "scope": "[null,\"/work/project\"]",
+  "steps": [
+    {
+      "fields": {
+        "Envelope-Ref": "x",
+        "envelope_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "kind": "task_started",
+      "sequence": 1,
+      "timestamp": "2026-10-03T10:00:00Z"
+    },
+    {
+      "fields": {
+        "plan_id": "plan-1",
+        "plan_ref": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "kind": "plan_created",
+      "sequence": 2,
+      "timestamp": "2026-10-03T10:00:01Z"
+    },
+    {
+      "fields": {
+        "accepted": "accepted",
+        "outcome_id": "o-1",
+        "receipt_id": "r-1"
+      },
+      "kind": "outcome_recorded",
+      "sequence": 3,
+      "timestamp": "2026-10-03T10:05:00Z"
+    }
+  ],
+  "task_id": "task-1"
+}

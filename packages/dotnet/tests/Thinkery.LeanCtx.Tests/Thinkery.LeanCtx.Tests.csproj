@@ -16,5 +16,8 @@
     <None Include="../../../../fixtures/gateway-preview-v1/**/*.json"
           LinkBase="fixtures/gateway-preview-v1"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../fixtures/context-store-preview-v1/**/*.json"
+          LinkBase="fixtures/context-store-preview-v1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

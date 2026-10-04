@@ -443,6 +443,27 @@ export class SubprocessEngineClient implements EngineClient {
     return this.run("egress-admit", root, undefined, payload, maxResponseBytes);
   }
 
+  /**
+   * Preview: run a read-only Context Store operation (`context-lineage`,
+   * `context-policy-evidence`) and return the raw response bytes. Use
+   * `readTaskLineage` / `readPolicyEvidence` from
+   * `@thinkery/leanctx-sdk/preview`, which validate both sides.
+   */
+  async contextStoreRead(
+    operation: "context-lineage" | "context-policy-evidence",
+    projectRoot: string,
+    payload: Buffer,
+    maxRequestBytes: number,
+    maxResponseBytes: number,
+  ): Promise<Buffer> {
+    if (operation !== "context-lineage" && operation !== "context-policy-evidence") {
+      throw new ValidationError("unsupported Context Store operation");
+    }
+    const root = this.validateRoot(projectRoot);
+    if (payload.byteLength > maxRequestBytes) throw new EngineProtocolError("context store request exceeds the bound");
+    return this.run(operation, root, undefined, payload, maxResponseBytes);
+  }
+
   private async run(
     operation: string,
     projectRoot: string,

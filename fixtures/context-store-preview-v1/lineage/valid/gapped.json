@@ -1,0 +1,21 @@
+{
+  "deliveries": [
+    {
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "error": "tampered",
+      "verified": false
+    }
+  ],
+  "gaps": [
+    "ledger_unverified",
+    "no_plan_recorded",
+    "delivery_unverified",
+    "no_outcome_recorded"
+  ],
+  "ledger_error": "no task envelope proves the ledger's project scope",
+  "outcome": "unknown",
+  "schema_version": 1,
+  "scope": "[\"tenant\",\"p\"]",
+  "steps": [],
+  "task_id": "task-2"
+}

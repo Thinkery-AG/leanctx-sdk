@@ -368,3 +368,6 @@ export async function admitEgress(engine: SubprocessEngineClient, projectRoot: s
   }
   return parseEgressAdmission(document);
 }
+
+// Context Store reads (task lineage, policy evidence): leanctx-context-store-preview.
+export * from "./context_store.js";
