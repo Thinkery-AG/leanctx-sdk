@@ -49,7 +49,7 @@ internal static class Program
         Equal("1.2.0", Constants.__version__);
         Equal("1.0.0", Constants.ENGINE_INTERFACE_VERSION);
         Equal("1.0.0", Constants.AGENT_TOOLS_INTERFACE_VERSION);
-        Equal("3.11.0", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
+        Equal("3.11.1", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
         Equal(1, Constants.SCHEMA_VERSION);
         Equal(1, Constants.TRANSPORT_VERSION);
     }
@@ -294,7 +294,7 @@ IFS= read -r line
 #!/bin/sh
 IFS= read -r line
 id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id"
+printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.11.1","schema_version":1,"transport_version":1}}\n' "$id"
 while :; do sleep 10; done
 """;
         }
@@ -303,7 +303,7 @@ while :; do sleep 10; done
             script = """
 #!/bin/sh
 IFS= read -r line
-printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n'
+printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.1","schema_version":1,"transport_version":1}}\n'
 IFS= read -r line
 while :; do sleep 10; done
 """;
@@ -323,7 +323,7 @@ printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.1","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac
@@ -345,7 +345,7 @@ printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.0","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.1","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac

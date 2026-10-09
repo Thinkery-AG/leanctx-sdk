@@ -14,7 +14,7 @@ public static class Constants
     public const string AGENT_TOOLS_INTERFACE_VERSION = "1.0.0";
     public const int AGENT_TOOLS_SCHEMA_VERSION = 1;
     public const int AGENT_TOOLS_TRANSPORT_VERSION = 1;
-    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.0";
+    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.1";
 }
 
 public enum FailureCode

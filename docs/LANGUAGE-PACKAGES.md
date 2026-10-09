@@ -83,7 +83,7 @@ language tags publish only after all five non-Python SDK build, test, package,
 and clean-install jobs pass.
 
 The public SDK 1.1.0 release requires Engine 3.10.1; current `main` sources
-target Engine 3.11.0. Verify each registry artifact before describing it as
+target Engine 3.11.1. Verify each registry artifact before describing it as
 published; source package version metadata alone is not publication evidence.
 
 ## Registry trust

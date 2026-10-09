@@ -3,21 +3,21 @@
 ## `main` (unreleased)
 
 The current `main` source is SDK **1.2.0**, prepared against LeanCTX Engine
-**3.11.0**, which is not yet published. The public SDK 1.1.1 release below
+**3.11.1**, which is not yet published. The public SDK 1.1.1 release below
 remains bound to Engine 3.10.1. Package version fields in this source checkout
 do not establish that an artifact has been published; verify the specific
 registry artifact before installation. A source checkout of `main` needs
-Engine 3.11.0.
+Engine 3.11.1.
 
 | Component | Declared scope | Status |
 | --- | --- | --- |
-| Agent Tools Engine | `v3.11.0` | unreleased; required by `main` in every language package |
+| Agent Tools Engine | `v3.11.1` | unreleased; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
-| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.0` | published with Engine 3.11.0 |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.1` | published with Engine 3.11.1 |
 | Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
 | Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
-Release evidence moves to v3.11.0 from the signed release download once that
+Release evidence moves to v3.11.1 from the signed release download once that
 Engine is tagged. Until then the release-candidate pipeline keeps the last
 published pairing, recorded here: the Engine release
 [`v3.10.5`](https://github.com/yvgude/lean-ctx/releases/tag/v3.10.5).

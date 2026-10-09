@@ -439,7 +439,7 @@ fn agent_script(
             "allow_exec": false,
             "allow_write": false,
             "capabilities": capabilities,
-            "engine_version": "3.11.0",
+            "engine_version": "3.11.1",
             "schema_version": 1,
             "transport_version": 1
         }
@@ -539,7 +539,7 @@ fn public_constants_are_frozen() {
     assert_eq!(leanctx_sdk::TRANSPORT_VERSION, 1);
     assert_eq!(leanctx_sdk::ENGINE_INTERFACE_VERSION, "1.0.0");
     assert_eq!(leanctx_sdk::AGENT_TOOLS_INTERFACE_VERSION, "1.0.0");
-    assert_eq!(leanctx_sdk::SUPPORTED_AGENT_TOOLS_ENGINE_VERSION, "3.11.0");
+    assert_eq!(leanctx_sdk::SUPPORTED_AGENT_TOOLS_ENGINE_VERSION, "3.11.1");
 }
 
 #[test]
