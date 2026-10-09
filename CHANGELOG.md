@@ -44,14 +44,14 @@ packages keep their release identity.
 ### Changed
 
 - Every language package, the `[agent]` companion-Engine extras and the Agent
-  Tools contract target **LeanCTX Engine 3.11.1** (not yet published). `main`
+  Tools contract target **LeanCTX Engine 3.11.1** (published 2026-10-09). `main`
   previously targeted 3.10.5; before that, only the Python constant had moved
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
-- The release-candidate pipeline and release-evidence scripts still bind the
-  published Engine v3.10.5 (commit `102330a77c36061483f60d914aeb14d3551b6e24`).
-  They move to v3.11.1 with digests taken from the signed release download once
-  that Engine is tagged.
+- The release-candidate pipeline and release-evidence scripts bind the signed
+  Engine v3.11.1 (commit `b4fd337b9ae0ca98b7bbc28598082caf1b820828`), with
+  archive and binary digests taken from the release download and cross-checked
+  against its `SHA256SUMS`. Previously they bound v3.10.5.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
   1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so
