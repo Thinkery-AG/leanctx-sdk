@@ -9,7 +9,7 @@ loop, and UI. It provides the five Stable lifecycle primitives plus the
 separate Stable Agent Tools API.
 
 The published SDK 1.1.1 release requires Engine 3.10.1; current `main` sources
-target Engine 3.11.0. Check the release-specific compatibility record before
+target Engine 3.11.1. Check the release-specific compatibility record before
 choosing an Engine binary. The package does not embed an Engine and does not
 grant Engine rights. Use
 `LEANCTX_ENGINE_BIN` or an explicit executable path for a separately installed

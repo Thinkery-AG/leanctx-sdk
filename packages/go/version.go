@@ -10,7 +10,7 @@ const (
 	AgentToolsInterfaceVersion       = "1.0.0"
 	AgentToolsSchemaVersion          = 1
 	AgentToolsTransportVersion       = 1
-	SupportedAgentToolsEngineVersion = "3.11.0"
+	SupportedAgentToolsEngineVersion = "3.11.1"
 
 	// Contract-spelling aliases keep generated integrations source-compatible
 	// with the other SDKs, whose constants use uppercase names.

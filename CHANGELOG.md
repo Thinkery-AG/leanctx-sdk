@@ -2,7 +2,7 @@
 
 ## Unreleased (1.2.0)
 
-SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.0** and
+SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.1** and
 adds the v4 preview surfaces below. Interface, schema and transport versions
 and the stable public-surface contract are unchanged. The published 1.1.x
 packages keep their release identity.
@@ -44,13 +44,13 @@ packages keep their release identity.
 ### Changed
 
 - Every language package, the `[agent]` companion-Engine extras and the Agent
-  Tools contract target **LeanCTX Engine 3.11.0** (not yet published). `main`
+  Tools contract target **LeanCTX Engine 3.11.1** (not yet published). `main`
   previously targeted 3.10.5; before that, only the Python constant had moved
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
 - The release-candidate pipeline and release-evidence scripts still bind the
   published Engine v3.10.5 (commit `102330a77c36061483f60d914aeb14d3551b6e24`).
-  They move to v3.11.0 with digests taken from the signed release download once
+  They move to v3.11.1 with digests taken from the signed release download once
   that Engine is tagged.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
