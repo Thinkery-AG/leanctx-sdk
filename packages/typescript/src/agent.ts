@@ -20,7 +20,7 @@ import { canonicalBytes, strictJsonLoads } from "./protocol.js";
 export const AGENT_TOOLS_INTERFACE_VERSION = "1.0.0" as const;
 export const AGENT_TOOLS_SCHEMA_VERSION = 1 as const;
 export const AGENT_TOOLS_TRANSPORT_VERSION = 1 as const;
-export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.1" as const;
+export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.2" as const;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;

@@ -2,7 +2,7 @@
 
 ## Unreleased (1.2.0)
 
-SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.1** and
+SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.2** and
 adds the v4 preview surfaces below. Interface, schema and transport versions
 and the stable public-surface contract are unchanged. The published 1.1.x
 packages keep their release identity.
@@ -44,8 +44,10 @@ packages keep their release identity.
 ### Changed
 
 - Every language package, the `[agent]` companion-Engine extras and the Agent
-  Tools contract target **LeanCTX Engine 3.11.1** (published 2026-10-09). `main`
-  previously targeted 3.10.5; before that, only the Python constant had moved
+  Tools contract target **LeanCTX Engine 3.11.2**, the updater hotfix for
+  3.11.1 (whose built-in updater could not install a release; the Agent Tools
+  protocol is unchanged). `main` previously targeted 3.11.1 and before that
+  3.10.5; before that, only the Python constant had moved
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
 - The release-candidate pipeline and release-evidence scripts bind the signed

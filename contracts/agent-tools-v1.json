@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "schema_version": 1,
   "transport_version": 1,
-  "engine_version": "3.11.1",
+  "engine_version": "3.11.2",
   "transport": {
     "encoding": "UTF-8 JSONL",
     "session": "persistent child process",

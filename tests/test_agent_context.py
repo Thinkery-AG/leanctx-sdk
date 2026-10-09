@@ -79,7 +79,7 @@ class _FakeProcess:
                 "allow_exec": self.policy["allow_exec"],
                 "allow_write": self.policy["allow_write"],
                 "capabilities": sorted(capabilities),
-                "engine_version": "3.11.1",
+                "engine_version": "3.11.2",
                 "schema_version": 1,
                 "transport_version": 1,
             }
@@ -341,7 +341,7 @@ class AgentContextTests(unittest.TestCase):
                 "allow_exec": False,
                 "allow_write": False,
                 "capabilities": sorted((*context.capabilities, "ctx_provider")),
-                "engine_version": "3.11.1",
+                "engine_version": "3.11.2",
                 "schema_version": 1,
                 "transport_version": 1,
             }

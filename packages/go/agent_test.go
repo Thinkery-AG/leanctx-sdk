@@ -63,7 +63,7 @@ func fakeAgentScript(t *testing.T, behavior string, capturePolicyPath ...string)
 	withWrite := `["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_symbol","ctx_tree"]`
 	full := `["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"]`
 	result := `{"changed":false,"content_blocks":[],"mode":"auto","original_tokens":100,"output_tokens":25,"saved_tokens":75,"shell":null,"text":"ok"}`
-	hello := `{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":CAPS,"engine_version":"3.11.1","schema_version":1,"transport_version":1}`
+	hello := `{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":CAPS,"engine_version":"3.11.2","schema_version":1,"transport_version":1}`
 	hello = strings.Replace(hello, "CAPS", readOnly, 1)
 	providerHello := strings.Replace(hello, readOnly, providerReadOnly, 1)
 	if behavior == "badhello" {
@@ -88,7 +88,7 @@ func fakeAgentFullScript(t *testing.T) string {
 while IFS= read -r line; do
   id=$(/usr/bin/printf '%s' "$line" | /usr/bin/sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   if /usr/bin/printf '%s' "$line" | /usr/bin/grep -q '"op":"hello"'; then
-    /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":true,"allow_write":true,"capabilities":["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"],"engine_version":"3.11.1","schema_version":1,"transport_version":1}}'
+    /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":true,"allow_write":true,"capabilities":["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"],"engine_version":"3.11.2","schema_version":1,"transport_version":1}}'
   elif /usr/bin/printf '%s' "$line" | /usr/bin/grep -q '"op":"close"'; then
     /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{}}'
     exit 0
