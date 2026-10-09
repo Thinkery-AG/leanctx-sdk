@@ -12,7 +12,7 @@ from scripts.check_language_versions import check_agent_tools_versions, versions
 class LanguageVersionContractTests(unittest.TestCase):
     def test_current_clients_and_installer_require_the_same_engine(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.11.1"})
+        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.11.2"})
 
     def test_rejects_stale_client_installer_and_engine_before_build(self) -> None:
         repository = Path(__file__).resolve().parents[1]
@@ -43,14 +43,14 @@ class LanguageVersionContractTests(unittest.TestCase):
                 shutil.copyfile(repository / "setup.cfg", root / "setup.cfg")
                 manifest = root / "engine.toml"
                 manifest.write_text(
-                    '[package]\nname = "lean-ctx"\nversion = "3.11.1"\n'
+                    '[package]\nname = "lean-ctx"\nversion = "3.11.2"\n'
                 )
                 (root / "Cargo.lock").write_text(
-                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.11.1"\n'
+                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.11.2"\n'
                 )
                 check_agent_tools_versions(root, manifest)
                 path = root / changed
-                path.write_text(path.read_text().replace("3.11.1", "3.11.2"))
+                path.write_text(path.read_text().replace("3.11.2", "3.11.3"))
                 with self.assertRaisesRegex(ValueError, "Engine pairing mismatch"):
                     check_agent_tools_versions(root, manifest)
 

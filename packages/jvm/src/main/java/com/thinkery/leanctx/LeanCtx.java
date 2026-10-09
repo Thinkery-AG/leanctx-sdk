@@ -10,7 +10,7 @@ public final class LeanCtx {
     public static final String AGENT_TOOLS_INTERFACE_VERSION = "1.0.0";
     public static final int AGENT_TOOLS_SCHEMA_VERSION = 1;
     public static final int AGENT_TOOLS_TRANSPORT_VERSION = 1;
-    public static final String SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.1";
+    public static final String SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.2";
 
     private LeanCtx() {
     }
