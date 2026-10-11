@@ -15,21 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGENT_TOOLS_ENGINE_VERSION: 3.11.2
-  ENGINE_COMMIT: 93f52687a4088138abf8a6032935c08ce763f26b
-  ENGINE_VERSION: 3.11.2
-  ENGINE_TAG: v3.11.2
+  AGENT_TOOLS_ENGINE_VERSION: 3.11.3
+  ENGINE_COMMIT: a6a20406b0fc0a4c1b020657387a41a127d4a9a6
+  ENGINE_VERSION: 3.11.3
+  ENGINE_TAG: v3.11.3
   ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
-  ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.2
-  ENGINE_RELEASE_DOWNLOAD_URL: https://github.com/yvgude/lean-ctx/releases/download/v3.11.2
+  ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.3
+  ENGINE_RELEASE_DOWNLOAD_URL: https://github.com/yvgude/lean-ctx/releases/download/v3.11.3
   ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
   ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
-  ENGINE_LINUX_ARCHIVE_SHA256: 25153e740fb217c43f4033e3751d9c6e4aec60d97f410ec0396b418e01d313d8
-  ENGINE_MACOS_ARCHIVE_SHA256: 46c33221c6b36c673aa8b39a112c7d3636756c5ef98f1788f899120bcfc6dad1
-  ENGINE_CHECKSUMS_SHA256: f33bab9057ca2f0d8af42143458f92f08e725ff7178aa84b9859f75c8af400fc
-  ENGINE_LINUX_X86_64_SHA256: 3a06408b779f5c3fbdcab82b613685b6a927203a84f557f48952380ab5bcee9e
-  ENGINE_MACOS_ARM64_SHA256: 84dab9b3871a9c2966ea82721d41bd073cad9744d2296c68c3221fa47be9ade0
-  ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.2
+  ENGINE_LINUX_ARCHIVE_SHA256: fbdbb345fa005708a947538b052745027402b9c63e880fc7888512e726e108ef
+  ENGINE_MACOS_ARCHIVE_SHA256: 07b2d253631b74a60e6f93894b0f036e0c97aa6872bd9bf0d852a156792d782b
+  ENGINE_CHECKSUMS_SHA256: b04d30a7b6d3f9c1a679dbe587925fa9a363980e604f4902390725ee45920cc7
+  ENGINE_LINUX_X86_64_SHA256: 60839a7c555a06e1da780e86012474cababe0d26316fb8ff500ff0709f037222
+  ENGINE_MACOS_ARM64_SHA256: 4596b40f3f5f65123ad35ee179c831cb6586d4e74c28b0718a952f1e0810de2e
+  ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.3
   ENGINE_COSIGN_ISSUER: https://token.actions.githubusercontent.com
   SOURCE_DATE_EPOCH: "1704067200"
 
@@ -549,7 +549,7 @@ jobs:
           "$RUNNER_TEMP/framework-venv/bin/python"
           scripts/verify_agent_context_e2e.py
           --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
-          --expected-engine-version 3.11.2
+          --expected-engine-version 3.11.3
           > "$RUNNER_TEMP/agent-context-e2e.json"
       - run: >-
           "$RUNNER_TEMP/framework-venv/bin/python"
@@ -606,13 +606,13 @@ jobs:
       ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
       ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
       ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
-      ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.2
+      ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.3
       ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
       ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
-      ENGINE_LINUX_ARCHIVE_SHA256: 25153e740fb217c43f4033e3751d9c6e4aec60d97f410ec0396b418e01d313d8
-      ENGINE_MACOS_ARCHIVE_SHA256: 46c33221c6b36c673aa8b39a112c7d3636756c5ef98f1788f899120bcfc6dad1
-      ENGINE_CHECKSUMS_SHA256: f33bab9057ca2f0d8af42143458f92f08e725ff7178aa84b9859f75c8af400fc
-      ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.2
+      ENGINE_LINUX_ARCHIVE_SHA256: fbdbb345fa005708a947538b052745027402b9c63e880fc7888512e726e108ef
+      ENGINE_MACOS_ARCHIVE_SHA256: 07b2d253631b74a60e6f93894b0f036e0c97aa6872bd9bf0d852a156792d782b
+      ENGINE_CHECKSUMS_SHA256: b04d30a7b6d3f9c1a679dbe587925fa9a363980e604f4902390725ee45920cc7
+      ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.3
       DEPENDENCY_MANIFEST_SHA256: ${{ needs.dependency-audit.outputs.manifest_sha256 }}
       DEPENDENCY_POLICY_SHA256: ${{ needs.dependency-audit.outputs.policy_sha256 }}
       AUDIT_TOOL_LOCK_SHA256: ${{ needs.dependency-audit.outputs.tool_lock_sha256 }}
@@ -769,8 +769,8 @@ jobs:
           test "$ENGINE_MACOS_ARCHIVE_SHA256" = "$SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256"
           test "$ENGINE_CHECKSUMS_SHA256" = "$SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256"
           test "$ENGINE_COSIGN_IDENTITY" = "$SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY"
-          test "$ENGINE_VERSION" = 3.11.2
-          test "$ENGINE_TAG" = v3.11.2
+          test "$ENGINE_VERSION" = 3.11.3
+          test "$ENGINE_TAG" = v3.11.3
       - if: github.event_name == 'pull_request'
         run: echo "Validation run; no publication requested."
 
