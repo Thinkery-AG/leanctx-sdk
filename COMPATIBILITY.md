@@ -3,7 +3,7 @@
 ## `main` (unreleased)
 
 The current `main` source is SDK **1.2.0**, paired with LeanCTX Engine
-**3.11.4**, a bugfix release that is not yet published. The public SDK 1.1.1
+**3.11.4**, a bugfix release (published 2026-10-11). The public SDK 1.1.1
 release below remains bound to Engine 3.10.1. Package version fields in this
 source checkout do not establish that an artifact has been published; verify
 the specific registry artifact before installation. A source checkout of
@@ -11,29 +11,28 @@ the specific registry artifact before installation. A source checkout of
 
 | Component | Declared scope | Status |
 | --- | --- | --- |
-| Agent Tools Engine | `v3.11.4` | unreleased; required by `main` in every language package |
+| Agent Tools Engine | `v3.11.4` | published 2026-10-11; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
 | Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.4` | published with Engine 3.11.4 |
 | Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
 | Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
-Until v3.11.4 is tagged, the release-candidate pipeline keeps the last
-signed Engine release
-[`v3.11.3`](https://github.com/yvgude/lean-ctx/releases/tag/v3.11.3).
+The release-candidate pipeline binds the signed Engine release
+[`v3.11.4`](https://github.com/yvgude/lean-ctx/releases/tag/v3.11.4).
 The tag resolves to commit
-`a6a20406b0fc0a4c1b020657387a41a127d4a9a6`.
+`3afe2bbffe0834ec58517ffd493e5a51c5c1ca57`.
 Its signed `SHA256SUMS` has SHA-256
-`b04d30a7b6d3f9c1a679dbe587925fa9a363980e604f4902390725ee45920cc7`.
+`beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff`.
 Release CI verifies the Sigstore identity
-`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.3`.
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.4`.
 
 | Platform | Release archive SHA-256 | Extracted binary SHA-256 |
 | --- | --- | --- |
-| Linux x86_64 GNU | `fbdbb345fa005708a947538b052745027402b9c63e880fc7888512e726e108ef` | `60839a7c555a06e1da780e86012474cababe0d26316fb8ff500ff0709f037222` |
-| macOS arm64 | `07b2d253631b74a60e6f93894b0f036e0c97aa6872bd9bf0d852a156792d782b` | `4596b40f3f5f65123ad35ee179c831cb6586d4e74c28b0718a952f1e0810de2e` |
+| Linux x86_64 GNU | `5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a` | `c803039798201a5a03843bb4f0ec59ad796bb0964eb270a394d1006cc1d0229c` |
+| macOS arm64 | `d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f` | `c20fc2afa50205c20fb227c985feb30bf94055cc9381c5a3276bcbc8f14fef8c` |
 
 `scripts/verify_agent_context_e2e.py` passes against the released macOS arm64
-binary (Engine 3.11.3, SDK 1.2.0, status PASS). The Agent Tools protocol
+binary (Engine 3.11.4, SDK 1.2.0, status PASS). The Agent Tools protocol
 (interface 1.0.0, schema 1, transport 1) is unchanged from 3.10.5.
 
 ## Stable SDK 1.1.1

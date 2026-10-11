@@ -51,9 +51,9 @@ packages keep their release identity.
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
 - The release-candidate pipeline and release-evidence scripts bind the signed
-  Engine v3.11.3 (commit `a6a20406b0fc0a4c1b020657387a41a127d4a9a6`), with
+  Engine v3.11.4 (commit `3afe2bbffe0834ec58517ffd493e5a51c5c1ca57`), with
   archive and binary digests taken from the release download and cross-checked
-  against its `SHA256SUMS`. Previously they bound v3.11.2.
+  against its `SHA256SUMS`. Previously they bound v3.11.3.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
   1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so
