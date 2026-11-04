@@ -216,11 +216,7 @@ fn receipt_mac(key: &[u8; 32], parts: &[&[u8]]) -> String {
     let mut outer = Sha256::new();
     outer.update(outer_pad);
     outer.update(inner.finalize());
-    outer
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    format!("{:x}", outer.finalize())
 }
 
 /// The public id a schema_version 2 receipt names for the 32-byte `key`.
@@ -1024,7 +1020,7 @@ pub fn parse_egress_host_report(
     canonical_observation.insert("observer".into(), Value::String("host_reported".into()));
     let canonical_bytes = serde_json::to_vec(&Value::Object(canonical_observation))
         .map_err(|_| bad("observation serialization failed"))?;
-    let canonical_digest = format!("sha256:{:x}", Sha256::digest(&canonical_bytes));
+    let canonical_digest = format!("sha256:{:x}", Sha256::digest(canonical_bytes));
     if observation_digest != canonical_digest {
         return Err(bad(
             "observation_digest does not match the reported observation",
