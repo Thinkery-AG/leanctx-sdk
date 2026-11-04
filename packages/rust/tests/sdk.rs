@@ -1,3 +1,5 @@
+// Source resolution: private refusal and containment cases retained.
+// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
@@ -5,11 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod support;
+use support::instance_env;
+
 use leanctx_sdk::{
     AgentContext, AgentPermissions, ContextFailure, ContextMeasurement, ContextPlan,
-    ContextReceipt, ContextReceiptLink, ContextSession, ContextSource, ContextView, EngineClient,
-    EngineStatus, ExecutionPolicy, FailureCode, Freshness, HostOutcome, Integrity, ReadMode,
-    RecoveredSource, SessionState, SubprocessEngineClient, ValidationError,
+    ContextReceipt, ContextReceiptLink, ContextSession, ContextSource, ContextView,
+    ExecutionPolicy, FailureCode, Freshness, HostOutcome, InstanceClient, InstanceStatus,
+    Integrity, ReadMode, RecoveredSource, SessionState, SubprocessInstanceClient, ValidationError,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -119,7 +124,7 @@ fn synthetic_view(source: &ContextSource) -> ContextView {
         source_ref,
         digest("fresh synthetic source\n"),
         Some(input_ref),
-        EngineStatus::Succeeded,
+        InstanceStatus::Succeeded,
         measurements,
         None,
         Some(receipt_link),
@@ -134,7 +139,7 @@ struct FakeClient {
     view: ContextView,
 }
 
-impl EngineClient for FakeClient {
+impl InstanceClient for FakeClient {
     fn context_view(
         &self,
         _plan: &ContextPlan,
@@ -346,7 +351,7 @@ fn subprocess_engine_round_trip_jails_paths_and_cleans_request_files(
             view_response, recovery_response
         ),
     )?;
-    let client = SubprocessEngineClient::with_binary(&script)?;
+    let client = SubprocessInstanceClient::with_binary(&script)?;
     let source_digest = digest("fresh synthetic source\n");
     let source = ContextSource::with_metadata(
         "fixture/source.txt",
@@ -357,7 +362,7 @@ fn subprocess_engine_round_trip_jails_paths_and_cleans_request_files(
     )?;
     let plan = ContextPlan::new("session", "task", "inspect", source.clone())?;
     let view = client.context_view(&plan)?;
-    assert_eq!(view.status(), EngineStatus::Succeeded);
+    assert_eq!(view.status(), InstanceStatus::Succeeded);
     assert!(view.verify());
     let recovered = client.recover(
         root.path(),
@@ -395,11 +400,13 @@ fn subprocess_engine_timeout_is_typed_and_reaps_process_group(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let root = TempRoot::new()?;
     let script = write_executable(&root, "sleep 2")?;
-    let client = SubprocessEngineClient::new(Some(script), Duration::from_millis(100))?;
+    let client = SubprocessInstanceClient::new(Some(script), Duration::from_millis(100))?;
     let source = ContextSource::new("fixture/source.txt", root.path())?;
     let plan = ContextPlan::new("session", "task", "inspect", source)?;
     let error = client.context_view(&plan).unwrap_err();
-    assert!(error.downcast_ref::<leanctx_sdk::EngineTimeout>().is_some());
+    assert!(error
+        .downcast_ref::<leanctx_sdk::InstanceTimeout>()
+        .is_some());
     Ok(())
 }
 
@@ -439,7 +446,7 @@ fn agent_script(
             "allow_exec": false,
             "allow_write": false,
             "capabilities": capabilities,
-            "engine_version": "3.11.4",
+            "engine_version": "3.12.1",
             "schema_version": 1,
             "transport_version": 1
         }
@@ -508,7 +515,7 @@ fn persistent_agent_client_rejects_terminal_protocol_mismatch(
     )
     .unwrap_err();
     assert!(error
-        .downcast_ref::<leanctx_sdk::EngineProtocolError>()
+        .downcast_ref::<leanctx_sdk::InstanceProtocolError>()
         .is_some());
     Ok(())
 }
@@ -530,30 +537,48 @@ fn execution_policy_is_canonical_and_loader_variables_are_forbidden() {
     )
     .is_err());
     assert!(ExecutionPolicy::new(Duration::from_secs(3), ["git"], ["LD_PRELOAD"]).is_err());
+    for name in [
+        "LD_LIBRARY_PATH",
+        "DYLD_LIBRARY_PATH",
+        "ld_library_path",
+        "dYlD_LiBrArY_PaTh",
+    ] {
+        assert!(
+            ExecutionPolicy::new(Duration::from_secs(3), ["git"], [name]).is_err(),
+            "{name} must not be accepted"
+        );
+    }
+    assert!(ExecutionPolicy::new(Duration::from_secs(3), ["git"], ["LANG"]).is_ok());
 }
 
 #[test]
 fn public_constants_are_frozen() {
-    assert_eq!(leanctx_sdk::__version__, "1.2.0");
+    assert_eq!(leanctx_sdk::__version__, "1.3.0");
     assert_eq!(leanctx_sdk::SCHEMA_VERSION, 1);
     assert_eq!(leanctx_sdk::TRANSPORT_VERSION, 1);
     assert_eq!(leanctx_sdk::ENGINE_INTERFACE_VERSION, "1.0.0");
     assert_eq!(leanctx_sdk::AGENT_TOOLS_INTERFACE_VERSION, "1.0.0");
-    assert_eq!(leanctx_sdk::SUPPORTED_AGENT_TOOLS_ENGINE_VERSION, "3.11.4");
+    assert_eq!(
+        leanctx_sdk::SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION,
+        "3.12.1"
+    );
 }
 
 #[test]
 fn optional_real_engine_v1_round_trip() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let binary = match std::env::var_os("LEANCTX_ENGINE_BIN") {
+    let binary = match instance_env("LEANCTX_INSTANCE_BIN", "LEANCTX_ENGINE_BIN") {
         Some(binary) => PathBuf::from(binary),
-        None if std::env::var_os("LEANCTX_REQUIRE_ENGINE").is_some() => {
-            return Err("LEANCTX_ENGINE_BIN is required for this Engine proof".into());
+        None if instance_env("LEANCTX_REQUIRE_INSTANCE", "LEANCTX_REQUIRE_ENGINE").is_some() => {
+            return Err("LEANCTX_INSTANCE_BIN is required for this instance proof".into());
         }
         None => return Ok(()),
     };
-    let proof_file = std::env::var_os("LEANCTX_ENGINE_PROOF_FILE").map(PathBuf::from);
-    if std::env::var_os("LEANCTX_REQUIRE_ENGINE").is_some() && proof_file.is_none() {
-        return Err("LEANCTX_ENGINE_PROOF_FILE is required for this Engine proof".into());
+    let proof_file =
+        instance_env("LEANCTX_INSTANCE_PROOF_FILE", "LEANCTX_ENGINE_PROOF_FILE").map(PathBuf::from);
+    if instance_env("LEANCTX_REQUIRE_INSTANCE", "LEANCTX_REQUIRE_ENGINE").is_some()
+        && proof_file.is_none()
+    {
+        return Err("LEANCTX_INSTANCE_PROOF_FILE is required for this instance proof".into());
     }
     let root = std::env::var_os("LEANCTX_TEST_ROOT")
         .map(PathBuf::from)
@@ -565,22 +590,205 @@ fn optional_real_engine_v1_round_trip() -> Result<(), Box<dyn Error + Send + Syn
         "inspect",
         source,
     )?;
-    let client = SubprocessEngineClient::with_binary(&binary)?;
+    let client = SubprocessInstanceClient::with_binary(&binary)?;
     let view = client.context_view(&plan)?;
     assert!(matches!(
         view.status(),
-        EngineStatus::Succeeded | EngineStatus::Degraded
+        InstanceStatus::Succeeded | InstanceStatus::Degraded
     ));
+    // B16: a real instance on POSIX starts the one-shot behind its session
+    // starter and says so on the first line. (On Windows the instance answers
+    // from a job of its own, which a host job may forbid: not asserted.)
+    #[cfg(unix)]
+    assert_eq!(
+        client.last_session_containment(),
+        leanctx_sdk::SessionContainment::EngineStarter
+    );
     if let Some(path) = proof_file {
         fs::write(
             path,
             format!(
-                "actual isolated Engine v1 context_view completed; binary={}; status={:?}; synthetic_root={}\n",
+                "actual isolated instance v1 context_view completed; binary={}; status={:?}; synthetic_root={}\n",
                 binary.display(),
                 view.status(),
                 root.display()
             ),
         )?;
     }
+    Ok(())
+}
+
+// --- Session containment (Q13) -------------------------------------------
+// Stand-ins follow this file's convention (`write_executable`, `agent_script`,
+// `engine_response`): /bin/sh scripts in a temp root. Nothing here starts a
+// LeanCTX | OSS except the last test, which needs LEANCTX_INSTANCE_BIN.
+
+#[cfg(unix)]
+const SESSION_ACK: &str = "{\"leanctx_session_containment\":1}";
+
+/// A second executable in `root` that runs `prelude` and then becomes `target`.
+#[cfg(unix)]
+fn write_wrapper(
+    root: &TempRoot,
+    prelude: &str,
+    target: &Path,
+) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = root.path().join("wrapped-engine.sh");
+    fs::write(
+        &path,
+        format!("#!/bin/sh\n{prelude}'{}' \"$@\"\n", target.display()),
+    )?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    Ok(path)
+}
+
+#[cfg(unix)]
+fn open_containment_agent(
+    root: &TempRoot,
+    binary: PathBuf,
+) -> Result<AgentContext, Box<dyn Error + Send + Sync>> {
+    AgentContext::open_with_policy(
+        root.path(),
+        "inspect",
+        AgentPermissions::read_only(),
+        ExecutionPolicy::default(),
+        Some(binary),
+        Duration::from_secs(10),
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn session_containment_agent_reports_what_the_first_line_says(
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    for acknowledged in [false, true] {
+        let root = TempRoot::new()?;
+        let script = agent_script(&root, false)?;
+        let binary = if acknowledged {
+            write_wrapper(
+                &root,
+                &format!("printf '%s\\n' '{SESSION_ACK}'\nexec "),
+                &script,
+            )?
+        } else {
+            script
+        };
+        let context = open_containment_agent(&root, binary)?;
+        let expected = if acknowledged {
+            leanctx_sdk::SessionContainment::EngineStarter
+        } else {
+            leanctx_sdk::SessionContainment::Unavailable
+        };
+        assert_eq!(context.session_containment(), expected);
+        // The stand-in's fixed result, whether or not an acknowledgement
+        // preceded the session: the line was not taken for a response.
+        let result = context.read("fixture/source.txt", ReadMode::Full, false)?;
+        assert_eq!(result.text(), "ok");
+        assert_eq!(result.saved_tokens(), 6);
+        context.close()?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn session_containment_one_shot_strips_and_records_the_acknowledgement(
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    for acknowledged in [false, true] {
+        let root = TempRoot::new()?;
+        let prelude = if acknowledged {
+            format!("printf '%s\\n' '{SESSION_ACK}'\n")
+        } else {
+            String::new()
+        };
+        let script = write_executable(
+            &root,
+            &format!(
+                "{prelude}case \"$2\" in\n  context-view) printf '%s\\n' '{}' ;;\n  *) exit 42 ;;\nesac",
+                engine_response(false)
+            ),
+        )?;
+        let client = SubprocessInstanceClient::with_binary(&script)?;
+        assert_eq!(
+            client.last_session_containment(),
+            leanctx_sdk::SessionContainment::Unavailable
+        );
+        let source = ContextSource::with_metadata(
+            "fixture/source.txt",
+            root.path(),
+            "text/plain",
+            Some(format!("source:synthetic-path-sha256:{}", "a".repeat(64))),
+            Some(digest("fresh synthetic source\n")),
+        )?;
+        let plan = ContextPlan::new("session", "task", "inspect", source)?;
+        // The same response verifies with and without the acknowledgement in
+        // front of it: the payload reached the parser unchanged.
+        let view = client.context_view(&plan)?;
+        assert_eq!(view.status(), InstanceStatus::Succeeded);
+        assert!(view.verify());
+        let expected = if acknowledged {
+            leanctx_sdk::SessionContainment::EngineStarter
+        } else {
+            leanctx_sdk::SessionContainment::Unavailable
+        };
+        assert_eq!(client.last_session_containment(), expected);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn session_containment_one_shot_failed_run_still_records_the_acknowledgement(
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let root = TempRoot::new()?;
+    let script = write_executable(&root, &format!("printf '%s\\n' '{SESSION_ACK}'\nexit 42"))?;
+    let client = SubprocessInstanceClient::with_binary(&script)?;
+    let source = ContextSource::with_metadata(
+        "fixture/source.txt",
+        root.path(),
+        "text/plain",
+        Some(format!("source:synthetic-path-sha256:{}", "a".repeat(64))),
+        Some(digest("fresh synthetic source\n")),
+    )?;
+    let plan = ContextPlan::new("session", "task", "inspect", source)?;
+    assert!(client.context_view(&plan).is_err());
+    assert_eq!(
+        client.last_session_containment(),
+        leanctx_sdk::SessionContainment::EngineStarter
+    );
+    Ok(())
+}
+
+/// Real instance, this file's convention (`optional_real_engine_v1_round_trip`):
+/// passes without LEANCTX_INSTANCE_BIN unless LEANCTX_REQUIRE_INSTANCE is set.
+#[cfg(unix)]
+#[test]
+fn optional_real_engine_session_starter_acknowledges() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let engine = match instance_env("LEANCTX_INSTANCE_BIN", "LEANCTX_ENGINE_BIN") {
+        Some(binary) => fs::canonicalize(PathBuf::from(binary))?,
+        None if instance_env("LEANCTX_REQUIRE_INSTANCE", "LEANCTX_REQUIRE_ENGINE").is_some() => {
+            return Err("LEANCTX_INSTANCE_BIN is required for this instance proof".into());
+        }
+        None => return Ok(()),
+    };
+    let root = TempRoot::new()?;
+    let script = agent_script(&root, false)?;
+    // The stand-in is started through the real binary's session starter.
+    let binary = write_wrapper(
+        &root,
+        &format!(
+            "exec '{}' __session-starter --ack --watch-parent -- ",
+            engine.display()
+        ),
+        &script,
+    )?;
+    let context = open_containment_agent(&root, binary)?;
+    assert_eq!(
+        context.session_containment(),
+        leanctx_sdk::SessionContainment::EngineStarter
+    );
+    context.close()?;
     Ok(())
 }

@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import {
-  EnginePlanningRequest,
-  EngineProtocolError,
-  EnterpriseEngineClient,
+  InstancePlanningRequest,
+  InstanceProtocolError,
+  EnterpriseInstanceClient,
   ValidationError,
 } from "../dist/index.js";
 import { sha256Digest } from "../dist/protocol.js";
@@ -15,7 +15,7 @@ const SOURCE_ID = "22222222-2222-4222-8222-222222222222";
 const TASK_ID = "provider-task";
 const PLAN_ID = "provider-plan";
 const EPOCH = "2026-09-20T12:34:56Z";
-const request = new EnginePlanningRequest(TASK_ID, "invoice ledger", 64);
+const request = new InstancePlanningRequest(TASK_ID, "invoice ledger", 64);
 
 const task = {
   schema_version: 1,
@@ -108,7 +108,7 @@ async function loopback(body) {
 }
 
 function client(baseUrl) {
-  return new EnterpriseEngineClient(baseUrl, "credential-test", TENANT_ID, {
+  return new EnterpriseInstanceClient(baseUrl, "credential-test", TENANT_ID, {
     allowLoopbackHttp: true,
     timeout: 2,
   });
@@ -131,7 +131,7 @@ async function assertRejectedResponse(payload, label) {
   try {
     await assert.rejects(
       providerCall(server.baseUrl),
-      (error) => error instanceof EngineProtocolError,
+      (error) => error instanceof InstanceProtocolError,
       label,
     );
   } finally {

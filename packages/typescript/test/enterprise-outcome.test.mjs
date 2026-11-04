@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import {
-  EngineProtocolError,
-  EnterpriseEngineClient,
+  InstanceProtocolError,
+  EnterpriseInstanceClient,
   ValidationError,
 } from "../dist/index.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
@@ -113,7 +113,7 @@ async function loopback(body) {
 }
 
 function client(baseUrl, tenantId = TENANT_ID) {
-  return new EnterpriseEngineClient(baseUrl, TEST_CREDENTIAL, tenantId, {
+  return new EnterpriseInstanceClient(baseUrl, TEST_CREDENTIAL, tenantId, {
     allowLoopbackHttp: true,
     timeout: 2,
   });
@@ -128,7 +128,7 @@ async function expectResponseError(payload, label) {
   try {
     await assert.rejects(
       () => client(server.baseUrl).contextOutcome(TASK_ID, RECEIPT_DIGEST, DECISION_DIGEST, SIGNALS),
-      (error) => error instanceof EngineProtocolError,
+      (error) => error instanceof InstanceProtocolError,
       label,
     );
     assert.equal(server.requests.length, 1);

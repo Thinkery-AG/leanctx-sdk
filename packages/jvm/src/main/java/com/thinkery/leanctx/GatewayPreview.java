@@ -1,33 +1,42 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
+// Source union retains private preparation/report/refusal behavior; Context Store is separate.
 package com.thinkery.leanctx;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
  * Preview: the information gateway's egress admission and decision receipts.
  *
- * <p>{@link #admitEgress} runs one model request through the local Engine's
+ * <p>{@link #admitEgress} runs one model request through the local LeanCTX instance's
  * egress admission ({@code lean-ctx engine egress-admit}) before the caller
  * sends it: secrets are masked, restricted content is withheld, and the request
- * is classified. Parsing mirrors the Engine's validation; unknown fields and
+ * is classified. Parsing mirrors the LeanCTX instance's validation; unknown fields and
  * values are rejected. Contract {@code leanctx-gateway-preview} 0.1 — may
  * change in minor releases.
  */
+@SuppressWarnings("removal")
 public final class GatewayPreview {
     public static final String CONTRACT = "leanctx-gateway-preview";
     public static final String VERSION = "0.1.0";
     public static final int EGRESS_SCHEMA_VERSION = 1;
+    public static final int EGRESS_PREPARE_SCHEMA_VERSION = 2;
     public static final int MAX_EGRESS_REQUEST_BYTES = 8 * 1024 * 1024;
+    public static final int MAX_EGRESS_ATTEMPTS = 32;
+    public static final int MAX_EGRESS_REPORT_BYTES = 4096;
 
     private static final int MAX_REF_BYTES = 512;
     private static final int MAX_DECISIONS = 4096;
@@ -36,6 +45,9 @@ public final class GatewayPreview {
     private static final long U32 = 0xFFFF_FFFFL;
     private static final long MAX_SAFE = (1L << 53) - 1;
     private static final Pattern DIGEST = Pattern.compile("sha256:[0-9a-f]{64}");
+    private static final Pattern KEY_ID = Pattern.compile("rk-[0-9a-f]{32}");
+    private static final byte[] OBJECT_DOMAIN = "leanctx.receipt.object.v2\0".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] KEY_ID_DOMAIN = "leanctx.receipt.key-id.v2".getBytes(StandardCharsets.UTF_8);
     private static final Pattern REASON = Pattern.compile("[a-z][a-z0-9_.]{2,63}");
 
     private static final List<String> CLASSIFICATIONS = List.of("public", "internal", "confidential", "restricted");
@@ -98,14 +110,23 @@ public final class GatewayPreview {
         }
     }
 
-    /** One governed delivery: who, where, under which policy, and what was withheld. */
+    /** How a schema_version 2 receipt digests its decision objects: keyed under the installation key {@code keyId}. */
+    public record ReceiptObjectDigest(String algorithm, String keyId) {
+    }
+
+    /**
+     * One governed delivery: who, where, under which policy, and what was withheld. In schema_version 2
+     * every decision object is HMAC-SHA256 under the installation's receipt key ({@code objectDigest});
+     * in schema_version 1 the plain SHA-256 of the object. {@code finalContext} is plain SHA-256 in both.
+     */
     public record ContextDecisionReceipt(String receiptId, String mode, ContextPrincipal principal,
                                          ContextDestination destination, Map<String, Long> sources,
                                          Map<String, Long> security, Map<String, Long> tokens,
                                          String outcome, long durationUs, List<ContextDecision> decisions,
                                          Optional<Map<String, String>> policy, Optional<String> task,
                                          Optional<String> finalContext,
-                                         Optional<Map<String, Object>> quality) {
+                                         Optional<Map<String, Object>> quality,
+                                         long schemaVersion, Optional<ReceiptObjectDigest> objectDigest) {
         public List<SecuritySignal> signals() {
             List<SecuritySignal> signals = new ArrayList<>();
             decisions.forEach(decision -> signals.addAll(decision.signals()));
@@ -123,11 +144,29 @@ public final class GatewayPreview {
         }
     }
 
+    /** V2 decision and exact JSON text to transmit unchanged. */
+    public record EgressPreparation(EgressAdmission decision, Optional<String> preparedBody,
+                                    Optional<String> admissionReceiptDigest) {
+        public boolean maySend() {
+            return decision.maySend() && preparedBody.isPresent();
+        }
+    }
+
+    /** Bounded transport facts reported by the host after an attempt. */
+    public record EgressHostReportRequest(String admissionReceiptDigest, int attempt,
+                                          String transport, String result,
+                                          Optional<Integer> httpStatus, Optional<String> failure) {
+    }
+
+    /** LeanCTX instance's stored host report, retaining HostReported provenance. */
+    public record EgressHostReportResponse(String observationDigest, Map<String, Object> observation) {
+    }
+
     /** One model request about to leave for a provider. */
     public record EgressRequest(String provider, String upstreamBase, Map<String, Object> body) {
     }
 
-    private static EngineProtocolError bad(String message) {
+    private static InstanceProtocolError bad(String message) {
         return new EngineProtocolError("egress admission: " + message);
     }
 
@@ -343,14 +382,57 @@ public final class GatewayPreview {
     }
 
     /** Parse and validate a {@code ContextDecisionReceiptV1} document. */
+    private static byte[] receiptMac(byte[] key, byte[]... parts) {
+        if (key == null || key.length != 32) throw new ValidationError("a receipt key is exactly 32 bytes");
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"));
+            for (byte[] part : parts) mac.update(part);
+            return mac.doFinal();
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("HMAC-SHA256 unavailable", e);
+        }
+    }
+
+    /** The public id a schema_version 2 receipt names for the 32-byte {@code key}. */
+    public static String receiptKeyId(byte[] key) {
+        return "rk-" + HexFormat.of().formatHex(receiptMac(key, KEY_ID_DOMAIN)).substring(0, 32);
+    }
+
+    /** The schema_version 2 object for the plain {@code sha256:<hex>} a schema_version 1 receipt would name. */
+    public static String keyedObjectDigest(byte[] key, String plainObject) {
+        if (plainObject == null || !DIGEST.matcher(plainObject).matches()) {
+            throw new ValidationError("plainObject must be a sha256 digest");
+        }
+        return "sha256:" + HexFormat.of().formatHex(
+                receiptMac(key, OBJECT_DOMAIN, plainObject.getBytes(StandardCharsets.US_ASCII)));
+    }
+
+    private static ReceiptObjectDigest objectDigest(Object raw) {
+        Map<String, Object> value = object(raw, "receipt.object_digest");
+        keys(value, Set.of("algorithm", "key_id"), Set.of(), "receipt.object_digest");
+        if (!(value.get("key_id") instanceof String keyId) || !KEY_ID.matcher(keyId).matches()) {
+            throw bad("receipt.object_digest.key_id must be rk- and 32 hex digits");
+        }
+        return new ReceiptObjectDigest(
+                oneOf(value.get("algorithm"), List.of("hmac-sha256"), "receipt.object_digest.algorithm"), keyId);
+    }
+
     public static ContextDecisionReceipt parseDecisionReceipt(Object raw) {
         Map<String, Object> value = object(raw, "receipt");
         keys(value, Set.of("schema_version", "receipt_id", "mode", "principal", "destination", "sources",
                         "security", "tokens", "outcome", "duration_us"),
-                Set.of("task", "policy", "decisions", "final_context", "quality"), "receipt");
-        if (integer(value.get("schema_version"), "receipt.schema_version", MAX_SAFE) != 1) {
+                Set.of("task", "policy", "decisions", "final_context", "quality", "object_digest"), "receipt");
+        long schemaVersion = integer(value.get("schema_version"), "receipt.schema_version", MAX_SAFE);
+        if (schemaVersion != 1 && schemaVersion != 2) {
             throw bad("unsupported receipt schema_version");
         }
+        if ((schemaVersion == 2) != value.containsKey("object_digest")) {
+            throw bad("exactly a schema_version 2 receipt names its object digest key");
+        }
+        Optional<ReceiptObjectDigest> keyed = value.containsKey("object_digest")
+                ? Optional.of(objectDigest(value.get("object_digest")))
+                : Optional.empty();
         List<ContextDecision> decisions = new ArrayList<>();
         for (Object decision : list(value.get("decisions"), "receipt.decisions", MAX_DECISIONS)) {
             decisions.add(decision(decision));
@@ -401,7 +483,8 @@ public final class GatewayPreview {
                 finalContext,
                 value.containsKey("quality")
                         ? Optional.of(object(value.get("quality"), "receipt.quality"))
-                        : Optional.empty());
+                        : Optional.empty(),
+                schemaVersion, keyed);
     }
 
     /** Parse and validate an {@code EngineEgressAdmissionResponseV1} document. */
@@ -434,11 +517,157 @@ public final class GatewayPreview {
                         : Optional.empty());
     }
 
+    /** Parse EngineEgressPrepareResponseV2 and retain prepared_body verbatim. */
+    public static EgressPreparation parseEgressPreparation(Object raw) {
+        Map<String, Object> value = object(raw, "preparation");
+        keys(value, Set.of("schema_version", "decision"), Set.of("prepared_body", "admission_receipt_digest"), "preparation");
+        if (integer(value.get("schema_version"), "schema_version", MAX_SAFE) != EGRESS_PREPARE_SCHEMA_VERSION) {
+            throw bad("unsupported egress preparation schema_version");
+        }
+        EgressAdmission decision = parseEgressAdmission(value.get("decision"));
+        decision.receipt().ifPresent(receipt -> {
+            boolean mismatch = decision.disposition().equals("refused")
+                    ? receipt.outcome().equals("delivered") || receipt.finalContext().isPresent()
+                    : !receipt.outcome().equals("delivered") || receipt.finalContext().isEmpty();
+            if (mismatch) throw bad("decision receipt outcome/final_context do not match disposition");
+        });
+        Object rawPrepared = value.get("prepared_body");
+        Optional<String> prepared = rawPrepared instanceof String text ? Optional.of(text) : Optional.empty();
+        if (decision.disposition().equals("refused")) {
+            if (prepared.isPresent() || (value.containsKey("prepared_body") && rawPrepared != null)) {
+                throw bad("a refused preparation cannot carry prepared bytes");
+            }
+        } else {
+            if (prepared.isEmpty()) throw bad("a dispatchable preparation must carry exact bytes");
+            Object parsed = Json.parse(prepared.get().getBytes(StandardCharsets.UTF_8), "prepared egress body");
+            if (!(parsed instanceof Map<?, ?>) || !parsed.equals(decision.body().orElseThrow())) {
+                throw bad("prepared bytes do not match the admitted decision body");
+            }
+            Optional<String> finalContext = decision.receipt().flatMap(ContextDecisionReceipt::finalContext);
+            if (finalContext.isPresent() && !finalContext.get().equals(sha256(prepared.get().getBytes(StandardCharsets.UTF_8)))) {
+                throw bad("prepared bytes do not match the decision receipt digest");
+            }
+        }
+        Optional<String> admissionDigest = value.containsKey("admission_receipt_digest") && rawNotNull(value, "admission_receipt_digest")
+                ? Optional.of(digest(value.get("admission_receipt_digest"), "admission_receipt_digest")) : Optional.empty();
+        if (admissionDigest.isPresent() && decision.receipt().isEmpty()) {
+            throw bad("egress admission digest requires its decision receipt");
+        }
+        return new EgressPreparation(decision, prepared, admissionDigest);
+    }
+
+    private static boolean rawNotNull(Map<String, Object> value, String key) {
+        return value.get(key) != null;
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 is unavailable", error);
+        }
+    }
+
+    private static Map<String, Object> hostReportDocument(EgressHostReportRequest request) {
+        if (request == null || request.admissionReceiptDigest() == null || !DIGEST.matcher(request.admissionReceiptDigest()).matches())
+            throw new ValidationError("admission_receipt_digest must be a sha256 digest");
+        if (request.attempt() < 1 || request.attempt() > MAX_EGRESS_ATTEMPTS) throw new ValidationError("attempt must be in 1..32");
+        if (!List.of("http", "websocket").contains(request.transport())) throw new ValidationError("transport is invalid");
+        if (!List.of("response_observed", "no_response_observed").contains(request.result())) throw new ValidationError("result is invalid");
+        if (request.httpStatus() == null || request.failure() == null) throw new ValidationError("report optionals are required as Optional values");
+        if (request.httpStatus().isPresent() && (request.httpStatus().get() < 100 || request.httpStatus().get() > 599))
+            throw new ValidationError("http_status must be in 100..599");
+        if (request.failure().isPresent() && !List.of("connect", "timeout", "cancelled", "other").contains(request.failure().get()))
+            throw new ValidationError("failure is invalid");
+        if (request.result().equals("response_observed")) {
+            if (request.failure().isPresent() || (request.transport().equals("http") && request.httpStatus().isEmpty()))
+                throw new ValidationError("response_observed requires no failure and an HTTP status for HTTP");
+        } else if (request.httpStatus().isPresent() || request.failure().isEmpty()) {
+            throw new ValidationError("no_response_observed requires a bounded failure and no HTTP status");
+        }
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("schema_version", EGRESS_SCHEMA_VERSION);
+        document.put("admission_receipt_digest", request.admissionReceiptDigest());
+        document.put("attempt", request.attempt());
+        document.put("transport", request.transport());
+        document.put("result", request.result());
+        request.httpStatus().ifPresent(status -> document.put("http_status", status));
+        request.failure().ifPresent(failure -> document.put("failure", failure));
+        return document;
+    }
+
+    /** Parse only the matching HostReported LeanCTX instance observation. */
+    public static EgressHostReportResponse parseEgressHostReport(Object raw, EgressHostReportRequest request) {
+        Map<String, Object> expected = hostReportDocument(request);
+        Map<String, Object> value = object(raw, "report");
+        keys(value, Set.of("schema_version", "observation_digest", "observation"), Set.of(), "report");
+        if (integer(value.get("schema_version"), "schema_version", MAX_SAFE) != EGRESS_SCHEMA_VERSION)
+            throw bad("unsupported egress report schema_version");
+        String observationDigest = digest(value.get("observation_digest"), "observation_digest");
+        Map<String, Object> observation = object(value.get("observation"), "observation");
+        keys(observation, Set.of("schema_version", "admission_receipt_digest", "attempt", "transport", "observer", "result"),
+                Set.of("http_status", "failure"), "observation");
+        if (integer(observation.get("schema_version"), "observation.schema_version", MAX_SAFE) != EGRESS_SCHEMA_VERSION)
+            throw bad("unsupported observation schema_version");
+        if (!"host_reported".equals(oneOf(observation.get("observer"), List.of("host_reported"), "observation.observer")))
+            throw bad("host report response must be HostReported");
+        for (Map.Entry<String, Object> item : expected.entrySet()) {
+            if (!jsonNumberOrValueEquals(observation.get(item.getKey()), item.getValue()))
+                throw bad("report observation does not match request field " + item.getKey());
+        }
+        for (String key : observation.keySet())
+            if (!key.equals("observer") && !expected.containsKey(key)) throw bad("report observation has unexpected field " + key);
+        TreeMap<String, Object> canonicalObservation = new TreeMap<>(expected);
+        canonicalObservation.put("observer", "host_reported");
+        StringBuilder canonical = new StringBuilder();
+        write(canonicalObservation, canonical, 0);
+        if (!observationDigest.equals(sha256(canonical.toString().getBytes(StandardCharsets.UTF_8))))
+            throw bad("observation_digest does not match the reported observation");
+        return new EgressHostReportResponse(observationDigest, Map.copyOf(observation));
+    }
+
+    private static boolean jsonNumberOrValueEquals(Object actual, Object expected) {
+        if (actual instanceof Number a && expected instanceof Number b)
+            return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString())) == 0;
+        return java.util.Objects.equals(actual, expected);
+    }
+
+    /** Invoke the separate opt-in egress-prepare V2 operation. */
+    public static EgressPreparation prepareEgress(SubprocessInstanceClient instance, String projectRoot, EgressRequest request) {
+        if (instance == null || request == null) throw new ValidationError("instance and request are required");
+        if (request.provider() == null || request.provider().isBlank()) throw new ValidationError("provider must be a non-empty string");
+        if (request.upstreamBase() == null || !(request.upstreamBase().startsWith("https://") || request.upstreamBase().startsWith("http://")))
+            throw new ValidationError("upstreamBase must be an http(s) URL");
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("schema_version", EGRESS_SCHEMA_VERSION);
+        document.put("provider", request.provider());
+        document.put("upstream_base", request.upstreamBase());
+        document.put("body", request.body());
+        StringBuilder out = new StringBuilder();
+        write(document, out, 0);
+        byte[] payload = out.toString().getBytes(StandardCharsets.UTF_8);
+        if (payload.length > MAX_EGRESS_REQUEST_BYTES) throw new ValidationError("egress request exceeds its bound");
+        byte[] raw = instance.runPayload("egress-prepare", projectRoot, payload);
+        return parseEgressPreparation(Json.parse(raw, "egress preparation"));
+    }
+
+    /** Submit one bounded host-observed transport report. */
+    public static EgressHostReportResponse reportEgress(SubprocessInstanceClient instance, String projectRoot, EgressHostReportRequest request) {
+        if (instance == null) throw new ValidationError("instance is required");
+        Map<String, Object> document = hostReportDocument(request);
+        StringBuilder out = new StringBuilder();
+        write(document, out, 0);
+        byte[] payload = out.toString().getBytes(StandardCharsets.UTF_8);
+        if (payload.length > MAX_EGRESS_REPORT_BYTES) throw new ValidationError("egress report request exceeds its bound");
+        byte[] raw = instance.runPayload("egress-report", projectRoot, payload);
+        return parseEgressHostReport(Json.parse(raw, "egress report"), request);
+    }
+
     /**
-     * Admit one model request through the local Engine before it is sent. Send
+     * Admit one model request through the local LeanCTX instance before it is sent. Send
      * {@code admission.body()}, never the original body, and only when {@code maySend()}.
      */
-    public static EgressAdmission admitEgress(SubprocessEngineClient engine, String projectRoot,
+    public static EgressAdmission admitEgress(SubprocessInstanceClient instance, String projectRoot,
                                               EgressRequest request) {
         if (request.provider() == null || request.provider().isBlank()) {
             throw new ValidationError("provider must be a non-empty string");
@@ -462,7 +691,7 @@ public final class GatewayPreview {
         if (payload.length > MAX_EGRESS_REQUEST_BYTES) {
             throw new ValidationError("egress request exceeds its bound");
         }
-        byte[] raw = engine.runPayload("egress-admit", projectRoot, payload);
+        byte[] raw = instance.runPayload("egress-admit", projectRoot, payload);
         return parseEgressAdmission(Json.parse(raw, "egress admission"));
     }
 

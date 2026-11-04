@@ -1,30 +1,61 @@
 /** Stable Agent Tools client for a host-owned agent loop. */
 
 import { closeSync, constants, fchmodSync, fsyncSync, mkdtempSync, openSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { delimiter, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   AgentPermissionError,
   ConfigurationError,
-  EngineCrashed,
-  EngineError,
-  EngineExecutionError,
-  EngineProtocolError,
-  EngineTimeout,
-  EngineUnavailable,
+  InstanceCrashed,
+  InstanceError,
+  InstanceExecutionError,
+  InstanceProtocolError,
+  InstanceTimeout,
+  InstanceUnavailable,
   UnsupportedCapabilityError,
   ValidationError,
 } from "./errors.js";
 import { canonicalBytes, strictJsonLoads } from "./protocol.js";
+import { resolveInstanceBinary } from "./engine.js";
 
 export const AGENT_TOOLS_INTERFACE_VERSION = "1.0.0" as const;
 export const AGENT_TOOLS_SCHEMA_VERSION = 1 as const;
 export const AGENT_TOOLS_TRANSPORT_VERSION = 1 as const;
-export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.4" as const;
+// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
+export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.1" as const;
+// The (interface, schema, transport, engine) pairs a hello is accepted for: the
+// rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
+// equal to it by scripts/check_language_versions.py. A pair that is not a row
+// is refused, whatever the Engine says about itself.
+// agent-tools-compatibility: begin
+const ADMITTED_ENGINE_PAIRS: ReadonlyArray<readonly [string, number, number, string]> = [
+  ["1.0.0", 1, 1, "3.11.0"],
+  ["1.0.0", 1, 1, "3.11.3"],
+  ["1.0.0", 1, 1, "3.11.4"],
+  ["1.0.0", 1, 1, "3.11.5"],
+  ["1.0.0", 1, 1, "3.12.0"],
+  ["1.0.0", 1, 1, "3.12.1"],
+];
+// agent-tools-compatibility: end
+const HELLO_INTEGER_PATHS: readonly (readonly string[])[] = [["result", "schema_version"], ["result", "transport_version"]];
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 const PROCESS_CLEANUP_TIMEOUT_MS = 5_000;
+// Shorter than the overall cleanup bound, so that the Engine itself is still
+// killed inside that bound when the tree kill overruns.
+const TASKKILL_TIMEOUT_MS = 3_000;
+
+/**
+ * Session containment (POSIX). "engine-starter": the process this SDK started is the
+ * Engine's session starter. It runs the Engine in a process group of its own, ends that
+ * group when the Engine exits, when this SDK ends the starter or when this process is
+ * gone, and exits only afterwards. "unavailable": the Engine binary has no such mode
+ * (or the platform is Windows); the SDK's own process-group handling is all there is.
+ */
+export type SessionContainment = "engine-starter" | "unavailable";
+const SESSION_CONTAINMENT_ENV = "LEAN_CTX_SESSION_CONTAINMENT";
+const SESSION_CONTAINMENT_ACK = Buffer.from('{"leanctx_session_containment":1}');
 
 export enum ReadMode {
   AUTO = "auto",
@@ -55,7 +86,7 @@ export class AgentPermissions {
   get allow_exec(): boolean { return this.execute; }
 }
 
-const FORBIDDEN_ENV = new Set(["COMSPEC", "DYLD_INSERT_LIBRARIES", "HOME", "LD_PRELOAD", "PATH", "PATHEXT", "PYTHONPATH", "RUSTC_WRAPPER", "SHELL"]);
+const FORBIDDEN_ENV = new Set(["COMSPEC", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "HOME", "LD_LIBRARY_PATH", "LD_PRELOAD", "PATH", "PATHEXT", "PYTHONPATH", "RUSTC_WRAPPER", "SHELL"]);
 export type ExecutionPolicyOptions = Readonly<{ maxTimeout?: number; allowedExecutables?: readonly string[]; allowedEnv?: readonly string[] }>;
 export class ExecutionPolicy {
   readonly maxTimeout: number;
@@ -127,8 +158,17 @@ export type AgentContextOptions = Readonly<{
   task?: string;
   permissions?: AgentPermissions | AgentPermissionsOptions;
   executionPolicy?: ExecutionPolicy | ExecutionPolicyOptions;
+  /** LeanCTX instance binary; defaults to `lean-ctx`. */
+  instanceBinary?: string;
+  /** @deprecated since 1.3.0, use instanceBinary */
   engineBinary?: string;
   timeout?: number;
+  /**
+   * Seconds the instance has for its greeting. Defaults to `timeout`; the host
+   * sets it when starting an instance and waiting for one answer have
+   * different budgets. Calls, reads, cancel and cleanup keep their own.
+   */
+  handshakeTimeout?: number;
   gitlabSource?: GitLabSource;
 }>;
 
@@ -176,6 +216,20 @@ const READ_TOOLS = new Set(["ctx_compose", "ctx_glob", "ctx_read", "ctx_search",
 const WRITE_TOOLS = new Set(["ctx_edit", "ctx_fill", "ctx_patch"]);
 const EXEC_TOOLS = new Set(["ctx_shell"]);
 
+/**
+ * Whether the group has a member that is not a zombie. Only observes, and does so
+ * synchronously so that the caller's ownership of the group number cannot change
+ * meanwhile. `null` when the process table could not be read.
+ */
+function groupHasLiveMembers(pgid: number): boolean | null {
+  const listing = spawnSync("ps", ["-A", "-o", "pgid=", "-o", "stat="], { encoding: "utf8", timeout: 2_000, stdio: ["ignore", "pipe", "ignore"] });
+  if (listing.error !== undefined || listing.status !== 0 || typeof listing.stdout !== "string") return null;
+  return listing.stdout.split("\n").some((line) => {
+    const fields = line.trim().split(/\s+/);
+    return fields.length === 2 && fields[0] === String(pgid) && !(fields[1] as string).startsWith("Z");
+  });
+}
+
 function abortError(): Error {
   const error = new Error("Agent Tools request aborted");
   error.name = "AbortError";
@@ -187,8 +241,11 @@ export class AgentContext {
   readonly task: string;
   readonly permissions: AgentPermissions;
   readonly executionPolicy: ExecutionPolicy;
-  readonly engineBinary: string;
+  readonly instanceBinary: string;
+  /** @deprecated since 1.3.0, use instanceBinary */
+  get engineBinary(): string { return this.instanceBinary; }
   readonly timeout: number;
+  readonly handshakeTimeout: number;
   private readonly gitlabSource: GitLabSource | undefined;
   private process: ChildProcessWithoutNullStreams | null = null;
   private readonly pending = new Map<string, Pending>();
@@ -199,6 +256,8 @@ export class AgentContext {
   private closed = false;
   private processClosed = false;
   private helloAccepted = false;
+  private firstLineSeen = false;
+  private sessionContainmentValue: SessionContainment = "unavailable";
   private reapPromise: Promise<void> | null = null;
   private policyPath: string | null = null;
   private capabilitiesValue: readonly string[] = [];
@@ -219,13 +278,16 @@ export class AgentContext {
     if (permissions.execute && executionPolicy.allowedExecutables.length === 0) throw new ConfigurationError("execute permission requires at least one allowed executable");
     const timeout = options.timeout ?? 30;
     if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout < 0.1 || timeout > 120) throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
+    const handshakeTimeout = options.handshakeTimeout ?? timeout;
+    if (typeof handshakeTimeout !== "number" || !Number.isFinite(handshakeTimeout) || handshakeTimeout < 0.1 || handshakeTimeout > 120) throw new ConfigurationError("handshakeTimeout must be between 0.1 and 120 seconds");
     this.gitlabSource = normalizeGitLabSource(options.gitlabSource);
     this.projectRoot = root;
     this.task = task;
     this.permissions = permissions;
     this.executionPolicy = executionPolicy;
-    this.engineBinary = options.engineBinary ?? "lean-ctx";
+    this.instanceBinary = resolveInstanceBinary(options);
     this.timeout = timeout;
+    this.handshakeTimeout = handshakeTimeout;
     try {
       const policyDirectory = mkdtempSync(resolve(root, ".leanctx-agent-"));
       this.policyPath = resolve(policyDirectory, "policy.json");
@@ -240,23 +302,50 @@ export class AgentContext {
       for (const name of ["LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK"]) { const value = process.env[name]; if (typeof value === "string") env[name] = value; }
       // Executable resolution needs a search path; forward it only under the execute permission.
       if (permissions.execute) for (const name of ["PATH", "TMPDIR", "TEMP", "TMP"]) { const value = process.env[name]; if (typeof value === "string") env[name] = value; }
+      // Ask the Engine to contain its session: on POSIX it runs as its own session starter,
+      // on Windows it joins a kill-on-close job. An Engine that has the mode acknowledges on
+      // its first output line; one that has not ignores the variable.
+      env[SESSION_CONTAINMENT_ENV] = "1";
       const child = spawn(binary, ["engine", "tool-session", "--project-root", this.projectRoot, "--policy-file", this.policyPath], { cwd: this.projectRoot, env, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
       this.process = child;
+      // A write to an Engine that is gone or was just ended fails asynchronously (EPIPE) and
+      // arrives as an `error` event on the stream, not as an exception at `write()`. Without
+      // a listener Node raises it as an uncaught exception in the host process. While the
+      // context is open it is terminal for the pending calls; after termination it is the
+      // expected echo of ending the Engine mid-write and carries no further information.
+      child.stdin.on("error", (error) => {
+        if (this.closed) return;
+        this.failPending(new InstanceCrashed(this.crashMessage(), { cause: error }));
+        void this.terminate().catch(() => {});
+      });
       child.stdout.on("data", (chunk: Buffer) => this.onStdout(chunk));
       child.stderr.on("data", (chunk: Buffer) => { this.stderrBytes += chunk.byteLength; if (this.stderrBytes <= 64 * 1024) this.stderrChunks.push(Buffer.from(chunk)); });
       child.once("error", (error) => {
-        const failure = this.helloAccepted ? new EngineCrashed("Agent Tools Engine exited", { cause: error }) : new EngineUnavailable("Agent Tools Engine could not be started", { cause: error });
+        const failure = this.helloAccepted ? new InstanceCrashed("Agent Tools instance exited", { cause: error }) : new InstanceUnavailable("Agent Tools instance could not be started", { cause: error });
         this.failPending(failure);
         void this.terminate().catch(() => {});
       });
-      child.once("close", () => { this.processClosed = true; if (!this.closed) this.failPending(new EngineCrashed(this.crashMessage())); });
+      child.once("close", () => { this.processClosed = true; if (!this.closed) this.failPending(new InstanceCrashed(this.crashMessage())); });
+      // An Engine that exits, or closes stdout while it or a descendant keeps running,
+      // is terminal at once: pending calls fail typed and the whole tree is ended.
+      const engineGone = (): void => {
+        if (this.closed) return;
+        this.failPending(new InstanceCrashed(this.crashMessage()));
+        void this.terminate().catch(() => {});
+      };
+      // Nothing is signalled on `exit`. Node reaps a child before it emits `exit`, and
+      // from then on the child's pid no longer pins its process group: the number may
+      // belong to another group. Descendants an exited Engine left behind are therefore
+      // not reachable safely from here (see terminate()); stdout `end` is the terminal
+      // signal for pending calls.
+      child.stdout.once("end", engineGone);
     } catch (error) {
       this.removePolicy();
       void this.terminate().catch(() => {});
       throw error;
     }
     this.readyPromise = this.start().catch((error) => {
-      this.failPending(error instanceof Error ? error : new EngineProtocolError("Agent Tools startup failed"));
+      this.failPending(error instanceof Error ? error : new InstanceProtocolError("Agent Tools startup failed"));
       void this.terminate().catch(() => {});
       throw error;
     });
@@ -266,14 +355,21 @@ export class AgentContext {
   static async open(projectRoot: string, options: AgentContextOptions = {}): Promise<AgentContext> { const context = new AgentContext(projectRoot, options); await context.ready(); return context; }
   async ready(): Promise<this> { return this.readyPromise; }
   get capabilities(): readonly string[] { return this.capabilitiesValue; }
+  /**
+   * How the Engine's process tree is contained. Final once `ready()` has settled.
+   * "unavailable" is reduced containment: the SDK then ends the Engine's process group
+   * only while the Engine itself is still unreaped, and cannot end what an Engine that
+   * exited first has left behind.
+   */
+  get sessionContainment(): SessionContainment { return this.sessionContainmentValue; }
   get metrics(): AgentMetrics { return this.metricsValue; }
 
   private resolveBinary(): string {
-    let binary = this.engineBinary;
+    let binary = this.instanceBinary;
     if (!isAbsolute(binary) && !binary.includes("/") && !binary.includes("\\")) {
       const candidates = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry.length > 0).map((entry) => resolve(entry, binary));
       const resolvedBinary = candidates.find((candidate) => { try { return statSync(candidate).isFile(); } catch { return false; } });
-      if (resolvedBinary === undefined) throw new EngineUnavailable("configured Engine binary is unavailable");
+      if (resolvedBinary === undefined) throw new InstanceUnavailable("configured instance binary is unavailable");
       binary = resolvedBinary;
     } else binary = resolve(binary);
     try {
@@ -281,12 +377,12 @@ export class AgentContext {
       // Canonicalize before spawning, preventing mutable PATH/relative aliases.
       binary = realpathSync(binary);
       if ((statSync(binary).mode & constants.S_IXUSR) === 0) throw new Error();
-    } catch { throw new EngineUnavailable("configured Engine binary is unavailable"); }
+    } catch { throw new InstanceUnavailable("configured instance binary is unavailable"); }
     return binary;
   }
 
   private async start(): Promise<this> {
-    const result = await this.exchangeRaw({ op: "hello", schema_version: AGENT_TOOLS_SCHEMA_VERSION, transport_version: AGENT_TOOLS_TRANSPORT_VERSION, agent_tools_interface_version: AGENT_TOOLS_INTERFACE_VERSION, sdk_version: "1.2.0" }, true);
+    const result = await this.exchangeRaw({ op: "hello", schema_version: AGENT_TOOLS_SCHEMA_VERSION, transport_version: AGENT_TOOLS_TRANSPORT_VERSION, agent_tools_interface_version: AGENT_TOOLS_INTERFACE_VERSION, sdk_version: "1.3.0" }, true, this.handshakeTimeout);
     this.acceptHello(result);
     this.helloAccepted = true;
     this.removePolicy();
@@ -296,39 +392,46 @@ export class AgentContext {
   private onStdout(chunk: Buffer): void {
     if (this.closed) return;
     this.inputBuffer = Buffer.concat([this.inputBuffer, chunk]);
-    if (this.inputBuffer.byteLength > MAX_RESPONSE_BYTES + 1) { this.protocolViolation(new EngineProtocolError("Agent Tools response exceeds its bound")); return; }
+    if (this.inputBuffer.byteLength > MAX_RESPONSE_BYTES + 1) { this.protocolViolation(new InstanceProtocolError("Agent Tools response exceeds its bound")); return; }
     while (true) {
       const newline = this.inputBuffer.indexOf(0x0a);
       if (newline < 0) break;
       const line = this.inputBuffer.subarray(0, newline);
       this.inputBuffer = this.inputBuffer.subarray(newline + 1);
-      if (line.byteLength > MAX_RESPONSE_BYTES) { this.protocolViolation(new EngineProtocolError("Agent Tools response exceeds its bound")); return; }
+      if (line.byteLength > MAX_RESPONSE_BYTES) { this.protocolViolation(new InstanceProtocolError("Agent Tools response exceeds its bound")); return; }
+      // Only the very first line can be the session starter's acknowledgement: it is
+      // written before the Engine exists. Anything else there means no starter.
+      if (!this.firstLineSeen) {
+        this.firstLineSeen = true;
+        if (line.equals(SESSION_CONTAINMENT_ACK)) { this.sessionContainmentValue = "engine-starter"; continue; }
+      }
       let response: unknown;
-      try { response = strictJsonLoads(line, "Agent Tools response"); } catch { this.protocolViolation(new EngineProtocolError("Agent Tools response is invalid JSON")); return; }
+      // The hello's two versions must be written as JSON integers: 1.0 and 1e0 are refused here, before Number makes them 1. No other response has these two result fields.
+      try { response = strictJsonLoads(line, "Agent Tools response", HELLO_INTEGER_PATHS); } catch { this.protocolViolation(new InstanceProtocolError("Agent Tools response is invalid JSON")); return; }
       this.dispatch(response);
     }
   }
 
   private dispatch(value: unknown): void {
-    if (!value || typeof value !== "object" || Array.isArray(value)) { this.protocolViolation(new EngineProtocolError("Agent Tools response envelope is invalid")); return; }
+    if (!value || typeof value !== "object" || Array.isArray(value)) { this.protocolViolation(new InstanceProtocolError("Agent Tools response envelope is invalid")); return; }
     const item = value as Record<string, unknown>;
-    if (typeof item.id !== "string" || typeof item.ok !== "boolean") { this.protocolViolation(new EngineProtocolError("Agent Tools response envelope is invalid")); return; }
-    const waiter = this.pending.get(item.id); if (!waiter) { this.protocolViolation(new EngineProtocolError("Agent Tools response id is unexpected")); return; }
+    if (typeof item.id !== "string" || typeof item.ok !== "boolean") { this.protocolViolation(new InstanceProtocolError("Agent Tools response envelope is invalid")); return; }
+    const waiter = this.pending.get(item.id); if (!waiter) { this.protocolViolation(new InstanceProtocolError("Agent Tools response id is unexpected")); return; }
     if (item.ok) {
       if (Object.keys(item).length !== 3 || !item.result || typeof item.result !== "object" || Array.isArray(item.result)) {
-        const error = new EngineProtocolError("Agent Tools response omitted result");
+        const error = new InstanceProtocolError("Agent Tools response omitted result");
         waiter.reject(error); this.pending.delete(item.id); this.protocolViolation(error); return;
       }
       this.pending.delete(item.id);
       waiter.resolve(item.result as Record<string, unknown>);
     } else {
       if (Object.keys(item).length !== 3 || !item.error || typeof item.error !== "object" || Array.isArray(item.error)) {
-        const error = new EngineProtocolError("Agent Tools error envelope is invalid");
+        const error = new InstanceProtocolError("Agent Tools error envelope is invalid");
         waiter.reject(error); this.pending.delete(item.id); this.protocolViolation(error); return;
       }
       const error = item.error as Record<string, unknown>;
       if (Object.keys(error).length !== 2 || typeof error.code !== "string" || typeof error.message !== "string") {
-        const violation = new EngineProtocolError("Agent Tools error envelope is invalid");
+        const violation = new InstanceProtocolError("Agent Tools error envelope is invalid");
         waiter.reject(violation); this.pending.delete(item.id); this.protocolViolation(violation); return;
       }
       this.pending.delete(item.id);
@@ -339,93 +442,156 @@ export class AgentContext {
   private exchangeRaw(request: Record<string, unknown>, bypassReady = false, responseTimeout = this.timeout, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (!bypassReady) return this.readyPromise.then(() => this.exchangeRaw(request, true, responseTimeout, signal));
     const child = this.process;
-    if (this.closed || child === null || child.exitCode !== null) return Promise.reject(new EngineCrashed(this.crashMessage()));
+    if (this.closed || child === null || child.exitCode !== null) return Promise.reject(new InstanceCrashed(this.crashMessage()));
     if (signal?.aborted) return Promise.reject(abortError());
     const id = String(++this.nextId);
     const envelope = { ...request, id };
     const encoded = Buffer.from(`${JSON.stringify(envelope)}\n`);
-    if (encoded.byteLength > MAX_REQUEST_BYTES) return Promise.reject(new EngineProtocolError("Agent Tools request exceeds its bound"));
+    if (encoded.byteLength > MAX_REQUEST_BYTES) return Promise.reject(new InstanceProtocolError("Agent Tools request exceeds its bound"));
     return new Promise((resolvePromise, rejectPromise) => {
-      const timer = setTimeout(() => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate().catch(() => {}); rejectPromise(new EngineTimeout("Agent Tools response exceeded its deadline")); }, responseTimeout * 1000);
+      const timer = setTimeout(() => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate().catch(() => {}); rejectPromise(new InstanceTimeout("Agent Tools response exceeded its deadline")); }, responseTimeout * 1000);
       const onAbort = () => { if (!this.pending.has(id)) return; this.pending.delete(id); void this.terminate().catch(() => {}); rejectPromise(abortError()); };
       signal?.addEventListener("abort", onAbort, { once: true });
       const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
       this.pending.set(id, { resolve: (value) => { cleanup(); resolvePromise(value); }, reject: (error) => { cleanup(); rejectPromise(error); } });
-      try { child.stdin.write(encoded); } catch (error) { cleanup(); this.pending.delete(id); rejectPromise(new EngineCrashed(this.crashMessage(), { cause: error })); }
+      try { child.stdin.write(encoded); } catch (error) { cleanup(); this.pending.delete(id); rejectPromise(new InstanceCrashed(this.crashMessage(), { cause: error })); }
     });
   }
 
   private acceptHello(value: Record<string, unknown>): void {
     const expected = ["agent_tools_interface_version", "allow_exec", "allow_write", "capabilities", "engine_version", "schema_version", "transport_version"];
-    if (Object.keys(value).length !== expected.length || expected.some((key) => !(key in value)) || value.agent_tools_interface_version !== AGENT_TOOLS_INTERFACE_VERSION || value.schema_version !== AGENT_TOOLS_SCHEMA_VERSION || value.transport_version !== AGENT_TOOLS_TRANSPORT_VERSION || value.engine_version !== SUPPORTED_AGENT_TOOLS_ENGINE_VERSION || value.allow_write !== this.permissions.write || value.allow_exec !== this.permissions.execute) throw new EngineProtocolError("Agent Tools hello is incompatible");
-    if (!Array.isArray(value.capabilities) || value.capabilities.some((item) => typeof item !== "string")) throw new EngineProtocolError("Agent Tools capabilities are invalid");
+    if (Object.keys(value).length !== expected.length || expected.some((key) => !(key in value)) || value.agent_tools_interface_version !== AGENT_TOOLS_INTERFACE_VERSION || value.schema_version !== AGENT_TOOLS_SCHEMA_VERSION || value.transport_version !== AGENT_TOOLS_TRANSPORT_VERSION || value.allow_write !== this.permissions.write || value.allow_exec !== this.permissions.execute) throw new InstanceProtocolError("Agent Tools hello is incompatible");
+    const engineVersion = value.engine_version;
+    if (typeof engineVersion !== "string" || !ADMITTED_ENGINE_PAIRS.some(([iface, schema, transport, engine]) => iface === AGENT_TOOLS_INTERFACE_VERSION && schema === AGENT_TOOLS_SCHEMA_VERSION && transport === AGENT_TOOLS_TRANSPORT_VERSION && engine === engineVersion)) throw new InstanceProtocolError("Agent Tools instance pair is unsupported");
+    if (!Array.isArray(value.capabilities) || value.capabilities.some((item) => typeof item !== "string")) throw new InstanceProtocolError("Agent Tools capabilities are invalid");
     const capabilities = value.capabilities as string[];
-    if (JSON.stringify(capabilities) !== JSON.stringify([...new Set(capabilities)].sort())) throw new EngineProtocolError("Agent Tools capabilities are not canonical");
+    if (JSON.stringify(capabilities) !== JSON.stringify([...new Set(capabilities)].sort())) throw new InstanceProtocolError("Agent Tools capabilities are not canonical");
     const expectedCapabilities = new Set(READ_TOOLS); if (this.permissions.write) for (const item of WRITE_TOOLS) expectedCapabilities.add(item); if (this.permissions.execute) for (const item of EXEC_TOOLS) expectedCapabilities.add(item);
     if (this.gitlabSource !== undefined) expectedCapabilities.add("ctx_provider");
-    if (capabilities.length !== expectedCapabilities.size || capabilities.some((item) => !expectedCapabilities.has(item))) throw new EngineProtocolError("Agent Tools capabilities do not match policy");
+    if (capabilities.length !== expectedCapabilities.size || capabilities.some((item) => !expectedCapabilities.has(item))) throw new InstanceProtocolError("Agent Tools capabilities do not match policy");
     this.capabilitiesValue = Object.freeze([...capabilities]);
   }
 
   private errorFromWire(code: string, message: string): Error {
     if (code === "permission_denied") return new AgentPermissionError(message);
     if (code === "unsupported_capability") return new UnsupportedCapabilityError(message);
-    if (code === "invalid_request" || code === "invalid_state" || code === "unsupported_interface") return new EngineProtocolError(message);
-    return new EngineExecutionError(message);
+    if (code === "invalid_request" || code === "invalid_state" || code === "unsupported_interface") return new InstanceProtocolError(message);
+    return new InstanceExecutionError(message);
   }
   private failPending(error: Error): void { for (const pending of this.pending.values()) pending.reject(error); this.pending.clear(); }
   /** Protocol violations are terminal: never continue on ambiguous state. */
-  private protocolViolation(error: EngineProtocolError): void { this.failPending(error); void this.terminate().catch(() => {}); }
-  private crashMessage(): string { const detail = Buffer.concat(this.stderrChunks).toString("utf8").trim(); return detail ? `Agent Tools Engine exited: ${detail.slice(0, 4096)}` : "Agent Tools Engine exited"; }
-  private removePolicy(): void { if (this.policyPath) { try { unlinkSync(this.policyPath); } catch { /* best effort */ } try { rmdirSync(resolve(this.policyPath, "..")); } catch { /* best effort */ } this.policyPath = null; } }
+  private protocolViolation(error: InstanceProtocolError): void { this.failPending(error); void this.terminate().catch(() => {}); }
+  private crashMessage(): string { const detail = Buffer.concat(this.stderrChunks).toString("utf8").trim(); return detail ? `Agent Tools instance exited: ${detail.slice(0, 4096)}` : "Agent Tools instance exited"; }
+  /**
+   * Removes exactly the policy file and the directory this context created for it.
+   * Idempotent. Returns false, and keeps the path for the next attempt, when either
+   * still exists afterwards.
+   */
+  private removePolicy(): boolean {
+    if (!this.policyPath) return true;
+    const absent = (remove: () => void): boolean => {
+      try { remove(); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; }
+    };
+    const policyPath = this.policyPath;
+    const fileGone = absent(() => unlinkSync(policyPath));
+    const directoryGone = absent(() => rmdirSync(resolve(policyPath, "..")));
+    if (!fileGone || !directoryGone) return false;
+    this.policyPath = null;
+    return true;
+  }
+  private static policyFailure(): InstanceExecutionError { return new InstanceExecutionError("Agent Tools policy could not be removed"); }
   private terminate(): Promise<void> {
     if (this.reapPromise) return this.reapPromise;
     this.closed = true;
-    this.failPending(new EngineCrashed("AgentContext terminated"));
+    this.failPending(new InstanceCrashed("AgentContext terminated"));
     const child = this.process;
     this.reapPromise = new Promise((resolvePromise, rejectPromise) => {
       if (child === null || this.processClosed) {
-        this.removePolicy();
-        resolvePromise();
+        if (this.removePolicy()) resolvePromise(); else rejectPromise(AgentContext.policyFailure());
         return;
       }
-      let cleanupError: EngineExecutionError | null = null;
+      let cleanupError: InstanceExecutionError | null = null;
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (error: EngineExecutionError | null): void => {
+      const finish = (error: InstanceExecutionError | null): void => {
         if (settled) return;
         settled = true;
         if (timer !== undefined) clearTimeout(timer);
         child.removeListener("close", onClose);
-        this.removePolicy();
-        if (error) rejectPromise(error); else resolvePromise();
+        // A cleanup failure never passes as a clean termination.
+        const policyRemoved = this.removePolicy();
+        if (error) rejectPromise(error); else if (!policyRemoved) rejectPromise(AgentContext.policyFailure()); else resolvePromise();
       };
-      const onClose = (): void => finish(cleanupError);
-      child.once("close", onClose);
-      timer = setTimeout(() => finish(cleanupError ?? new EngineExecutionError("Agent Tools process tree did not close within 5000 ms")), PROCESS_CLEANUP_TIMEOUT_MS);
       const pid = child.pid;
       const processGroup = pid !== undefined && process.platform !== "win32";
+      const onClose = (): void => {
+        // The leader is reaped by now: nothing is signalled here, not even to confirm.
+        // On Windows the outcome of the tree kill is part of the verdict: wait for it.
+        if (treeKillPending) { closedDuringTreeKill = true; return; }
+        finish(cleanupError);
+      };
+      let treeKillPending = false;
+      let closedDuringTreeKill = false;
+      child.once("close", onClose);
+      timer = setTimeout(() => finish(cleanupError ?? new InstanceExecutionError("Agent Tools process tree did not close within 5000 ms")), PROCESS_CLEANUP_TIMEOUT_MS);
       const signalLeaderAsFallback = (): void => {
         if (!processGroup || this.processClosed || child.exitCode !== null || child.signalCode !== null) return;
         try { child.kill("SIGKILL"); } catch { /* preserve the process-group failure */ }
       };
-      try {
-        const signalled = processGroup ? process.kill(-pid, "SIGKILL") : child.kill("SIGKILL");
-        if (!signalled) {
-          cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
-          signalLeaderAsFallback();
+      const killLeader = (): void => {
+        // Ownership rule. The group is addressed by the leader's pid, which is ours only
+        // while the leader is unreaped. Node reaps on its event loop and then sets
+        // exitCode or signalCode before any of our code runs again; so if both are still
+        // null here, the leader has not been reaped, and it cannot be reaped while this
+        // synchronous block runs. Every group signal is sent inside such a block. If the
+        // leader has already been reaped, nothing is signalled: what it left in its group
+        // is not reachable safely, and the cleanup then ends as unconfirmed at its
+        // deadline unless everything closes by itself.
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        try {
+          const signalled = processGroup ? process.kill(-(pid as number), "SIGKILL") : child.kill("SIGKILL");
+          if (!signalled) {
+            cleanupError = new InstanceExecutionError("Agent Tools process tree could not be terminated");
+            signalLeaderAsFallback();
+          }
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          // ESRCH means the exact group or child target is already absent; still wait for close.
+          // Darwin reports EPERM for a group whose only member is the exited, not yet
+          // reaped leader; that is settled by looking at the process table, in this same
+          // synchronous block, never by signalling again later.
+          if (code !== "ESRCH" && !(code === "EPERM" && processGroup && groupHasLiveMembers(pid as number) === false)) {
+            cleanupError = new InstanceExecutionError("Agent Tools process tree could not be terminated");
+            signalLeaderAsFallback();
+          }
         }
-      } catch (error) {
-        // ESRCH means the exact group or child target is already absent; still wait for close.
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-          cleanupError = new EngineExecutionError("Agent Tools process tree could not be terminated");
-          signalLeaderAsFallback();
-        }
-      }
+      };
+      if (pid === undefined || process.platform !== "win32") { killLeader(); return; }
+      // Windows: `taskkill /T` ends the descendants reachable through live parent links.
+      // A descendant whose parent already exited is not reachable; that needs a Job Object.
+      // The helper runs asynchronously under its own timer. When the timer ends it is
+      // killed and not waited for: a helper that overran, failed or could not be started
+      // is a failed tree kill. Exit status 128 means the Engine was already gone.
+      treeKillPending = true;
+      let treeTimer: ReturnType<typeof setTimeout> | undefined;
+      const afterTreeKill = (failed: boolean): void => {
+        if (!treeKillPending) return;
+        treeKillPending = false;
+        if (treeTimer !== undefined) clearTimeout(treeTimer);
+        if (failed) cleanupError = new InstanceExecutionError("Agent Tools process tree termination could not be verified");
+        if (closedDuringTreeKill) { finish(cleanupError); return; }
+        if (child.exitCode === null && child.signalCode === null) killLeader();
+      };
+      let helper: ReturnType<typeof spawn>;
+      try { helper = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { stdio: "ignore", windowsHide: true }); }
+      catch { afterTreeKill(true); return; }
+      treeTimer = setTimeout(() => { try { helper.kill(); } catch { /* reported below */ } afterTreeKill(true); }, TASKKILL_TIMEOUT_MS);
+      helper.once("error", () => afterTreeKill(true));
+      helper.once("exit", (code) => afterTreeKill(code !== 0 && code !== 128));
     });
     return this.reapPromise;
   }
-  private async reap(): Promise<void> { if (this.reapPromise) await this.reapPromise; else this.removePolicy(); }
+  private async reap(): Promise<void> { if (this.reapPromise) await this.reapPromise; else if (!this.removePolicy()) throw AgentContext.policyFailure(); }
 
   async call(tool: string, argumentsValue: Record<string, unknown> = {}): Promise<ToolResult> {
     if (typeof tool !== "string" || !tool) throw new ValidationError("tool must be a non-empty string");
@@ -434,7 +600,7 @@ export class AgentContext {
     return this.callTool(tool, argumentsValue);
   }
   private async callTool(tool: string, argumentsValue: Record<string, unknown>, responseTimeout = this.timeout, signal?: AbortSignal): Promise<ToolResult> {
-    if (!this.capabilitiesValue.includes(tool)) throw new UnsupportedCapabilityError(`Engine did not negotiate capability: ${tool}`);
+    if (!this.capabilitiesValue.includes(tool)) throw new UnsupportedCapabilityError(`LeanCTX instance did not negotiate capability: ${tool}`);
     if (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) throw new ValidationError("arguments must be a string-keyed mapping");
     try {
       const canonical = canonicalBytes(argumentsValue);
@@ -447,7 +613,7 @@ export class AgentContext {
     let parsed: ToolResult;
     try { parsed = this.parseToolResult(tool, result); }
     catch (error) {
-      if (error instanceof EngineProtocolError) this.protocolViolation(error);
+      if (error instanceof InstanceProtocolError) this.protocolViolation(error);
       throw error;
     }
     this.metricsValue = new AgentMetrics(this.metricsValue.toolCalls + 1, this.metricsValue.originalTokens + parsed.originalTokens, this.metricsValue.outputTokens + parsed.outputTokens, this.metricsValue.savedTokens + parsed.savedTokens);
@@ -455,11 +621,11 @@ export class AgentContext {
   }
   private parseToolResult(tool: string, value: Record<string, unknown>): ToolResult {
     const expected = ["text", "content_blocks", "original_tokens", "output_tokens", "saved_tokens", "mode", "changed", "shell"];
-    if (Object.keys(value).length !== expected.length || expected.some((key) => !(key in value))) throw new EngineProtocolError("Agent Tools result fields are invalid");
-    if (typeof value.text !== "string" || Buffer.byteLength(value.text) > MAX_TEXT_BYTES || (value.mode !== null && typeof value.mode !== "string")) throw new EngineProtocolError("Agent Tools text or mode is invalid");
-    const numbers = [value.original_tokens, value.output_tokens, value.saved_tokens]; if (numbers.some((item) => typeof item !== "number" || !Number.isSafeInteger(item) || item < 0) || (value.output_tokens as number) + (value.saved_tokens as number) !== value.original_tokens) throw new EngineProtocolError("Agent Tools token metrics are invalid");
-    if (typeof value.changed !== "boolean" || (value.shell !== null && (!value.shell || typeof value.shell !== "object" || Array.isArray(value.shell)))) throw new EngineProtocolError("Agent Tools status metadata is invalid");
-    if (!Array.isArray(value.content_blocks) || value.content_blocks.some((item) => !item || typeof item !== "object" || Array.isArray(item))) throw new EngineProtocolError("Agent Tools content blocks are invalid");
+    if (Object.keys(value).length !== expected.length || expected.some((key) => !(key in value))) throw new InstanceProtocolError("Agent Tools result fields are invalid");
+    if (typeof value.text !== "string" || Buffer.byteLength(value.text) > MAX_TEXT_BYTES || (value.mode !== null && typeof value.mode !== "string")) throw new InstanceProtocolError("Agent Tools text or mode is invalid");
+    const numbers = [value.original_tokens, value.output_tokens, value.saved_tokens]; if (numbers.some((item) => typeof item !== "number" || !Number.isSafeInteger(item) || item < 0) || (value.output_tokens as number) + (value.saved_tokens as number) !== value.original_tokens) throw new InstanceProtocolError("Agent Tools token metrics are invalid");
+    if (typeof value.changed !== "boolean" || (value.shell !== null && (!value.shell || typeof value.shell !== "object" || Array.isArray(value.shell)))) throw new InstanceProtocolError("Agent Tools status metadata is invalid");
+    if (!Array.isArray(value.content_blocks) || value.content_blocks.some((item) => !item || typeof item !== "object" || Array.isArray(item))) throw new InstanceProtocolError("Agent Tools content blocks are invalid");
     return new ToolResult(tool, { text: value.text, content_blocks: value.content_blocks as Record<string, unknown>[], original_tokens: value.original_tokens as number, output_tokens: value.output_tokens as number, saved_tokens: value.saved_tokens as number, mode: value.mode as string | null, changed: value.changed, shell: value.shell as Record<string, unknown> | null });
   }
 
@@ -493,7 +659,7 @@ export class AgentContext {
   }
   async close(): Promise<void> { if (this.closed) { await this.reap(); return; } try { await this.exchangeRaw({ op: "close" }); } catch { /* terminal close remains best effort */ } await this.terminate(); }
   async cancel(): Promise<void> { await this.terminate(); }
-  async reconnect(): Promise<AgentContext> { await this.close(); return AgentContext.open(this.projectRoot, { task: this.task, permissions: this.permissions, executionPolicy: this.executionPolicy, engineBinary: this.engineBinary, timeout: this.timeout, ...(this.gitlabSource === undefined ? {} : { gitlabSource: this.gitlabSource }) }); }
+  async reconnect(): Promise<AgentContext> { await this.close(); return AgentContext.open(this.projectRoot, { task: this.task, permissions: this.permissions, executionPolicy: this.executionPolicy, instanceBinary: this.instanceBinary, timeout: this.timeout, handshakeTimeout: this.handshakeTimeout, ...(this.gitlabSource === undefined ? {} : { gitlabSource: this.gitlabSource }) }); }
 }
 
 export class AsyncAgentContext {
@@ -506,7 +672,7 @@ export class AsyncAgentContext {
     this.options = Object.freeze({ ...options, ...(gitlabSource === undefined ? {} : { gitlabSource }) });
   }
   async open(): Promise<this> { if (!this.context) this.context = await AgentContext.open(this.projectRoot, this.options); return this; }
-  private get current(): AgentContext { if (!this.context) throw new EngineUnavailable("AsyncAgentContext is not open"); return this.context; }
+  private get current(): AgentContext { if (!this.context) throw new InstanceUnavailable("AsyncAgentContext is not open"); return this.context; }
   get capabilities(): readonly string[] { return this.current.capabilities; }
   get metrics(): AgentMetrics { return this.current.metrics; }
   async call(tool: string, args?: Record<string, unknown>): Promise<ToolResult> { return this.current.call(tool, args); }

@@ -7,7 +7,7 @@ import json
 import unittest
 from typing import Any, Mapping, cast
 
-from leanctx_sdk.errors import EngineProtocolError, ValidationError
+from leanctx_sdk.errors import InstanceProtocolError, ValidationError
 from leanctx_sdk.protocol import canonical_bytes, sha256_digest
 
 from tests.test_enterprise_engine import (
@@ -237,7 +237,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
                 ) as server:
                     if engine_id.startswith("engine-"):
                         with self.assertRaisesRegex(
-                            EngineProtocolError, "control character"
+                            InstanceProtocolError, "control character"
                         ):
                             _client(server).context_execute(
                                 TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
@@ -298,7 +298,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
         for label, body in cases:
             with self.subTest(label=label):
                 with _server(cast(Any, lambda _handler, _body, body=body: _Reply(200, body=body))) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_execute(
                             TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                         )
@@ -313,7 +313,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
                 200, body=_execution_response(source_plan=source_plan)
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_execute(
                     TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                 )
@@ -323,7 +323,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
         with _server(
             lambda _handler, _body: _Reply(200, body=json.dumps(malformed).encode("utf-8"))
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_execute(
                     TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                 )
@@ -376,7 +376,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
                         200, body=json.dumps(value, ensure_ascii=False).encode("utf-8")
                     )
                 ) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_execute_v2(
                             TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                         )
@@ -390,7 +390,7 @@ class EnterpriseSourceExecutionTests(unittest.TestCase):
                 200, body=_execution_v2_response(receipt_document_json=oversized)
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_execute_v2(
                     TASK, PLAN, REQUEST, [SOURCE_ID], 7, binding_digest
                 )

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
+
+// Source resolution: preserve private preparation, HostReported and refusal behavior.
+// Public context-store surface is added separately in context_store.rs.
 //! Preview: the information gateway's egress admission and decision receipts.
 //!
-//! [`SubprocessEngineClient::admit_egress`] runs one model request through the
-//! local Engine's egress admission (`lean-ctx engine egress-admit`) before the
+//! [`SubprocessInstanceClient::admit_egress`] runs one model request through the
+//! local instance's egress admission (`lean-ctx engine egress-admit`) before the
 //! caller sends it: secrets are masked, restricted content is withheld, and
-//! the request is classified. Parsing mirrors the Engine's validation; unknown
+//! the request is classified. Parsing mirrors the instance's validation; unknown
 //! fields and values are rejected. Contract `leanctx-gateway-preview` 0.1 —
 //! may change in minor releases.
 
@@ -14,14 +17,18 @@ use std::fs;
 use std::path::Path;
 
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
-use crate::engine::{create_request_file, SubprocessEngineClient};
-use crate::errors::{boxed, EngineProtocolError, ValidationError};
+use crate::engine::{create_request_file, SubprocessInstanceClient};
+use crate::errors::{boxed, InstanceProtocolError, ValidationError};
 use crate::protocol::strict_json_loads;
 
 pub const GATEWAY_PREVIEW_CONTRACT: &str = "leanctx-gateway-preview";
 pub const GATEWAY_PREVIEW_VERSION: &str = "0.1.0";
 pub const EGRESS_SCHEMA_VERSION: u64 = 1;
+pub const EGRESS_PREPARE_SCHEMA_VERSION: u64 = 2;
+pub const MAX_EGRESS_ATTEMPTS: u64 = 32;
+pub const MAX_EGRESS_REPORT_BYTES: usize = 4096;
 pub const MAX_EGRESS_REQUEST_BYTES: usize = 8 * 1024 * 1024;
 
 const MAX_REF_BYTES: usize = 512;
@@ -159,6 +166,12 @@ impl ContextDecision {
 /// withheld or transformed, and the delivered context's digest.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContextDecisionReceipt {
+    /// Receipt schema version: 1 (plain SHA-256 objects) or 2 (keyed objects).
+    pub schema_version: u64,
+    /// Present exactly on a schema_version 2 receipt: every `decisions[].object`
+    /// is HMAC-SHA256 under the installation key it names. `final_context` stays
+    /// the plain SHA-256 of the delivered bytes.
+    pub object_digest: Option<ReceiptObjectDigest>,
     pub receipt_id: String,
     pub mode: String,
     pub principal: ContextPrincipal,
@@ -173,6 +186,87 @@ pub struct ContextDecisionReceipt {
     pub task: Option<String>,
     pub final_context: Option<String>,
     pub quality: Option<Map<String, Value>>,
+}
+
+/// How a schema_version 2 receipt digests its decision objects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiptObjectDigest {
+    /// `hmac-sha256`.
+    pub algorithm: String,
+    /// `rk-` and 32 hex digits; never the key.
+    pub key_id: String,
+}
+
+const OBJECT_DOMAIN: &[u8] = b"leanctx.receipt.object.v2\0";
+const KEY_ID_DOMAIN: &[u8] = b"leanctx.receipt.key-id.v2";
+
+/// HMAC-SHA256 (RFC 2104) over the concatenated `parts` under a 32-byte key.
+fn receipt_mac(key: &[u8; 32], parts: &[&[u8]]) -> String {
+    let mut inner_pad = [0x36u8; 64];
+    let mut outer_pad = [0x5cu8; 64];
+    for (index, byte) in key.iter().enumerate() {
+        inner_pad[index] ^= byte;
+        outer_pad[index] ^= byte;
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    for part in parts {
+        inner.update(part);
+    }
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    outer
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The public id a schema_version 2 receipt names for the 32-byte `key`.
+pub fn receipt_key_id(key: &[u8; 32]) -> String {
+    format!("rk-{}", &receipt_mac(key, &[KEY_ID_DOMAIN])[..32])
+}
+
+/// The schema_version 2 `object` for the plain `sha256:<hex>` digest a
+/// schema_version 1 receipt would name. Only the key holder can compute it.
+pub fn keyed_object_digest(key: &[u8; 32], plain_object: &str) -> Result<String> {
+    digest(&Value::from(plain_object), "plain_object")
+        .map_err(|_| boxed(ValidationError::new("plain_object must be a sha256 digest")))?;
+    Ok(format!(
+        "sha256:{}",
+        receipt_mac(key, &[OBJECT_DOMAIN, plain_object.as_bytes()])
+    ))
+}
+
+fn object_digest(raw: &Value) -> Result<ReceiptObjectDigest> {
+    let value = object(raw, "receipt.object_digest")?;
+    keys(
+        value,
+        &["algorithm", "key_id"],
+        &[],
+        "receipt.object_digest",
+    )?;
+    let key_id = value["key_id"].as_str().filter(|id| {
+        id.len() == 35
+            && id.starts_with("rk-")
+            && id[3..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    });
+    let Some(key_id) = key_id else {
+        return Err(bad(
+            "receipt.object_digest.key_id must be rk- and 32 hex digits",
+        ));
+    };
+    Ok(ReceiptObjectDigest {
+        algorithm: one_of(
+            &value["algorithm"],
+            &["hmac-sha256"],
+            "receipt.object_digest.algorithm",
+        )?,
+        key_id: key_id.to_owned(),
+    })
 }
 
 impl ContextDecisionReceipt {
@@ -193,6 +287,38 @@ pub struct EgressAdmission {
     pub receipt: Option<ContextDecisionReceipt>,
 }
 
+/// instance's V2 decision and exact JSON string to transmit unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EgressPreparation {
+    pub decision: EgressAdmission,
+    pub prepared_body: Option<String>,
+    pub admission_receipt_digest: Option<String>,
+}
+
+impl EgressPreparation {
+    pub fn may_send(&self) -> bool {
+        self.decision.may_send() && self.prepared_body.is_some()
+    }
+}
+
+/// Bounded transport facts that the host reports after a send attempt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EgressHostReportRequest {
+    pub admission_receipt_digest: String,
+    pub attempt: u32,
+    pub transport: String,
+    pub result: String,
+    pub http_status: Option<u16>,
+    pub failure: Option<String>,
+}
+
+/// The instance's stored host report, retaining its HostReported provenance.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EgressHostReportResponse {
+    pub observation_digest: String,
+    pub observation: Value,
+}
+
 impl EgressAdmission {
     /// True when `body` may be sent; a refused request must not be.
     pub fn may_send(&self) -> bool {
@@ -209,7 +335,7 @@ pub struct EgressRequest {
 }
 
 fn bad(message: impl AsRef<str>) -> Box<dyn StdError + Send + Sync> {
-    boxed(EngineProtocolError::new(format!(
+    boxed(InstanceProtocolError::new(format!(
         "egress admission: {}",
         message.as_ref()
     )))
@@ -521,12 +647,26 @@ pub fn parse_decision_receipt(raw: &Value) -> Result<ContextDecisionReceipt> {
             "outcome",
             "duration_us",
         ],
-        &["task", "policy", "decisions", "final_context", "quality"],
+        &[
+            "task",
+            "policy",
+            "decisions",
+            "final_context",
+            "quality",
+            "object_digest",
+        ],
         "receipt",
     )?;
-    if !value["schema_version"].is_u64() || value["schema_version"].as_u64() != Some(1) {
-        return Err(bad("unsupported receipt schema_version"));
+    let schema_version = match value["schema_version"].as_u64() {
+        Some(version @ (1 | 2)) => version,
+        _ => return Err(bad("unsupported receipt schema_version")),
+    };
+    if (schema_version == 2) != value.contains_key("object_digest") {
+        return Err(bad(
+            "exactly a schema_version 2 receipt names its object digest key",
+        ));
     }
+    let object_digest = value.get("object_digest").map(object_digest).transpose()?;
     let decisions: Vec<ContextDecision> = match value.get("decisions") {
         None => Vec::new(),
         Some(raw) => raw
@@ -606,6 +746,8 @@ pub fn parse_decision_receipt(raw: &Value) -> Result<ContextDecisionReceipt> {
         }
     };
     Ok(ContextDecisionReceipt {
+        schema_version,
+        object_digest,
         receipt_id: reference(&value["receipt_id"], "receipt.receipt_id")?,
         mode: one_of(&value["mode"], MODES, "receipt.mode")?,
         principal: principal(&value["principal"])?,
@@ -677,8 +819,289 @@ pub fn parse_egress_admission(raw: &Value) -> Result<EgressAdmission> {
     })
 }
 
-impl SubprocessEngineClient {
-    /// Preview: admit one model request through the local Engine before it is
+/// Parse EngineEgressPrepareResponseV2 without replacing its prepared text.
+pub fn parse_egress_preparation(raw: &Value) -> Result<EgressPreparation> {
+    let value = object(raw, "preparation")?;
+    keys(
+        value,
+        &["schema_version", "decision"],
+        &["prepared_body", "admission_receipt_digest"],
+        "preparation",
+    )?;
+    if value["schema_version"].as_u64() != Some(EGRESS_PREPARE_SCHEMA_VERSION) {
+        return Err(bad("unsupported egress preparation schema_version"));
+    }
+    let decision = parse_egress_admission(&value["decision"])?;
+    if let Some(receipt) = decision.receipt.as_ref() {
+        let mismatched = if decision.disposition == "refused" {
+            receipt.outcome == "delivered" || receipt.final_context.is_some()
+        } else {
+            receipt.outcome != "delivered" || receipt.final_context.is_none()
+        };
+        if mismatched {
+            return Err(bad(
+                "decision receipt outcome/final_context do not match disposition",
+            ));
+        }
+    }
+    let prepared_body = value
+        .get("prepared_body")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if decision.disposition == "refused" {
+        if prepared_body.is_some() || value.get("prepared_body").is_some_and(|v| !v.is_null()) {
+            return Err(bad("a refused preparation cannot carry prepared bytes"));
+        }
+    } else {
+        let prepared = prepared_body
+            .as_deref()
+            .ok_or_else(|| bad("a dispatchable preparation must carry exact bytes"))?;
+        let parsed = strict_json_loads(prepared.as_bytes(), "prepared egress body")
+            .map_err(|_| bad("prepared bytes are not strict JSON"))?;
+        if parsed.as_object().is_none() || parsed.as_object() != decision.body.as_ref() {
+            return Err(bad(
+                "prepared bytes do not match the admitted decision body",
+            ));
+        }
+        if let Some(final_context) = decision
+            .receipt
+            .as_ref()
+            .and_then(|receipt| receipt.final_context.as_ref())
+        {
+            let actual = format!("sha256:{:x}", Sha256::digest(prepared.as_bytes()));
+            if final_context != &actual {
+                return Err(bad(
+                    "prepared bytes do not match the decision receipt digest",
+                ));
+            }
+        }
+    }
+    let admission_receipt_digest = value
+        .get("admission_receipt_digest")
+        .filter(|raw| !raw.is_null())
+        .map(|raw| digest(raw, "admission_receipt_digest"))
+        .transpose()?;
+    if admission_receipt_digest.is_some() && decision.receipt.is_none() {
+        return Err(bad("egress admission digest requires its decision receipt"));
+    }
+    Ok(EgressPreparation {
+        decision,
+        prepared_body,
+        admission_receipt_digest,
+    })
+}
+
+impl EgressHostReportRequest {
+    fn document(&self) -> Result<Value> {
+        if self.attempt == 0 || self.attempt as u64 > MAX_EGRESS_ATTEMPTS {
+            return Err(boxed(ValidationError::new("attempt must be in 1..32")));
+        }
+        digest(
+            &Value::String(self.admission_receipt_digest.clone()),
+            "admission_receipt_digest",
+        )
+        .map_err(|_| {
+            boxed(ValidationError::new(
+                "admission_receipt_digest must be a sha256 digest",
+            ))
+        })?;
+        one_of(
+            &Value::String(self.transport.clone()),
+            &["http", "websocket"],
+            "transport",
+        )
+        .map_err(|_| boxed(ValidationError::new("transport is invalid")))?;
+        one_of(
+            &Value::String(self.result.clone()),
+            &["response_observed", "no_response_observed"],
+            "result",
+        )
+        .map_err(|_| boxed(ValidationError::new("result is invalid")))?;
+        if let Some(failure) = &self.failure {
+            one_of(
+                &Value::String(failure.clone()),
+                &["connect", "timeout", "cancelled", "other"],
+                "failure",
+            )
+            .map_err(|_| boxed(ValidationError::new("failure is invalid")))?;
+        }
+        if self
+            .http_status
+            .is_some_and(|status| !(100..=599).contains(&status))
+        {
+            return Err(boxed(ValidationError::new(
+                "http_status must be in 100..599",
+            )));
+        }
+        if self.result == "response_observed" {
+            if self.failure.is_some() || (self.transport == "http" && self.http_status.is_none()) {
+                return Err(boxed(ValidationError::new(
+                    "response_observed requires no failure and an HTTP status for HTTP",
+                )));
+            }
+        } else if self.http_status.is_some() || self.failure.is_none() {
+            return Err(boxed(ValidationError::new(
+                "no_response_observed requires a bounded failure and no HTTP status",
+            )));
+        }
+        let mut document = serde_json::json!({
+            "schema_version": EGRESS_SCHEMA_VERSION,
+            "admission_receipt_digest": self.admission_receipt_digest,
+            "attempt": self.attempt,
+            "transport": self.transport,
+            "result": self.result,
+        });
+        let object = document
+            .as_object_mut()
+            .ok_or_else(|| bad("report request serialization failed"))?;
+        if let Some(status) = self.http_status {
+            object.insert("http_status".into(), Value::from(status));
+        }
+        if let Some(failure) = &self.failure {
+            object.insert("failure".into(), Value::String(failure.clone()));
+        }
+        Ok(document)
+    }
+}
+
+/// Parse only an exact matching HostReported observation.
+pub fn parse_egress_host_report(
+    raw: &Value,
+    request: &EgressHostReportRequest,
+) -> Result<EgressHostReportResponse> {
+    let expected = request
+        .document()
+        .map_err(|_| bad("invalid host report request"))?;
+    let value = object(raw, "report")?;
+    keys(
+        value,
+        &["schema_version", "observation_digest", "observation"],
+        &[],
+        "report",
+    )?;
+    if value["schema_version"].as_u64() != Some(EGRESS_SCHEMA_VERSION) {
+        return Err(bad("unsupported egress report schema_version"));
+    }
+    let observation_digest = digest(&value["observation_digest"], "observation_digest")?;
+    let observation = object(&value["observation"], "observation")?;
+    keys(
+        observation,
+        &[
+            "schema_version",
+            "admission_receipt_digest",
+            "attempt",
+            "transport",
+            "observer",
+            "result",
+        ],
+        &["http_status", "failure"],
+        "observation",
+    )?;
+    if observation["schema_version"].as_u64() != Some(EGRESS_SCHEMA_VERSION) {
+        return Err(bad("unsupported observation schema_version"));
+    }
+    if observation["observer"].as_str() != Some("host_reported") {
+        return Err(bad("host report response must be HostReported"));
+    }
+    let expected_object = expected
+        .as_object()
+        .expect("serialized report is an object");
+    for (key, expected_value) in expected_object {
+        if observation.get(key) != Some(expected_value) {
+            return Err(bad(format!(
+                "report observation does not match request field {key}"
+            )));
+        }
+    }
+    for key in observation.keys() {
+        if key != "observer" && !expected_object.contains_key(key) {
+            return Err(bad(format!(
+                "report observation has unexpected field {key}"
+            )));
+        }
+    }
+    let mut canonical_observation = expected_object.clone();
+    canonical_observation.insert("observer".into(), Value::String("host_reported".into()));
+    let canonical_bytes = serde_json::to_vec(&Value::Object(canonical_observation))
+        .map_err(|_| bad("observation serialization failed"))?;
+    let canonical_digest = format!("sha256:{:x}", Sha256::digest(&canonical_bytes));
+    if observation_digest != canonical_digest {
+        return Err(bad(
+            "observation_digest does not match the reported observation",
+        ));
+    }
+    Ok(EgressHostReportResponse {
+        observation_digest,
+        observation: value["observation"].clone(),
+    })
+}
+
+impl SubprocessInstanceClient {
+    /// Prepare one model request through the separate instance V2 operation.
+    pub fn prepare_egress(
+        &self,
+        project_root: &Path,
+        request: &EgressRequest,
+    ) -> Result<EgressPreparation> {
+        if request.provider.trim().is_empty() {
+            return Err(boxed(ValidationError::new(
+                "provider must be a non-empty string",
+            )));
+        }
+        if !request.upstream_base.starts_with("https://")
+            && !request.upstream_base.starts_with("http://")
+        {
+            return Err(boxed(ValidationError::new(
+                "upstream_base must be an http(s) URL",
+            )));
+        }
+        let root = self.validate_root(project_root)?;
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "schema_version": EGRESS_SCHEMA_VERSION,
+            "provider": request.provider,
+            "upstream_base": request.upstream_base,
+            "body": request.body,
+        }))
+        .map_err(|_| boxed(ValidationError::new("body is not JSON data")))?;
+        if payload.len() > MAX_EGRESS_REQUEST_BYTES {
+            return Err(boxed(ValidationError::new(
+                "egress request exceeds its bound",
+            )));
+        }
+        let request_path = create_request_file(&root, &payload)?;
+        let result = self.run("egress-prepare", &root, &request_path);
+        let _ = fs::remove_file(&request_path);
+        let raw = result?;
+        let document = strict_json_loads(&raw, "egress preparation")
+            .map_err(|_| bad("response is not strict JSON"))?;
+        parse_egress_preparation(&document)
+    }
+
+    /// Report one bounded observation made by the host after sending.
+    pub fn report_egress(
+        &self,
+        project_root: &Path,
+        request: &EgressHostReportRequest,
+    ) -> Result<EgressHostReportResponse> {
+        let document = request.document()?;
+        let payload = serde_json::to_vec(&document)
+            .map_err(|_| boxed(ValidationError::new("egress report request is not JSON")))?;
+        if payload.len() > MAX_EGRESS_REPORT_BYTES {
+            return Err(boxed(ValidationError::new(
+                "egress report request exceeds its bound",
+            )));
+        }
+        let root = self.validate_root(project_root)?;
+        let request_path = create_request_file(&root, &payload)?;
+        let result = self.run("egress-report", &root, &request_path);
+        let _ = fs::remove_file(&request_path);
+        let raw = result?;
+        let document = strict_json_loads(&raw, "egress report")
+            .map_err(|_| bad("response is not strict JSON"))?;
+        parse_egress_host_report(&document, request)
+    }
+
+    /// Preview: admit one model request through the local instance before it is
     /// sent. Send `admission.body`, never the original body, and only when
     /// `admission.may_send()`.
     pub fn admit_egress(

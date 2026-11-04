@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-"""Strict DTOs and response validators for the canonical Engine planners.
+"""Strict DTOs and response validators for the canonical instance planners.
 
 This module owns wire-shape validation only.  It does not plan, execute, admit,
 authenticate, or manufacture an execution receipt.
@@ -317,8 +317,8 @@ def _descriptor(value: Any, field_name: str = "descriptor") -> dict[str, Any]:
 
 
 @dataclass(frozen=True)
-class EnginePlanningRequest:
-    """Canonical Engine context-plan request, without execution evidence."""
+class InstancePlanningRequest:
+    """Canonical instance context-plan request, without execution evidence."""
 
     task_id: str
     query: str
@@ -351,13 +351,13 @@ class EnginePlanningRequest:
             "max_candidates": self.max_candidates,
         }
         if len(canonical_bytes(result)) > MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES:
-            _error("Engine context-plan request exceeds its byte bound")
+            _error("Instance context-plan request exceeds its byte bound")
         return result
 
 
 @dataclass(frozen=True)
-class EngineSource:
-    """Explicit source body plus its factual Engine binding descriptor."""
+class InstanceSource:
+    """Explicit source body plus its factual instance binding descriptor."""
 
     descriptor: Mapping[str, object]
     content: str
@@ -603,19 +603,19 @@ def _plan(value: Any) -> dict[str, Any]:
     return result
 
 
-def _response(raw: bytes, request: EnginePlanningRequest) -> dict[str, Any]:
-    value = _decode(raw, "Engine context-plan response")
+def _response(raw: bytes, request: InstancePlanningRequest) -> dict[str, Any]:
+    value = _decode(raw, "Instance context-plan response")
     _exact_keys(
         value,
         {"schema_version", "transport_version", "engine_interface_version", "plan"},
-        "Engine context-plan response",
+        "Instance context-plan response",
     )
-    _header(value, "Engine context-plan response")
+    _header(value, "Instance context-plan response")
     plan = _plan(value["plan"])
     if plan["task_id"] != request.task_id:
-        _error("Engine context-plan response task_id does not bind the request")
+        _error("Instance context-plan response task_id does not bind the request")
     if plan["budget_tokens"] > request.budget_tokens:
-        _error("Engine context-plan response budget exceeds the request")
+        _error("Instance context-plan response budget exceeds the request")
     return {
         "schema_version": SCHEMA_VERSION,
         "transport_version": TRANSPORT_VERSION,
@@ -625,20 +625,20 @@ def _response(raw: bytes, request: EnginePlanningRequest) -> dict[str, Any]:
 
 
 def parse_context_plan(
-    raw: bytes, request: EnginePlanningRequest
+    raw: bytes, request: InstancePlanningRequest
 ) -> Mapping[str, object]:
     """Validate and detach a canonical plan; no execution proof is inferred."""
 
-    if not isinstance(request, EnginePlanningRequest):
-        _error("request must be EnginePlanningRequest")
+    if not isinstance(request, InstancePlanningRequest):
+        _error("request must be InstancePlanningRequest")
     request.to_dict()
     return _response(raw, request)
 
 
 def parse_source_plan(
     raw: bytes,
-    request: EnginePlanningRequest,
-    sources: Optional[Sequence[EngineSource]] = None,
+    request: InstancePlanningRequest,
+    sources: Optional[Sequence[InstanceSource]] = None,
 ) -> Mapping[str, object]:
     """Validate a source-plan envelope and its digest-bound selected bindings.
 
@@ -646,18 +646,18 @@ def parse_source_plan(
     an authenticated caller must additionally constrain object references.
     """
 
-    if not isinstance(request, EnginePlanningRequest):
-        _error("request must be EnginePlanningRequest")
+    if not isinstance(request, InstancePlanningRequest):
+        _error("request must be InstancePlanningRequest")
     request.to_dict()
-    value = _decode(raw, "Engine source-plan response")
+    value = _decode(raw, "Instance source-plan response")
     _exact_keys(
         value,
         {"result", "source_bindings", "binding_digest"},
-        "Engine source-plan response",
+        "Instance source-plan response",
     )
     result = _response(canonical_bytes(value["result"]), request)
     if result["plan"].get("projection_digest") is None:
-        _error("Engine source-plan response requires projection_digest")
+        _error("Instance source-plan response requires projection_digest")
     bindings_raw = value["source_bindings"]
     if not isinstance(bindings_raw, list) or len(bindings_raw) > MAX_PROTOCOL_ITEMS:
         _error("source_bindings has an invalid shape")
@@ -697,8 +697,8 @@ def parse_source_plan(
             _error("sources has an invalid shape")
         requested: dict[str, Mapping[str, object]] = {}
         for source in sources:
-            if not isinstance(source, EngineSource):
-                _error("sources must contain EngineSource values")
+            if not isinstance(source, InstanceSource):
+                _error("sources must contain InstanceSource values")
             object_ref = cast(str, source.descriptor["object_ref"])
             if object_ref in requested:
                 _error("sources contains duplicate object_ref values")
@@ -723,8 +723,21 @@ __all__ = [
     "MAX_ENGINE_SOURCE_CONTENT_BYTES",
     "MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES",
     "MAX_ENGINE_SOURCE_PLAN_SOURCES",
-    "EnginePlanningRequest",
-    "EngineSource",
+    "InstancePlanningRequest",
+    "InstanceSource",
     "parse_context_plan",
     "parse_source_plan",
 ]
+
+
+from . import _deprecation  # noqa: E402
+
+# Engine names are deprecated aliases of the same objects until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "EnginePlanningRequest",
+        "EngineSource",
+    },
+)

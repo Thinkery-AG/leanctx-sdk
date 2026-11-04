@@ -2,38 +2,90 @@
 
 ## `main` (unreleased)
 
-The current `main` source is SDK **1.2.0**, paired with LeanCTX Engine
-**3.11.4**, a bugfix release (published 2026-10-11). The public SDK 1.1.1
+The current `main` source is SDK **1.3.0**, paired with LeanCTX | OSS
+**3.12.1** ([published](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1)). The public SDK 1.1.1
 release below remains bound to Engine 3.10.1. Package version fields in this
-source checkout do not establish that an artifact has been published; verify
-the specific registry artifact before installation. A source checkout of
-`main` needs Engine 3.11.4.
+source checkout do not establish that an artifact has been published; verify the
+specific registry artifact before installation. A source checkout of `main`
+needs Engine 3.12.1.
 
 | Component | Declared scope | Status |
 | --- | --- | --- |
-| Agent Tools Engine | `v3.11.4` | published 2026-10-11; required by `main` in every language package |
+| Agent Tools Engine | `v3.12.1` | published; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
-| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.11.4` | published with Engine 3.11.4 |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.12.1` | published |
 | Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
 | Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
-The release-candidate pipeline binds the signed Engine release
-[`v3.11.4`](https://github.com/yvgude/lean-ctx/releases/tag/v3.11.4).
+### Which Engine a hello is accepted from
+
+One table decides it: `contracts/agent-tools-compatibility-v1.json`. Every
+language package carries the same rows and accepts an Engine's hello only when
+the interface, schema and transport are the ones the package speaks **and** the
+(interface, schema, transport, Engine version) pair is a row of that table.
+Any other pair is refused with `InstanceProtocolError` ("Agent Tools Engine pair
+is unsupported") — also when it would otherwise complete the handshake. There
+is no fallback to another schema and no "try anyway". The remaining hello
+checks are unchanged: the exact field set, the two versions written as JSON
+integers, the permission mirror and the required capabilities.
+
+| Interface | Schema | Transport | Engine | Basis |
+| --- | --- | --- | --- | --- |
+| `1.0.0` | `1` | `1` | `3.11.0` | `exact_legacy` |
+| `1.0.0` | `1` | `1` | `3.11.3` | `tested_pair` |
+| `1.0.0` | `1` | `1` | `3.11.4` | `tested_pair` |
+| `1.0.0` | `1` | `1` | `3.11.5` | `tested_pair` |
+| `1.0.0` | `1` | `1` | `3.12.0` | `tested_pair` |
+| `1.0.0` | `1` | `1` | `3.12.1` | `tested_pair` |
+
+`exact_legacy` is the pair the earlier Engine-version equality admitted,
+carried over as it was. No compatibility run of the table is claimed for it.
+A row with basis `tested_pair` names a retained report and its SHA-256. The
+reports are held by the release owner and are not published with the SDK; the
+contract records each report's name and SHA-256 so a disclosed copy can be
+matched. The 3.11.3 (N−1) and 3.11.4 (N) rows rest on the report of
+2026-10-13: all six packages (Python,
+TypeScript, Rust, Go, .NET, JVM) each ran the same eight Agent Tools operations
+against the released macOS arm64 Engine binaries of both versions (archive
+digests match the releases' `SHA256SUMS`); the Python runs carry byte-level
+wire evidence. No Linux or Windows Engine was run. The 3.11.5 row rests on
+the report of 2026-10-17: only the Python package
+ran the eight operations, against a macOS arm64 debug build of the 3.11.5
+release candidate (not a published binary), with byte-level wire evidence; the
+other five packages mirror the row without a run of their own. The 3.12.0 row
+rests on the report of 2026-10-21, recorded the same way against a Linux
+x86_64 debug build of the 3.12.0 release candidate; it is to be replaced by a
+run of all six packages against the 3.12.0 release archives. The 3.12.1 row
+rests on the report of 2026-11-04: all six packages
+ran the eight operations against the released macOS arm64 Engine of
+[`v3.12.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1)
+(archive SHA-256
+`212e57ad32983e43d0c4ac5e2943b82a6caf699fe40da45745b6872d72f40b08`, listed in
+the release `SHA256SUMS`, whose SHA-256 is
+`3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113`); the
+Python run carries byte-level wire evidence. The Sigstore signature of
+`SHA256SUMS` was not verified in that run, and no Linux or Windows Engine was
+run. It replaces the earlier release-candidate report of 2026-11-03. Any
+other Engine release is a new pair and is
+unsupported until a row for it exists in the table and in all six packages.
+`scripts/check_language_versions.py` holds the table, the six packages and the
+Agent Tools contract together.
+
+The release-candidate pipeline is bound to the signed Engine release
+[`v3.12.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1).
 The tag resolves to commit
-`3afe2bbffe0834ec58517ffd493e5a51c5c1ca57`.
+`0f0297e396ecf15f578d6d0fd07dba6353b1497c`.
 Its signed `SHA256SUMS` has SHA-256
-`beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff`.
+`3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113`.
 Release CI verifies the Sigstore identity
-`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.4`.
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.1`.
+The digests below were computed from the release download and cross-checked
+against `SHA256SUMS`.
 
 | Platform | Release archive SHA-256 | Extracted binary SHA-256 |
 | --- | --- | --- |
-| Linux x86_64 GNU | `5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a` | `c803039798201a5a03843bb4f0ec59ad796bb0964eb270a394d1006cc1d0229c` |
-| macOS arm64 | `d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f` | `c20fc2afa50205c20fb227c985feb30bf94055cc9381c5a3276bcbc8f14fef8c` |
-
-`scripts/verify_agent_context_e2e.py` passes against the released macOS arm64
-binary (Engine 3.11.4, SDK 1.2.0, status PASS). The Agent Tools protocol
-(interface 1.0.0, schema 1, transport 1) is unchanged from 3.10.5.
+| Linux x86_64 GNU | `484856a5b6bc47024ac3eacc9fcaf6fe7d5ec82ec1f16614c5521d73237238f9` | `ff260e17c4e470afc5d5d06ea9e5e73e40c17cbb9c7401d5ee7a0786ee634e3e` |
+| macOS arm64 | `212e57ad32983e43d0c4ac5e2943b82a6caf699fe40da45745b6872d72f40b08` | `58a8c502b17aadedd4375c0a3183b5a650eb02e227aad1ab370c18ee997b691b` |
 
 ## Stable SDK 1.1.1
 
@@ -48,7 +100,7 @@ is `392946aaf689e328d05a9c6fbac35f5316ec1649`; the Python wheel SHA-256 is
 The compatibility matrix below also applies to the historical SDK 1.1.0 release.
 
 SDK 1.1 adds the Agent Tools Interface without changing the SDK 1.0 lifecycle
-contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
+contract. `AgentContext` requires LeanCTX | OSS 3.10.1 and negotiates interface
 `1.0.0`, schema `1`, and transport `1` before exposing any tool.
 
 | Component | Declared scope | Release status |
@@ -66,7 +118,7 @@ contract. `AgentContext` requires LeanCTX Engine 3.10.1 and negotiates interface
 
 The `[agent]`, `[agent-cuda]`, and `[agent-windows-gnu]` extras install
 their exact 3.10.1 companion Engine packages. Source checkouts may instead pass
-`engine_binary=` explicitly. No compatibility is inferred from a newer Engine
+`instance_binary=` explicitly. No compatibility is inferred from a newer Engine
 or an executable found on `PATH`.
 
 The following historical release evidence is retained for
@@ -127,3 +179,11 @@ Engine binary availability remains limited to the certified platforms listed
 above. Other Engine architectures, alternate frameworks, Cloud, and alternate
 Engine majors require separate evidence. Provider credentials and live model
 calls remain host-owned.
+
+## Context Store preview source qualification
+
+The source proposal adds the read-only `leanctx-context-store-preview` 0.1
+contract; see [the guide](docs/context-store-preview.md). It requires an Engine
+implementing the Experimental `engine-context-store-v1` operations. This does
+not change the 3.12.1 pairing declaration or certify a release, signed
+artifact, fixture result or live Engine journey.

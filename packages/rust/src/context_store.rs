@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-//! Preview: read-only access to the local Engine's Context Store.
+//! Preview: read-only access to the local instance's Context Store.
 //!
-//! [`SubprocessEngineClient::read_policy_evidence`] returns the scope's
+//! [`SubprocessInstanceClient::read_policy_evidence`] returns the scope's
 //! content-free read-strategy evidence (`lean-ctx engine
-//! context-policy-evidence`); [`SubprocessEngineClient::read_task_lineage`]
+//! context-policy-evidence`); [`SubprocessInstanceClient::read_task_lineage`]
 //! one task's decision lineage (`lean-ctx engine context-lineage`) with every
 //! missing link named as a gap. Both reads are confined to one tenant/project
-//! scope. Parsing mirrors the Engine's validation: unknown fields or values
+//! scope. Parsing mirrors the instance's validation: unknown fields or values
 //! and inconsistent counts are rejected, and "unmeasured" never reads as a
 //! passing measurement. Contract `leanctx-context-store-preview` 0.1 — may
 //! change in minor releases.
@@ -18,8 +18,8 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use crate::engine::{create_request_file, SubprocessEngineClient};
-use crate::errors::{boxed, EngineProtocolError, ValidationError};
+use crate::engine::{create_request_file, SubprocessInstanceClient};
+use crate::errors::{boxed, InstanceProtocolError, ValidationError};
 use crate::protocol::strict_json_loads;
 
 pub const CONTEXT_STORE_PREVIEW_CONTRACT: &str = "leanctx-context-store-preview";
@@ -227,7 +227,7 @@ impl TaskLineage {
     }
 }
 
-/// The tenant/project scope of a read; without a project ID the Engine uses
+/// The tenant/project scope of a read; without a project ID the instance uses
 /// the project root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContextStoreScope {
@@ -236,7 +236,7 @@ pub struct ContextStoreScope {
 }
 
 fn bad(message: impl AsRef<str>) -> Box<dyn StdError + Send + Sync> {
-    boxed(EngineProtocolError::new(format!(
+    boxed(InstanceProtocolError::new(format!(
         "context store: {}",
         message.as_ref()
     )))
@@ -279,7 +279,11 @@ fn int(value: &Value, label: &str) -> Result<u64> {
 
 fn signed(value: &Value, label: &str) -> Result<i64> {
     match value.as_i64() {
-        Some(number) if (value.is_i64() || value.is_u64()) && number.abs() <= MAX_SAFE => {
+        // Compared directly: `i64::MIN.abs()` overflows — a panic in a debug
+        // build and `i64::MIN` again, which is below `MAX_SAFE`, in a release.
+        Some(number)
+            if (value.is_i64() || value.is_u64()) && (-MAX_SAFE..=MAX_SAFE).contains(&number) =>
+        {
             Ok(number)
         }
         _ => Err(bad(format!("{label} must be a safe integer"))),
@@ -471,7 +475,7 @@ fn outcome_record(raw: &Value, label: &str) -> Result<StrategyOutcomeRecord> {
     required.extend_from_slice(RECORD_COUNTS);
     keys(value, &required, SIGNAL_COUNTS, label)?;
     let count = |key: &str| int(field(value, key), &format!("{label}.{key}"));
-    // Signal counts default to zero, like the Engine's own deserializer.
+    // Signal counts default to zero, like the instance's own deserializer.
     let signal = |key: &str| match value.get(key) {
         None => Ok(0),
         Some(raw) => int(raw, &format!("{label}.{key}")),
@@ -848,7 +852,7 @@ fn store_request(scope: &ContextStoreScope, task_id: Option<&str>) -> Result<Vec
     serde_json::to_vec(&request).map_err(|_| boxed(ValidationError::new("request is not JSON")))
 }
 
-impl SubprocessEngineClient {
+impl SubprocessInstanceClient {
     fn store_read(
         &self,
         operation: &str,

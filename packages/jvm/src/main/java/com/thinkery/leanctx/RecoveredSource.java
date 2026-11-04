@@ -3,7 +3,7 @@ package com.thinkery.leanctx;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Exact source bytes recovered from an Engine content-addressed binding. */
+/** Exact source bytes recovered from a LeanCTX instance content-addressed binding. */
 public final class RecoveredSource {
     private final String text;
     private final String sourceRef;

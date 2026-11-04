@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import ContextSession, ContextSource, SubprocessInstanceClient
 
 
 def run(engine: Path, project_root: Path, relative_path: str) -> dict:
@@ -15,7 +15,7 @@ def run(engine: Path, project_root: Path, relative_path: str) -> dict:
         project_root=str(project_root),
         session_id="sdk-v1-reference-session",
         task_id="sdk-v1-reference-task",
-        engine=SubprocessEngineClient(engine),
+        instance=SubprocessInstanceClient(engine),
     )
     view = session.prepare(ContextSource(relative_path, project_root=str(project_root)))
     if view is None:

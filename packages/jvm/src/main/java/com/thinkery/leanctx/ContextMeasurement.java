@@ -3,7 +3,7 @@ package com.thinkery.leanctx;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** One bounded Engine measurement. */
+/** One bounded LeanCTX instance measurement. */
 public final class ContextMeasurement {
     private final String name;
     private final String unit;

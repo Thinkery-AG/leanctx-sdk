@@ -1,55 +1,37 @@
 package com.thinkery.leanctx;
 
-/** The Engine returned a valid failed observation. */
-public class EngineExecutionError extends EngineError {
-    private final ContextFailure failure;
-    private final ContextView view;
-
+/**
+ * Deprecated alias of {@link InstanceExecutionError}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineExecutionError e)} and {@code catch (InstanceExecutionError e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceExecutionError}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public class EngineExecutionError extends InstanceExecutionError {
     public EngineExecutionError() {
-        this(null, null, null, null);
+        super();
     }
 
     public EngineExecutionError(String message) {
-        this(message, null, null, null);
+        super(message);
     }
 
     public EngineExecutionError(String message, ContextFailure failure, ContextView view) {
-        this(message, failure, view, null);
+        super(message, failure, view);
     }
 
-    public EngineExecutionError(String message, ContextFailure failure, ContextView view,
-                                Throwable cause) {
-        super(message, cause, "engine_execution_error",
-                "fail closed and retain the factual Engine failure evidence",
-                failure != null && failure.retryableByHost(), false, true, false, false);
-        this.failure = failure;
-        this.view = view;
+    public EngineExecutionError(String message, ContextFailure failure, ContextView view, Throwable cause) {
+        super(message, failure, view, cause);
     }
 
     protected EngineExecutionError(String message, ContextFailure failure, ContextView view,
-                                   Throwable cause, String code, String guidance,
-                                   boolean retryable, boolean degradeAllowed,
-                                   boolean abortRequired, boolean configurationFix,
-                                   boolean versionChange) {
-        super(message, cause, code, guidance, retryable, degradeAllowed,
+                     Throwable cause, String code, String guidance,
+                     boolean retryable, boolean degradeAllowed,
+                     boolean abortRequired, boolean configurationFix,
+                     boolean versionChange) {
+        super(message, failure, view, cause, code, guidance, retryable, degradeAllowed,
                 abortRequired, configurationFix, versionChange);
-        this.failure = failure;
-        this.view = view;
-    }
-
-    public ContextFailure failure() {
-        return failure;
-    }
-
-    public ContextFailure getFailure() {
-        return failure;
-    }
-
-    public ContextView view() {
-        return view;
-    }
-
-    public ContextView getView() {
-        return view;
     }
 }

@@ -8,7 +8,7 @@ import unittest
 from test_engine_context_read import _client, _reply_factory
 from test_enterprise_engine import _server
 
-from leanctx_sdk.errors import EngineProtocolError
+from leanctx_sdk.errors import InstanceProtocolError
 
 
 class EngineContextContractTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class EngineContextContractTests(unittest.TestCase):
                 invalid = copy.deepcopy(response)
                 invalid["result"]["_meta"]["canonical_receipt"].update(override)
                 with _server(_reply_factory(200, json.dumps(invalid).encode())) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_read(request["arguments"]["path"])
 
 

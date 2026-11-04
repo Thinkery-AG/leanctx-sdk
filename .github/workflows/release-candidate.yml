@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - v1.2.0
+      - v1.3.0
 
 permissions:
   contents: read
@@ -15,26 +15,43 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AGENT_TOOLS_ENGINE_VERSION: 3.11.4
-  ENGINE_COMMIT: 3afe2bbffe0834ec58517ffd493e5a51c5c1ca57
-  ENGINE_VERSION: 3.11.4
-  ENGINE_TAG: v3.11.4
+  AGENT_TOOLS_ENGINE_VERSION: 3.12.1
+  ENGINE_COMMIT: 0f0297e396ecf15f578d6d0fd07dba6353b1497c
+  ENGINE_VERSION: 3.12.1
+  ENGINE_TAG: v3.12.1
   ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
-  ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.4
-  ENGINE_RELEASE_DOWNLOAD_URL: https://github.com/yvgude/lean-ctx/releases/download/v3.11.4
+  ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1
+  ENGINE_RELEASE_DOWNLOAD_URL: https://github.com/yvgude/lean-ctx/releases/download/v3.12.1
   ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
   ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
-  ENGINE_LINUX_ARCHIVE_SHA256: 5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a
-  ENGINE_MACOS_ARCHIVE_SHA256: d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f
-  ENGINE_CHECKSUMS_SHA256: beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff
-  ENGINE_LINUX_X86_64_SHA256: c803039798201a5a03843bb4f0ec59ad796bb0964eb270a394d1006cc1d0229c
-  ENGINE_MACOS_ARM64_SHA256: c20fc2afa50205c20fb227c985feb30bf94055cc9381c5a3276bcbc8f14fef8c
-  ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.4
+  ENGINE_LINUX_ARCHIVE_SHA256: 484856a5b6bc47024ac3eacc9fcaf6fe7d5ec82ec1f16614c5521d73237238f9
+  ENGINE_MACOS_ARCHIVE_SHA256: 212e57ad32983e43d0c4ac5e2943b82a6caf699fe40da45745b6872d72f40b08
+  ENGINE_CHECKSUMS_SHA256: 3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113
+  ENGINE_LINUX_X86_64_SHA256: ff260e17c4e470afc5d5d06ea9e5e73e40c17cbb9c7401d5ee7a0786ee634e3e
+  ENGINE_MACOS_ARM64_SHA256: 58a8c502b17aadedd4375c0a3183b5a650eb02e227aad1ab370c18ee997b691b
+  ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.1
   ENGINE_COSIGN_ISSUER: https://token.actions.githubusercontent.com
   SOURCE_DATE_EPOCH: "1704067200"
 
 jobs:
+  pairing-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Require release pins to match the Agent Tools contract
+        run: >-
+          python scripts/check_language_versions.py --repository .
+          --configured-engine-version "$ENGINE_VERSION"
+          --configured-agent-tools-version "$AGENT_TOOLS_ENGINE_VERSION"
+
   source-contract:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -60,6 +77,7 @@ jobs:
           retention-days: 14
 
   static-quality:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -99,6 +117,7 @@ jobs:
           retention-days: 14
 
   source-secret-scan:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -120,6 +139,7 @@ jobs:
           retention-days: 14
 
   typescript-sdk:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -146,6 +166,7 @@ jobs:
           retention-days: 14
 
   go-sdk:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -172,6 +193,7 @@ jobs:
           retention-days: 14
 
   rust-sdk:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -199,6 +221,7 @@ jobs:
           retention-days: 14
 
   jvm-sdk:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -215,7 +238,7 @@ jobs:
           cache: maven
           cache-dependency-path: packages/jvm/pom.xml
       - run: mvn --batch-mode --no-transfer-progress verify 2>&1 | tee ../../jvm-sdk.log
-      - run: jar tf target/leanctx-sdk-1.2.0.jar | sort > ../../jvm-package-contents.txt
+      - run: jar tf target/leanctx-sdk-1.3.0.jar | sort > ../../jvm-package-contents.txt
       - run: grep -Fx META-INF/LICENSE ../../jvm-package-contents.txt
       - run: grep -Fx com/thinkery/leanctx/AgentContext.class ../../jvm-package-contents.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -228,6 +251,7 @@ jobs:
           retention-days: 14
 
   dotnet-sdk:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -244,7 +268,7 @@ jobs:
       - run: dotnet build tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-restore
       - run: set -o pipefail; dotnet run --project tests/Thinkery.LeanCtx.Tests/Thinkery.LeanCtx.Tests.csproj --configuration Release --no-build 2>&1 | tee ../../dotnet-sdk.log
       - run: dotnet pack Thinkery.LeanCtx.csproj --configuration Release --no-build --output "$RUNNER_TEMP/nuget"
-      - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.2.0.nupkg | tee ../../dotnet-package-contents.txt
+      - run: unzip -l "$RUNNER_TEMP"/nuget/Thinkery.LeanCtx.1.3.0.nupkg | tee ../../dotnet-package-contents.txt
       - run: grep -F LICENSE ../../dotnet-package-contents.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -256,8 +280,8 @@ jobs:
           retention-days: 14
 
   cross-sdk-proof:
-    if: always()
-    needs: [typescript-sdk, go-sdk, rust-sdk, jvm-sdk, dotnet-sdk]
+    if: always() && needs.pairing-contract.result == 'success'
+    needs: [pairing-contract, typescript-sdk, go-sdk, rust-sdk, jvm-sdk, dotnet-sdk]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -275,6 +299,7 @@ jobs:
           test "$DOTNET_RESULT" = success
 
   engine-artifact:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -314,6 +339,7 @@ jobs:
 
   engine-macos-artifact:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    needs: pairing-contract
     runs-on: macos-26
     timeout-minutes: 10
     outputs:
@@ -353,6 +379,7 @@ jobs:
           retention-days: 14
 
   sdk-artifact:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -400,7 +427,7 @@ jobs:
           retention-days: 14
 
   installed-engine-contract:
-    needs: [engine-artifact, sdk-artifact]
+    needs: [pairing-contract, engine-artifact, sdk-artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -425,6 +452,12 @@ jobs:
           path: dist
       - run: chmod 0755 "$ENGINE_BIN"
       - run: test "$(sha256sum "$ENGINE_BIN" | cut -d ' ' -f1)" = "${{ needs.engine-artifact.outputs.sha256 }}"
+      - name: Verify the downloaded Engine against the Agent Tools contract
+        run: >-
+          python scripts/check_language_versions.py --repository .
+          --engine-binary "$ENGINE_BIN"
+          --configured-engine-version "$ENGINE_VERSION"
+          --configured-agent-tools-version "$AGENT_TOOLS_ENGINE_VERSION"
       - run: test "$(sha256sum dist/*.whl | cut -d ' ' -f1)" = "${{ needs.sdk-artifact.outputs.wheel_sha256 }}"
       - run: >-
           python scripts/verify_wheel_install.py
@@ -442,6 +475,7 @@ jobs:
           retention-days: 14
 
   dependency-audit:
+    needs: pairing-contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -485,7 +519,7 @@ jobs:
 
   framework-offline:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-    needs: [engine-macos-artifact, sdk-artifact]
+    needs: [pairing-contract, engine-macos-artifact, sdk-artifact]
     runs-on: macos-26
     timeout-minutes: 20
     steps:
@@ -549,7 +583,7 @@ jobs:
           "$RUNNER_TEMP/framework-venv/bin/python"
           scripts/verify_agent_context_e2e.py
           --engine "$RUNNER_TEMP/engine-artifact/lean-ctx"
-          --expected-engine-version 3.11.4
+          --expected-engine-version 3.12.1
           > "$RUNNER_TEMP/agent-context-e2e.json"
       - run: >-
           "$RUNNER_TEMP/framework-venv/bin/python"
@@ -574,6 +608,7 @@ jobs:
   provenance:
     if: >-
       ${{ always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) &&
+      needs.pairing-contract.result == 'success' &&
       needs.source-contract.result == 'success' &&
       needs.static-quality.result == 'success' &&
       needs.source-secret-scan.result == 'success' &&
@@ -586,6 +621,7 @@ jobs:
       needs.publication-guard.result == 'success' &&
       needs.framework-offline.result == 'success' }}
     needs:
+      - pairing-contract
       - source-contract
       - static-quality
       - source-secret-scan
@@ -601,18 +637,18 @@ jobs:
     timeout-minutes: 5
     env:
       SDK_COMMIT: ${{ needs.sdk-artifact.outputs.sdk_commit }}
-      SDK_VERSION: 1.2.0
+      SDK_VERSION: 1.3.0
       SDK_WHEEL_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
       ENGINE_LINUX_X86_64_SHA256: ${{ needs.engine-artifact.outputs.sha256 }}
       ENGINE_MACOS_ARM64_SHA256: ${{ needs.engine-macos-artifact.outputs.sha256 }}
       ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx
-      ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.11.4
+      ENGINE_RELEASE_URL: https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1
       ENGINE_LINUX_ASSET: lean-ctx-x86_64-unknown-linux-gnu.tar.gz
       ENGINE_MACOS_ASSET: lean-ctx-aarch64-apple-darwin.tar.gz
-      ENGINE_LINUX_ARCHIVE_SHA256: 5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a
-      ENGINE_MACOS_ARCHIVE_SHA256: d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f
-      ENGINE_CHECKSUMS_SHA256: beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff
-      ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.4
+      ENGINE_LINUX_ARCHIVE_SHA256: 484856a5b6bc47024ac3eacc9fcaf6fe7d5ec82ec1f16614c5521d73237238f9
+      ENGINE_MACOS_ARCHIVE_SHA256: 212e57ad32983e43d0c4ac5e2943b82a6caf699fe40da45745b6872d72f40b08
+      ENGINE_CHECKSUMS_SHA256: 3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113
+      ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.1
       DEPENDENCY_MANIFEST_SHA256: ${{ needs.dependency-audit.outputs.manifest_sha256 }}
       DEPENDENCY_POLICY_SHA256: ${{ needs.dependency-audit.outputs.policy_sha256 }}
       AUDIT_TOOL_LOCK_SHA256: ${{ needs.dependency-audit.outputs.tool_lock_sha256 }}
@@ -727,7 +763,7 @@ jobs:
           retention-days: 14
 
   publication-guard:
-    needs: sdk-artifact
+    needs: [pairing-contract, sdk-artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
@@ -752,12 +788,12 @@ jobs:
         with:
           persist-credentials: false
       - if: startsWith(github.ref, 'refs/tags/')
-        run: test "$GITHUB_REF" = refs/tags/v1.2.0
+        run: test "$GITHUB_REF" = refs/tags/v1.3.0
       - if: github.event_name != 'pull_request'
         run: |
           test "$SDK_V1_PUBLICATION_AUTHORIZED" = APPROVED
           test "$GITHUB_SHA" = "$SDK_V1_APPROVED_SDK_COMMIT"
-          test "$SDK_V1_APPROVED_VERSION" = 1.2.0
+          test "$SDK_V1_APPROVED_VERSION" = 1.3.0
           test "$SDK_WHEEL_SHA256" = "$SDK_V1_APPROVED_WHEEL_SHA256"
           test "$(sha256sum LICENSE | cut -d ' ' -f1)" = "$SDK_V1_APPROVED_LICENSE_SHA256"
           test "$GITHUB_REPOSITORY" = "$SDK_V1_APPROVED_REPOSITORY"
@@ -769,14 +805,14 @@ jobs:
           test "$ENGINE_MACOS_ARCHIVE_SHA256" = "$SDK_V1_APPROVED_ENGINE_MACOS_ARCHIVE_SHA256"
           test "$ENGINE_CHECKSUMS_SHA256" = "$SDK_V1_APPROVED_ENGINE_CHECKSUMS_SHA256"
           test "$ENGINE_COSIGN_IDENTITY" = "$SDK_V1_APPROVED_ENGINE_COSIGN_IDENTITY"
-          test "$ENGINE_VERSION" = 3.11.4
-          test "$ENGINE_TAG" = v3.11.4
+          test "$ENGINE_VERSION" = 3.12.1
+          test "$ENGINE_TAG" = v3.12.1
       - if: github.event_name == 'pull_request'
         run: echo "Validation run; no publication requested."
 
   technical-release-gate:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-    needs: provenance
+    needs: [pairing-contract, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -786,6 +822,7 @@ jobs:
   publish-pypi:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
+      - pairing-contract
       - provenance
       - publication-guard
       - sdk-artifact
@@ -808,9 +845,9 @@ jobs:
           BUILT_SHA256: ${{ needs.sdk-artifact.outputs.wheel_sha256 }}
         run: |
           test "$BUILT_SHA256" = "$APPROVED_SHA256"
-          test "$(sha256sum download/thinkery_leanctx_sdk-1.2.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
+          test "$(sha256sum download/thinkery_leanctx_sdk-1.3.0-py3-none-any.whl | cut -d ' ' -f1)" = "$APPROVED_SHA256"
           mkdir publish
-          cp download/thinkery_leanctx_sdk-1.2.0-py3-none-any.whl publish/
+          cp download/thinkery_leanctx_sdk-1.3.0-py3-none-any.whl publish/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: publish
@@ -819,6 +856,7 @@ jobs:
   pull-request-validation:
     if: github.event_name == 'pull_request'
     needs:
+      - pairing-contract
       - source-contract
       - static-quality
       - source-secret-scan

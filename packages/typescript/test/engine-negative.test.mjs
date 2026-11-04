@@ -6,9 +6,9 @@ import { test } from "node:test";
 import {
   ContextPlan,
   ContextSource,
-  EngineUnavailable,
+  InstanceUnavailable,
   SourceUnavailableError,
-  SubprocessEngineClient,
+  SubprocessInstanceClient,
 } from "../dist/index.js";
 
 function failingEngine(root, code) {
@@ -24,10 +24,10 @@ test("nonzero Engine exits preserve typed failure mapping without stderr leakage
     writeFileSync(join(root, "source.txt"), "source\n");
     const source = new ContextSource("source.txt", { projectRoot: root });
     const plan = new ContextPlan("session", "task", "inspect", source);
-    const engine = new SubprocessEngineClient({ engineBinary: failingEngine(root, "source_unavailable") });
+    const engine = new SubprocessInstanceClient({ instanceBinary: failingEngine(root, "source_unavailable") });
     await assert.rejects(engine.contextView(plan), (error) => {
       assert.ok(error instanceof SourceUnavailableError);
-      assert.equal(error.message, "Engine source is unavailable");
+      assert.equal(error.message, "LeanCTX instance source is unavailable");
       return true;
     });
   } finally {
@@ -47,7 +47,7 @@ test("an empty PATH entry cannot select a cwd-local Engine", async () => {
     process.env.PATH = "";
     const source = new ContextSource("source.txt", { projectRoot: root });
     const plan = new ContextPlan("session", "task", "inspect", source);
-    await assert.rejects(new SubprocessEngineClient().contextView(plan), EngineUnavailable);
+    await assert.rejects(new SubprocessInstanceClient().contextView(plan), InstanceUnavailable);
   } finally {
     process.chdir(previousCwd);
     if (previousPath === undefined) delete process.env.PATH;

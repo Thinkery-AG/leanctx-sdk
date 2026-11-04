@@ -12,15 +12,16 @@ import time
 import unittest
 from unittest import mock
 
-from leanctx_sdk.engine import SubprocessEngineClient
-from leanctx_sdk.errors import EngineExecutionError, EngineTimeout, ValidationError
-from leanctx_sdk.planning import EnginePlanningRequest, EngineSource
+from leanctx_sdk._deprecation import instance_env as _instance_env
+from leanctx_sdk.instance import SubprocessInstanceClient
+from leanctx_sdk.errors import InstanceExecutionError, InstanceTimeout, ValidationError
+from leanctx_sdk.planning import InstancePlanningRequest, InstanceSource
 from leanctx_sdk.protocol import ContextPlan, ContextSource, sha256_digest
 
 
 @unittest.skipUnless(
-    os.environ.get("LEANCTX_TEST_ENGINE_BINARY") and os.environ.get("LEANCTX_TEST_ENGINE_SHA256"),
-    "set LEANCTX_TEST_ENGINE_BINARY and LEANCTX_TEST_ENGINE_SHA256 to a digest-pinned Engine",
+    _instance_env("LEANCTX_TEST_INSTANCE_BINARY") and os.environ.get("LEANCTX_TEST_ENGINE_SHA256"),
+    "set LEANCTX_TEST_INSTANCE_BINARY and LEANCTX_TEST_ENGINE_SHA256 to a digest-pinned LeanCTX instance",
 )
 class PlanningTransportTests(unittest.TestCase):
     @classmethod
@@ -30,7 +31,7 @@ class PlanningTransportTests(unittest.TestCase):
         )
         cls.root = Path(cls.fixture.name)
         cls.binary = cls.root / "lean-ctx"
-        source = Path(os.environ["LEANCTX_TEST_ENGINE_BINARY"])
+        source = Path(_instance_env("LEANCTX_TEST_INSTANCE_BINARY"))
         shutil.copy2(source, cls.binary)
         actual = hashlib.sha256(cls.binary.read_bytes()).hexdigest()
         if actual != os.environ["LEANCTX_TEST_ENGINE_SHA256"]:
@@ -44,12 +45,12 @@ class PlanningTransportTests(unittest.TestCase):
     def setUp(self):
         self.project = tempfile.TemporaryDirectory(dir=self.root)
         self.addCleanup(self.project.cleanup)
-        self.client = SubprocessEngineClient(self.binary, timeout=15)
-        self.request = EnginePlanningRequest("sdk-plan", "invoice ledger", 512)
+        self.client = SubprocessInstanceClient(self.binary, timeout=15)
+        self.request = InstancePlanningRequest("sdk-plan", "invoice ledger", 512)
 
     def source(self, identity, kind, permission="permitted"):
         content = "invoice ledger evidence from " + identity
-        return EngineSource(
+        return InstanceSource(
             {
                 "object_ref": identity,
                 "source_id": "source-" + identity,
@@ -71,6 +72,11 @@ class PlanningTransportTests(unittest.TestCase):
         self.assertLessEqual(result["plan"]["budget_tokens"], 512)
         self.assertNotIn("receipt", result)
         self.assertEqual(list(Path(self.project.name).glob(".leanctx-sdk-*.json")), [])
+        # B16: a real Engine on POSIX starts the one-shot behind its session
+        # starter and says so on the first line. (On Windows the Engine answers
+        # from a job of its own, which a host job may forbid: not asserted.)
+        if os.name != "nt":
+            self.assertEqual(self.client.last_session_containment, "engine-starter")
 
     def test_real_explicit_source_plan_and_policy_exclusion(self):
         sources = [
@@ -124,14 +130,14 @@ class PlanningTransportTests(unittest.TestCase):
         script = Path(self.project.name) / "fixture-engine"
         script.write_text("#!" + sys.executable + "\n" + content)
         script.chmod(0o700)
-        return SubprocessEngineClient(script, timeout=0.2)
+        return SubprocessInstanceClient(script, timeout=0.2)
 
     def test_deadline_includes_child_wait_after_pipe_eof(self):
         client = self.executable(
             "import os,time\nos.close(1)\nos.close(2)\ntime.sleep(10)\n"
         )
         start = time.monotonic()
-        with self.assertRaises(EngineTimeout):
+        with self.assertRaises(InstanceTimeout):
             client._run("context-plan", self.project.name, "-")
         self.assertLess(time.monotonic() - start, 2)
 
@@ -150,7 +156,7 @@ class PlanningTransportTests(unittest.TestCase):
             "import sys,time\nsys.stdin.buffer.read(1)\ntime.sleep(10)\n"
         )
         start = time.monotonic()
-        with self.assertRaises(EngineTimeout):
+        with self.assertRaises(InstanceTimeout):
             client._run(
                 "context-plan-sources",
                 self.project.name,
@@ -169,12 +175,12 @@ class PlanningTransportTests(unittest.TestCase):
             started.append(process)
             return process
 
-        with mock.patch("leanctx_sdk.engine.subprocess.Popen", side_effect=capture):
+        with mock.patch("leanctx_sdk.instance.subprocess.Popen", side_effect=capture):
             with mock.patch(
-                "leanctx_sdk.engine.selectors.DefaultSelector",
+                "leanctx_sdk.instance.selectors.DefaultSelector",
                 side_effect=OSError("fixture allocation failure"),
             ):
-                with self.assertRaises(EngineExecutionError):
+                with self.assertRaises(InstanceExecutionError):
                     client._run("context-plan", self.project.name, "-")
         self.assertEqual(len(started), 1)
         self.assertIsNotNone(started[0].poll())

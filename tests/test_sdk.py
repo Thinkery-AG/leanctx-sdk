@@ -19,18 +19,18 @@ from leanctx_sdk import (
     ContextSession,
     ContextSource,
     ContextView,
-    EngineExecutionError,
-    EngineProtocolError,
-    EngineRejected,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceExecutionError,
+    InstanceProtocolError,
+    InstanceRejected,
+    InstanceTimeout,
+    InstanceUnavailable,
     FrameworkCompatibilityError,
     FrameworkIntegrationError,
     RecoveryUnavailableError,
-    UnsupportedEngineError,
+    UnsupportedInstanceError,
     ValidationError,
 )
-from leanctx_sdk.engine import SubprocessEngineClient, _parse_response
+from leanctx_sdk.instance import SubprocessInstanceClient, _parse_response
 from leanctx_sdk.integrations.openai_agents import OpenAIAgentsAdapter
 from leanctx_sdk.protocol import canonical_bytes, sha256_digest
 from scripts.validate_wheelhouse import load_manifest, validate_wheelhouse
@@ -161,7 +161,7 @@ class SDKTests(unittest.TestCase):
                 project_root=root,
                 session_id="session-fixed",
                 task_id="task-fixed",
-                engine=fake,
+                instance=fake,
             )
             source = self.make_source(root)
             first = session.plan(source)
@@ -186,7 +186,7 @@ class SDKTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fake = FakeEngine()
             session = ContextSession(
-                "inspect", engine=fake, session_id="s", task_id="t"
+                "inspect", instance=fake, session_id="s", task_id="t"
             )
             session.prepare(self.make_source(root))
             error = RuntimeError("secret host message")
@@ -201,21 +201,21 @@ class SDKTests(unittest.TestCase):
 
     def test_fail_open_is_limited_to_unavailable_and_timeout(self):
         with tempfile.TemporaryDirectory() as root:
-            for failure in (EngineUnavailable("missing"), EngineTimeout("slow")):
+            for failure in (InstanceUnavailable("missing"), InstanceTimeout("slow")):
                 session = ContextSession(
-                    "inspect", engine=FakeEngine(failure), fail_open=True
+                    "inspect", instance=FakeEngine(failure), fail_open=True
                 )
                 self.assertIsNone(session.prepare(self.make_source(root)))
                 self.assertEqual(session.state, "executing")
                 self.assertTrue(session.degradations)
                 self.assertTrue(session.complete().integrity_status == "unsealed")
             for failure in (
-                EngineProtocolError("bad wire"),
-                EngineRejected("unsafe"),
-                EngineExecutionError("failed"),
+                InstanceProtocolError("bad wire"),
+                InstanceRejected("unsafe"),
+                InstanceExecutionError("failed"),
             ):
                 session = ContextSession(
-                    "inspect", engine=FakeEngine(failure), fail_open=True
+                    "inspect", instance=FakeEngine(failure), fail_open=True
                 )
                 with self.assertRaises(type(failure)):
                     session.prepare(self.make_source(root))
@@ -236,7 +236,7 @@ class SDKTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root:
             fake = RecoveringFake()
-            session = ContextSession("inspect", engine=fake)
+            session = ContextSession("inspect", instance=fake)
             view = session.prepare(self.make_source(root))
             recovered = session.recover(view)
             self.assertEqual(recovered.text, "fresh synthetic source\n")
@@ -258,15 +258,15 @@ class SDKTests(unittest.TestCase):
         }
         unknown = dict(response)
         unknown["extra"] = True
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _parse_response(canonical_bytes(unknown))
         duplicate = b'{"schema_version":1,"schema_version":1}'
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _parse_response(duplicate)
 
     def test_configuration_compatibility_and_recovery_errors_are_distinct(self):
         with self.assertRaises(ConfigurationError):
-            SubprocessEngineClient(timeout=0)
+            SubprocessInstanceClient(timeout=0)
 
         response = {
             "schema_version": 1,
@@ -291,13 +291,13 @@ class SDKTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )["response"]
         fixture["invocation"]["engine"]["engine_version"] = "4.0.0"
-        with self.assertRaises(UnsupportedEngineError):
+        with self.assertRaises(UnsupportedInstanceError):
             _parse_response(canonical_bytes(fixture))
 
         with tempfile.TemporaryDirectory() as root:
             session = ContextSession(
                 "inspect",
-                engine=FakeEngine(EngineUnavailable("missing")),
+                instance=FakeEngine(InstanceUnavailable("missing")),
                 fail_open=True,
             )
             session.prepare(self.make_source(root))
@@ -333,11 +333,11 @@ class SDKTests(unittest.TestCase):
         }
         wrong_transport = dict(response)
         wrong_transport["transport_version"] = "1.0.0"
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _parse_response(canonical_bytes(wrong_transport))
         nested_unknown = dict(response)
         nested_unknown["view"] = dict(response["view"], unknown=True)
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _parse_response(canonical_bytes(nested_unknown))
 
     def test_fixture_is_independently_authored_and_has_no_placeholder(self):
@@ -378,7 +378,7 @@ class SDKTests(unittest.TestCase):
         from leanctx_sdk.integrations.native_embed import complete, prepare
 
         with tempfile.TemporaryDirectory() as root:
-            session = ContextSession("inspect", engine=FakeEngine())
+            session = ContextSession("inspect", instance=FakeEngine())
             self.assertIsNotNone(prepare(session, self.make_source(root)))
             sentinel = object()
             receipt = complete(session, sentinel, outcome="accepted")
@@ -419,7 +419,7 @@ class SDKTests(unittest.TestCase):
 
             with (
                 patch(
-                    "examples.reference_application.SubprocessEngineClient",
+                    "examples.reference_application.SubprocessInstanceClient",
                     return_value=fake,
                 ),
                 patch.object(ContextSession, "complete", complete),
@@ -456,7 +456,7 @@ class SDKTests(unittest.TestCase):
             source.write_text(text, encoding="utf-8")
             fake = ReactorFake()
             with patch(
-                "examples.context_reactor.SubprocessEngineClient",
+                "examples.context_reactor.SubprocessInstanceClient",
                 return_value=fake,
             ):
                 result = run(Path("/unused/engine"), root_path, "source.md")
@@ -488,7 +488,7 @@ class SDKTests(unittest.TestCase):
             Path(root, "source.md").write_text("original\n", encoding="utf-8")
             with (
                 patch(
-                    "examples.context_reactor.SubprocessEngineClient",
+                    "examples.context_reactor.SubprocessInstanceClient",
                     return_value=InexactRecoveryFake(),
                 ),
                 patch.object(
@@ -524,7 +524,7 @@ class SDKTests(unittest.TestCase):
             engine.touch()
             with (
                 patch(
-                    "scripts.verify_installed.SubprocessEngineClient",
+                    "scripts.verify_installed.SubprocessInstanceClient",
                     return_value=RecoveringFake(),
                 ),
                 patch(
@@ -714,7 +714,7 @@ class SDKTests(unittest.TestCase):
         sys.modules["agents"] = fake_agents
         try:
             with tempfile.TemporaryDirectory() as root:
-                session = ContextSession("inspect", engine=FakeEngine())
+                session = ContextSession("inspect", instance=FakeEngine())
                 session.plan(self.make_source(root))
                 adapter = OpenAIAgentsAdapter(object(), session)
                 with patch(
@@ -750,7 +750,7 @@ class SDKTests(unittest.TestCase):
         sys.modules["agents"] = fake_agents
         try:
             with tempfile.TemporaryDirectory() as root:
-                session = ContextSession("inspect", engine=FakeEngine())
+                session = ContextSession("inspect", instance=FakeEngine())
                 session.plan(self.make_source(root))
                 adapter = OpenAIAgentsAdapter(object(), session)
                 with (
@@ -778,7 +778,7 @@ class SDKTests(unittest.TestCase):
     )
     def test_openai_agents_adapter_rejects_uncertified_version(self):
         with tempfile.TemporaryDirectory() as root:
-            session = ContextSession("inspect", engine=FakeEngine())
+            session = ContextSession("inspect", instance=FakeEngine())
             session.plan(self.make_source(root))
             adapter = OpenAIAgentsAdapter(object(), session)
             with (
@@ -795,7 +795,7 @@ class SDKTests(unittest.TestCase):
     )
     def test_openai_agents_adapter_rejects_missing_distribution(self):
         with tempfile.TemporaryDirectory() as root:
-            session = ContextSession("inspect", engine=FakeEngine())
+            session = ContextSession("inspect", instance=FakeEngine())
             session.plan(self.make_source(root))
             adapter = OpenAIAgentsAdapter(object(), session)
             with (

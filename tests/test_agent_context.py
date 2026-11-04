@@ -14,8 +14,8 @@ from leanctx_sdk import (
     AgentPermissions,
     AsyncAgentContext,
     ConfigurationError,
-    EngineCrashed,
-    EngineProtocolError,
+    InstanceCrashed,
+    InstanceProtocolError,
     ExecutionPolicy,
     GitLabSource,
     ValidationError,
@@ -79,7 +79,7 @@ class _FakeProcess:
                 "allow_exec": self.policy["allow_exec"],
                 "allow_write": self.policy["allow_write"],
                 "capabilities": sorted(capabilities),
-                "engine_version": "3.11.4",
+                "engine_version": "3.12.1",
                 "schema_version": 1,
                 "transport_version": 1,
             }
@@ -297,6 +297,15 @@ class AgentContextTests(unittest.TestCase):
             )
         with self.assertRaises(ValidationError):
             ExecutionPolicy(allowed_env=("PATH",))
+        for name in (
+            "LD_LIBRARY_PATH",
+            "DYLD_LIBRARY_PATH",
+            "ld_library_path",
+            "dYlD_LiBrArY_PaTh",
+        ):
+            with self.subTest(name=name), self.assertRaises(ValidationError):
+                ExecutionPolicy(allowed_env=(name,))
+        self.assertEqual(ExecutionPolicy(allowed_env=("LANG",)).allowed_env, ("LANG",))
 
     def test_async_facade_matches_sync_result(self):
         async def exercise():
@@ -310,7 +319,7 @@ class AgentContextTests(unittest.TestCase):
     def test_cancel_is_terminal_and_reconnect_is_explicit(self):
         context = AgentContext(self.root.name)
         context.cancel()
-        with self.assertRaises(EngineCrashed):
+        with self.assertRaises(InstanceCrashed):
             context.read("README.md")
         replacement = context.reconnect()
         try:
@@ -341,12 +350,44 @@ class AgentContextTests(unittest.TestCase):
                 "allow_exec": False,
                 "allow_write": False,
                 "capabilities": sorted((*context.capabilities, "ctx_provider")),
-                "engine_version": "3.11.4",
+                "engine_version": "3.12.1",
                 "schema_version": 1,
                 "transport_version": 1,
             }
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 context._accept_hello(hello)
+
+    def test_hello_is_accepted_only_for_a_matrix_pair_written_as_integers(self):
+        with AgentContext(self.root.name) as context:
+            accepted = {
+                "agent_tools_interface_version": "1.0.0",
+                "allow_exec": False,
+                "allow_write": False,
+                "capabilities": sorted(context.capabilities),
+                "engine_version": "3.12.1",
+                "schema_version": 1,
+                "transport_version": 1,
+            }
+            context._accept_hello(dict(accepted))
+            refused = {
+                # A pair that is no row of the matrix, although it handshakes.
+                "engine_version": ("3.11.1", "3.10.5", 3, None),
+                # 1 only as a JSON integer: not true, not 1.0 (which is 1e0 too).
+                "schema_version": (True, 1.0, "1", 2),
+                "transport_version": (True, 1.0, "1", 2),
+                "agent_tools_interface_version": ("1.1.0",),
+                # The permission mirror and the capability set stay as strict.
+                "allow_write": (True, 0),
+                "allow_exec": (True, 0),
+                "capabilities": (sorted(context.capabilities)[1:],),
+            }
+            for field, values in refused.items():
+                for value in values:
+                    with self.subTest(field=field, value=value):
+                        with self.assertRaises(InstanceProtocolError):
+                            context._accept_hello({**accepted, field: value})
+            with self.assertRaises(InstanceProtocolError):
+                context._accept_hello({**accepted, "extra": 1})
 
     def test_non_text_content_blocks_are_preserved(self):
         with AgentContext(self.root.name) as context:

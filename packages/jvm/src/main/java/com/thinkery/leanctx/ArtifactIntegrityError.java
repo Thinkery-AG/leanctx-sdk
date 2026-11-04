@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
 /** Artifact, receipt, or source evidence failed an integrity check. */
+@SuppressWarnings("removal")
 public class ArtifactIntegrityError extends EngineExecutionError {
     public ArtifactIntegrityError() {
         this(null, null, null, null);

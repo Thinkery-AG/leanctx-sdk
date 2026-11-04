@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** Bounded operator-attestation carrier; signer admission belongs to the host. */
 
-import { EngineProtocolError, ValidationError } from "./errors.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
 import { canonicalBytes, exactKeys, sha256Digest, strictJsonLoads, validateDigest } from "./protocol.js";
 import {
   MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES,
@@ -12,13 +12,13 @@ import {
 export const MAX_ENGINE_OUTCOME_REQUEST_BYTES = MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES;
 export const MAX_ENGINE_OUTCOME_RESPONSE_BYTES = MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES;
 
-export type EngineOutcomeSignal = Readonly<{
+export type InstanceOutcomeSignal = Readonly<{
   signal_type: "build_success" | "tests_passing" | "lint_clean" | "typecheck_passing"
     | "human_acceptance" | "pr_merge" | "ci_passing" | "correction" | "rollback";
   value: "unknown" | Readonly<{ boolean: boolean }> | Readonly<{ count: number }>;
 }>;
 
-export type EngineOutcomeResponse = Readonly<{
+export type InstanceOutcomeResponse = Readonly<{
   schema_version: 1;
   tenant_id: string;
   outcome: Readonly<{
@@ -56,7 +56,7 @@ function text(value: unknown, label: string, maximum: number): string {
 
 export function validateOutcomeRequest(
   taskId: string, receiptDigest: string, contextDecisionDigest: string,
-  signals: readonly EngineOutcomeSignal[],
+  signals: readonly InstanceOutcomeSignal[],
 ): Buffer {
   text(taskId, "task_id", 256);
   validateDigest(receiptDigest, "receipt_digest");
@@ -113,9 +113,9 @@ function validateDocument(raw: Buffer, receiptId: string, acceptance: string, ta
 }
 
 /** Validate selected wire/document joins without admitting a signer or evaluating signals. */
-export function parseEngineOutcomeResponse(
+export function parseInstanceOutcomeResponse(
   raw: Uint8Array, taskId: string, receiptDigest: string, contextDecisionDigest: string, tenantId: string,
-): EngineOutcomeResponse {
+): InstanceOutcomeResponse {
   try {
     text(taskId, "task_id", 256);
     validateDigest(receiptDigest, "receipt_digest");
@@ -144,6 +144,6 @@ export function parseEngineOutcomeResponse(
       already_recorded: outcome.already_recorded, receipt_document_json: document,
     }) });
   } catch (cause) {
-    throw new EngineProtocolError("Enterprise outcome response violates the v1 contract", { cause });
+    throw new InstanceProtocolError("Enterprise outcome response violates the v1 contract", { cause });
   }
 }

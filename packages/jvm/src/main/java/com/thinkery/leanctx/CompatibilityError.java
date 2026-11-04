@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
 /** SDK and dependency expose incompatible versioned contracts. */
+@SuppressWarnings("removal")
 public class CompatibilityError extends EngineProtocolError {
     public CompatibilityError() {
         this(null);

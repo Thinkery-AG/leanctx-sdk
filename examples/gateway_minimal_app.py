@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from leanctx_sdk import SubprocessEngineClient  # noqa: E402
+from leanctx_sdk import SubprocessInstanceClient  # noqa: E402
 from leanctx_sdk.preview import admit_egress  # noqa: E402
 
 OPENAI = "https://api.openai.com"
@@ -52,7 +52,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, help="path to the lean-ctx Engine binary")
     args = parser.parse_args()
-    engine = SubprocessEngineClient(args.engine)
+    engine = SubprocessInstanceClient(args.engine)
     root = tempfile.mkdtemp(prefix="leanctx-app-a-")
     credential = "AKIA" + "Q3EGRZ7DEMOX4KEY"
     for prompt in [

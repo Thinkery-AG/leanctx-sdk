@@ -1,4 +1,4 @@
-"""Product-owned lifecycle around one immutable intent and one Engine view."""
+"""Product-owned lifecycle around one immutable intent and one instance view."""
 
 from __future__ import annotations
 
@@ -6,14 +6,15 @@ import threading
 import uuid
 from typing import Mapping, Optional
 
-from .engine import EngineClient, SubprocessEngineClient
+from . import _deprecation
+from .instance import InstanceClient, SubprocessInstanceClient
 from .errors import (
     ArtifactIntegrityError,
-    EngineExecutionError,
-    EngineProtocolError,
-    EngineRejected,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceExecutionError,
+    InstanceProtocolError,
+    InstanceRejected,
+    InstanceTimeout,
+    InstanceUnavailable,
     RecoveryUnavailableError,
     SessionStateError,
     ValidationError,
@@ -70,8 +71,10 @@ class ContextSession:
         session_id: Optional[str] = None,
         task_id: Optional[str] = None,
         fail_open: bool = False,
-        engine: Optional[EngineClient] = None,
+        instance: Optional[InstanceClient] = None,
+        engine: Optional[InstanceClient] = None,
     ):
+        client = _deprecation.renamed_kwarg("engine", engine, "instance", instance, None)
         _text(task, "task", 16 * 1024, controls=False)
         if not isinstance(fail_open, bool):
             raise ValidationError("fail_open must be boolean")
@@ -81,7 +84,7 @@ class ContextSession:
         self._session_id = session_id or _runtime_id("session")
         self._task_id = task_id or _runtime_id("task")
         self._fail_open = fail_open
-        self._engine = engine if engine is not None else SubprocessEngineClient()
+        self._engine = client if client is not None else SubprocessInstanceClient()
         self._state = SessionState.CREATED.value
         self._plan: Optional[ContextPlan] = None
         self._plan_accessor = _PlanAccessor(self)
@@ -199,7 +202,7 @@ class ContextSession:
                 if self._view.status == "degraded":
                     self._add_degradation("engine:degraded")
                 return self._view
-            except (EngineUnavailable, EngineTimeout) as exc:
+            except (InstanceUnavailable, InstanceTimeout) as exc:
                 if self._fail_open:
                     self._add_degradation(f"engine:{exc.code}")
                     self._prepared = True
@@ -207,7 +210,7 @@ class ContextSession:
                     return None
                 self._abort_engine_failure(exc)
                 raise
-            except (EngineProtocolError, EngineRejected, EngineExecutionError) as exc:
+            except (InstanceProtocolError, InstanceRejected, InstanceExecutionError) as exc:
                 self._abort_engine_failure(exc)
                 raise
             except Exception as exc:
@@ -323,7 +326,7 @@ class ContextSession:
             )
             if not isinstance(result, RecoveredSource):
                 raise ArtifactIntegrityError(
-                    "Engine client returned an invalid recovery value"
+                    "Instance client returned an invalid recovery value"
                 )
             if (
                 result.recovery_ref != selected.recovery_ref
@@ -360,7 +363,7 @@ class ContextSession:
 
     def _abort_engine_failure(self, error: BaseException) -> None:
         self._first_error = error
-        if isinstance(error, EngineExecutionError) and error.view is not None:
+        if isinstance(error, InstanceExecutionError) and error.view is not None:
             self._view = error.view
         code = getattr(error, "code", "engine_error")
         self._add_degradation(f"engine:{code}")

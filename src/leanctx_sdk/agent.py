@@ -1,4 +1,4 @@
-"""Stable local coding-agent tools backed by one persistent LeanCTX Engine."""
+"""Stable local coding-agent tools backed by one persistent LeanCTX instance."""
 
 from __future__ import annotations
 
@@ -15,19 +15,21 @@ import signal
 import subprocess
 import tempfile
 import threading
+import time
 import unicodedata
 from types import MappingProxyType
 from typing import Callable, Mapping, Optional, Sequence, Tuple, Union, cast
 
+from . import _deprecation
 from .errors import (
     AgentPermissionError,
     ConfigurationError,
-    EngineCrashed,
-    EngineError,
-    EngineExecutionError,
-    EngineProtocolError,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceCrashed,
+    InstanceError,
+    InstanceExecutionError,
+    InstanceProtocolError,
+    InstanceTimeout,
+    InstanceUnavailable,
     UnsupportedCapabilityError,
     ValidationError,
 )
@@ -36,9 +38,30 @@ from .protocol import strict_json_loads
 AGENT_TOOLS_INTERFACE_VERSION = "1.0.0"
 AGENT_TOOLS_SCHEMA_VERSION = 1
 AGENT_TOOLS_TRANSPORT_VERSION = 1
-SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.4"
+SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.1"
+# The (interface, schema, transport, engine) pairs a hello is accepted for: the
+# rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
+# equal to it by scripts/check_language_versions.py. A pair that is not a row
+# is refused, whatever the instance says about itself.
+# agent-tools-compatibility: begin
+_ADMITTED_ENGINE_PAIRS = (
+    ("1.0.0", 1, 1, "3.11.0"),
+    ("1.0.0", 1, 1, "3.11.3"),
+    ("1.0.0", 1, 1, "3.11.4"),
+    ("1.0.0", 1, 1, "3.11.5"),
+    ("1.0.0", 1, 1, "3.12.0"),
+    ("1.0.0", 1, 1, "3.12.1"),
+)
+# agent-tools-compatibility: end
+_CLEANUP_WAIT_SECONDS = 10.0
+_REAP_SECONDS = 2.0
+_TASKKILL_SECONDS = 5.0
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+# Session containment (POSIX): the request to the instance binary and the line
+# its session starter answers with, before the instance itself is started.
+_SESSION_CONTAINMENT_ENV = "LEAN_CTX_SESSION_CONTAINMENT"
+_SESSION_CONTAINMENT_ACK = b'{"leanctx_session_containment":1}\n'
 _READ_TOOLS = frozenset(
     ("ctx_compose", "ctx_glob", "ctx_read", "ctx_search", "ctx_symbol", "ctx_tree")
 )
@@ -48,7 +71,9 @@ _FORBIDDEN_ENV = frozenset(
     (
         "COMSPEC",
         "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
         "HOME",
+        "LD_LIBRARY_PATH",
         "LD_PRELOAD",
         "PATH",
         "PATHEXT",
@@ -243,10 +268,14 @@ class AgentContext:
         task: str = "",
         permissions: AgentPermissions = AgentPermissions(),
         execution_policy: ExecutionPolicy = ExecutionPolicy(),
-        engine_binary: Union[os.PathLike[str], str] = "lean-ctx",
+        instance_binary: Optional[Union[os.PathLike[str], str]] = None,
         timeout: float = 30.0,
         gitlab_source: Optional[Union[GitLabSource, Mapping[str, object]]] = None,
+        engine_binary: Optional[Union[os.PathLike[str], str]] = None,
     ) -> None:
+        selected_binary = _deprecation.renamed_kwarg(
+            "engine_binary", engine_binary, "instance_binary", instance_binary, "lean-ctx"
+        )
         root = Path(project_root).expanduser().resolve(strict=True)
         if not root.is_dir():
             raise ConfigurationError("project_root must be a directory")
@@ -268,14 +297,14 @@ class AgentContext:
             raise ConfigurationError("timeout must be between 0.1 and 120 seconds")
         selected_gitlab = _copy_gitlab_source(gitlab_source)
 
-        binary = os.fspath(engine_binary)
+        binary = os.fspath(selected_binary)
         resolved_binary = (
             shutil.which(binary)
             if os.path.sep not in binary
             else os.path.abspath(binary)
         )
         if not resolved_binary or not os.path.isfile(resolved_binary):
-            raise EngineUnavailable("configured Engine binary is unavailable")
+            raise InstanceUnavailable("configured instance binary is unavailable")
 
         self.project_root = str(root)
         self.task = task
@@ -283,8 +312,10 @@ class AgentContext:
         self.execution_policy = execution_policy
         self._gitlab_source = selected_gitlab
         self.timeout = float(timeout)
-        self._engine_binary = resolved_binary
+        self._instance_binary = resolved_binary
         self._lock = threading.RLock()
+        self._terminate_lock = threading.Lock()
+        self._cleanup_failure: Optional[InstanceExecutionError] = None
         self._next_id = 0
         self._closed = False
         self._metrics = AgentMetrics()
@@ -300,7 +331,7 @@ class AgentContext:
         for name in ("SYSTEMROOT", "WINDIR"):
             if name in os.environ:
                 env[name] = os.environ[name]
-        # Host-selected Engine stores and privacy preference, never arbitrary
+        # Host-selected instance stores and privacy preference, never arbitrary
         # credentials or the environment of model-requested shell commands.
         for name in (
             "LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR",
@@ -312,6 +343,12 @@ class AgentContext:
             for name in ("PATH", "TMPDIR", "TEMP", "TMP"):
                 if name in os.environ:
                     env[name] = os.environ[name]
+        # Ask the instance to contain its session: on POSIX it runs as its own
+        # session starter, on Windows it joins a kill-on-close job. An instance
+        # that has the mode acknowledges on its first output line; one that
+        # has not ignores the variable.
+        self._session_containment = "unavailable"
+        env[_SESSION_CONTAINMENT_ENV] = "1"
         try:
             self._process = subprocess.Popen(
                 [
@@ -349,7 +386,7 @@ class AgentContext:
                     "schema_version": AGENT_TOOLS_SCHEMA_VERSION,
                     "transport_version": AGENT_TOOLS_TRANSPORT_VERSION,
                     "agent_tools_interface_version": AGENT_TOOLS_INTERFACE_VERSION,
-                    "sdk_version": "1.2.0",
+                    "sdk_version": "1.3.0",
                 }
             )
             self._accept_hello(result)
@@ -418,11 +455,21 @@ class AgentContext:
 
     def _reader_loop(self) -> None:
         assert self._process.stdout is not None
+        first = True
         while True:
             try:
                 raw = self._process.stdout.readline(MAX_RESPONSE_BYTES + 1)
             except OSError:
                 raw = b""
+            # Only the very first line can be the session starter's
+            # acknowledgement: it is written before the instance exists. It is
+            # recorded here, before any response is handed on, and is not a
+            # response itself.
+            if first:
+                first = False
+                if raw == _SESSION_CONTAINMENT_ACK:
+                    self._session_containment = "engine-starter"
+                    continue
             self._responses.put(raw)
             if not raw or len(raw) > MAX_RESPONSE_BYTES:
                 return
@@ -435,9 +482,12 @@ class AgentContext:
     ) -> Mapping[str, object]:
         with self._lock:
             if self._closed:
-                raise EngineCrashed("AgentContext is closed")
-            if self._process.poll() is not None:
-                raise EngineCrashed(self._crash_message())
+                raise InstanceCrashed("AgentContext is closed")
+            if self._engine_exited():
+                message = self._crash_message()
+                self._closed = True
+                self._terminate()
+                raise InstanceCrashed(message)
             request_id = self._request_id()
             envelope = dict(request)
             envelope["id"] = request_id
@@ -445,34 +495,73 @@ class AgentContext:
                 envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False
             ).encode("utf-8")
             if len(encoded) > MAX_REQUEST_BYTES:
-                raise EngineProtocolError("Agent Tools request exceeds its bound")
+                raise InstanceProtocolError("Agent Tools request exceeds its bound")
             assert self._process.stdin is not None
+            # One deadline covers the request write and the response. A pipe
+            # write blocks while the instance does not read, so a watchdog ends
+            # the process tree at the deadline; that fails the blocked write.
+            deadline = self.timeout if response_timeout is None else response_timeout
+            started = time.monotonic()
+            expired = threading.Event()
+
+            def write_deadline_expired() -> None:
+                expired.set()
+                try:
+                    self._terminate()
+                except Exception:
+                    pass
+
+            watchdog = threading.Timer(deadline, write_deadline_expired)
+            watchdog.daemon = True
+            watchdog.start()
+            self._writing = True
             try:
                 self._process.stdin.write(encoded + b"\n")
                 self._process.stdin.flush()
-            except (BrokenPipeError, OSError) as exc:
-                raise EngineCrashed(self._crash_message()) from exc
+            except (BrokenPipeError, OSError, ValueError) as exc:
+                self._writing = False
+                if expired.is_set() or self._closed:
+                    self._close_pipes()
+                if expired.is_set():
+                    raise InstanceTimeout(
+                        "Agent Tools request exceeded its deadline"
+                    ) from exc
+                if self._closed:
+                    raise InstanceCrashed("AgentContext is closed") from exc
+                message = self._crash_message()
+                self._closed = True
+                self._terminate()
+                raise InstanceCrashed(message) from exc
+            finally:
+                self._writing = False
+                watchdog.cancel()
+            if expired.is_set():
+                self._close_pipes()
+                raise InstanceTimeout("Agent Tools request exceeded its deadline")
             try:
                 raw = self._responses.get(
-                    timeout=self.timeout
-                    if response_timeout is None
-                    else response_timeout
+                    timeout=max(0.0, deadline - (time.monotonic() - started))
                 )
             except queue.Empty as exc:
                 self._terminate()
-                raise EngineTimeout(
+                raise InstanceTimeout(
                     "Agent Tools response exceeded its deadline"
                 ) from exc
             if not raw:
                 if self._closed:
-                    raise EngineCrashed("AgentContext is closed")
-                raise EngineCrashed(self._crash_message())
+                    raise InstanceCrashed("AgentContext is closed")
+                # A closed stdout is terminal even when the instance or one of
+                # its descendants is still running: end the whole tree.
+                message = self._crash_message()
+                self._closed = True
+                self._terminate()
+                raise InstanceCrashed(message)
             if len(raw) > MAX_RESPONSE_BYTES or not raw.endswith(b"\n"):
-                raise EngineProtocolError("Agent Tools response exceeds its bound")
+                raise self._protocol_failure("Agent Tools response exceeds its bound")
             try:
                 response = strict_json_loads(raw, label="Agent Tools response")
             except (UnicodeDecodeError, ValidationError) as exc:
-                raise EngineProtocolError(
+                raise self._protocol_failure(
                     "Agent Tools response is invalid JSON"
                 ) from exc
             if (
@@ -480,20 +569,32 @@ class AgentContext:
                 or response.get("id") != request_id
                 or not isinstance(response.get("ok"), bool)
             ):
-                raise EngineProtocolError("Agent Tools response envelope is invalid")
+                raise self._protocol_failure(
+                    "Agent Tools response envelope is invalid"
+                )
             expected_envelope = (
                 {"id", "ok", "result"} if response["ok"] else {"id", "ok", "error"}
             )
             if set(response) != expected_envelope:
-                raise EngineProtocolError(
+                raise self._protocol_failure(
                     "Agent Tools response envelope fields are invalid"
                 )
             if not response["ok"]:
                 self._raise_engine_error(response.get("error"))
             result = response.get("result")
             if not isinstance(result, dict):
-                raise EngineProtocolError("Agent Tools response omitted result")
+                raise self._protocol_failure("Agent Tools response omitted result")
             return result
+
+    def _protocol_failure(self, message: str) -> InstanceError:
+        """A malformed frame is terminal: the stream can no longer be trusted.
+
+        The process tree is ended and the context closed before the typed
+        error is returned; a cleanup failure takes precedence over it.
+        """
+        self._closed = True
+        self._terminate()
+        return InstanceProtocolError(message)
 
     def _raise_engine_error(self, value: object) -> None:
         if (
@@ -502,7 +603,7 @@ class AgentContext:
             or not isinstance(value.get("code"), str)
             or not isinstance(value.get("message"), str)
         ):
-            raise EngineProtocolError("Agent Tools error envelope is invalid")
+            raise self._protocol_failure("Agent Tools error envelope is invalid")
         code = value["code"]
         message = value["message"]
         if code == "permission_denied":
@@ -510,8 +611,8 @@ class AgentContext:
         if code == "unsupported_capability":
             raise UnsupportedCapabilityError(message)
         if code in ("invalid_request", "invalid_state", "unsupported_interface"):
-            raise EngineProtocolError(message)
-        raise EngineExecutionError(message)
+            raise InstanceProtocolError(message)
+        raise InstanceExecutionError(message)
 
     def _accept_hello(self, result: Mapping[str, object]) -> None:
         expected_fields = {
@@ -523,23 +624,34 @@ class AgentContext:
             "schema_version",
             "transport_version",
         }
+        # The two versions are JSON integers: `type(...) is int` refuses what
+        # `==` alone would take for 1 — true, 1.0 and 1e0.
         if set(result) != expected_fields or (
-            result.get("schema_version") != AGENT_TOOLS_SCHEMA_VERSION
+            type(result.get("schema_version")) is not int
+            or type(result.get("transport_version")) is not int
+            or result.get("schema_version") != AGENT_TOOLS_SCHEMA_VERSION
             or result.get("transport_version") != AGENT_TOOLS_TRANSPORT_VERSION
             or result.get("agent_tools_interface_version")
             != AGENT_TOOLS_INTERFACE_VERSION
-            or result.get("engine_version") != SUPPORTED_AGENT_TOOLS_ENGINE_VERSION
             or result.get("allow_write") is not self.permissions.write
             or result.get("allow_exec") is not self.permissions.execute
         ):
-            raise EngineProtocolError("Agent Tools hello is incompatible")
+            raise InstanceProtocolError("Agent Tools hello is incompatible")
+        engine_version = result.get("engine_version")
+        if not isinstance(engine_version, str) or (
+            AGENT_TOOLS_INTERFACE_VERSION,
+            AGENT_TOOLS_SCHEMA_VERSION,
+            AGENT_TOOLS_TRANSPORT_VERSION,
+            engine_version,
+        ) not in _ADMITTED_ENGINE_PAIRS:
+            raise InstanceProtocolError("Agent Tools instance pair is unsupported")
         capabilities = result.get("capabilities")
         if not isinstance(capabilities, list) or any(
             not isinstance(item, str) for item in capabilities
         ):
-            raise EngineProtocolError("Agent Tools capabilities are invalid")
+            raise InstanceProtocolError("Agent Tools capabilities are invalid")
         if capabilities != sorted(set(capabilities)):
-            raise EngineProtocolError("Agent Tools capabilities are not canonical")
+            raise InstanceProtocolError("Agent Tools capabilities are not canonical")
         expected = set(_READ_TOOLS)
         if self.permissions.write:
             expected.update(_WRITE_TOOLS)
@@ -548,12 +660,27 @@ class AgentContext:
         if self._gitlab_source is not None:
             expected.add("ctx_provider")
         if set(capabilities) != expected:
-            raise EngineProtocolError("Agent Tools capabilities do not match policy")
+            raise InstanceProtocolError("Agent Tools capabilities do not match policy")
         self._capabilities = tuple(capabilities)
 
     @property
     def capabilities(self) -> Tuple[str, ...]:
         return self._capabilities
+
+    @property
+    def session_containment(self) -> str:
+        """How the instance's process tree is contained: ``"engine-starter"`` or
+        ``"unavailable"``.
+
+        ``"engine-starter"``: the process this SDK started is the instance's
+        session starter. It runs the instance in a process group of its own,
+        ends that group when the instance exits, when this SDK ends the starter
+        or when this process is gone, and exits only afterwards.
+        ``"unavailable"`` is reduced containment: the instance binary has no
+        such mode (or the platform is Windows), and the SDK's own
+        process-group handling is all there is.
+        """
+        return self._session_containment
 
     @property
     def metrics(self) -> AgentMetrics:
@@ -583,7 +710,7 @@ class AgentContext:
     ) -> ToolResult:
         if tool not in self._capabilities:
             raise UnsupportedCapabilityError(
-                "Engine did not negotiate capability: " + tool
+                "Instance did not negotiate capability: " + tool
             )
         if not isinstance(arguments, Mapping) or any(
             not isinstance(key, str) for key in arguments
@@ -593,7 +720,10 @@ class AgentContext:
             {"op": "call", "tool": tool, "arguments": dict(arguments)},
             response_timeout=response_timeout,
         )
-        parsed = self._parse_tool_result(tool, result)
+        try:
+            parsed = self._parse_tool_result(tool, result)
+        except InstanceProtocolError as error:
+            raise self._protocol_failure(str(error)) from error
         self._metrics = AgentMetrics(
             tool_calls=self._metrics.tool_calls + 1,
             original_tokens=self._metrics.original_tokens + parsed.original_tokens,
@@ -614,7 +744,7 @@ class AgentContext:
             "shell",
         }
         if set(value) != expected:
-            raise EngineProtocolError("Agent Tools result fields are invalid")
+            raise InstanceProtocolError("Agent Tools result fields are invalid")
         text = value["text"]
         mode = value["mode"]
         shell_value = value["shell"]
@@ -622,7 +752,7 @@ class AgentContext:
         if not isinstance(text, str) or (
             mode is not None and not isinstance(mode, str)
         ):
-            raise EngineProtocolError("Agent Tools text or mode is invalid")
+            raise InstanceProtocolError("Agent Tools text or mode is invalid")
         integers = (
             value["original_tokens"],
             value["output_tokens"],
@@ -632,20 +762,20 @@ class AgentContext:
             isinstance(item, bool) or not isinstance(item, int) or item < 0
             for item in integers
         ):
-            raise EngineProtocolError("Agent Tools token metrics are invalid")
+            raise InstanceProtocolError("Agent Tools token metrics are invalid")
         original_tokens = cast(int, integers[0])
         output_tokens = cast(int, integers[1])
         saved_tokens = cast(int, integers[2])
         if output_tokens + saved_tokens != original_tokens:
-            raise EngineProtocolError("Agent Tools token metrics are inconsistent")
+            raise InstanceProtocolError("Agent Tools token metrics are inconsistent")
         if not isinstance(value["changed"], bool) or (
             shell_value is not None and not isinstance(shell_value, dict)
         ):
-            raise EngineProtocolError("Agent Tools status metadata is invalid")
+            raise InstanceProtocolError("Agent Tools status metadata is invalid")
         if not isinstance(content_blocks_value, list) or any(
             not isinstance(block, dict) for block in content_blocks_value
         ):
-            raise EngineProtocolError("Agent Tools content blocks are invalid")
+            raise InstanceProtocolError("Agent Tools content blocks are invalid")
         shell = (
             MappingProxyType(dict(shell_value))
             if isinstance(shell_value, dict)
@@ -798,19 +928,23 @@ class AgentContext:
     def close(self) -> None:
         with self._lock:
             if self._closed:
+                # Waits for a cleanup in progress and reports its stored result.
+                self._terminate()
                 return
             try:
                 self._exchange({"op": "close"})
-            except EngineError:
+            except InstanceError:
                 pass
             finally:
                 self._closed = True
                 self._terminate()
 
     def cancel(self) -> None:
-        """Terminate an in-flight session without retrying its current operation."""
-        if self._closed:
-            return
+        """Terminate an in-flight session without retrying its current operation.
+
+        Repeated and parallel calls wait for the one cleanup and report its
+        result: a failed cleanup is raised to every caller, never only once.
+        """
         self._closed = True
         self._terminate()
 
@@ -822,44 +956,241 @@ class AgentContext:
             task=self.task,
             permissions=self.permissions,
             execution_policy=self.execution_policy,
-            engine_binary=self._engine_binary,
+            instance_binary=self._instance_binary,
             timeout=self.timeout,
             gitlab_source=self._gitlab_source,
         )
 
     def _terminate(self) -> None:
+        """Ends the session through the one cleanup routine.
+
+        One caller at a time owns the cleanup; the others wait for it. A
+        cleanup failure is stored and raised to every later caller, so success
+        is reported only for a confirmed cleanup.
+        """
+        lock = getattr(self, "_terminate_lock", None)
+        if lock is None:
+            # The constructor failed before the context was fully built.
+            self._terminate_once()
+            return
+        # A caller that does not own the cleanup waits for the owner within its
+        # own budget; when that runs out it gets a typed error, never success.
+        if not lock.acquire(timeout=_CLEANUP_WAIT_SECONDS):
+            raise InstanceExecutionError("Agent Tools cleanup is still pending")
+        try:
+            failure = getattr(self, "_cleanup_failure", None)
+            if failure is not None:
+                raise failure
+            try:
+                self._terminate_once()
+            except InstanceExecutionError as error:
+                self._cleanup_failure = error
+                raise
+        finally:
+            lock.release()
+
+    def _engine_exited(self) -> bool:
+        """Whether the instance has exited, found out without reaping it.
+
+        The instance's process group is addressed by the leader's pid, and that
+        number is this context's own only while the leader is unreaped. Only
+        `_terminate_once` reaps, after its last signal. `Popen.poll()` would
+        reap as a side effect, so it is not used for a real POSIX child. Where
+        no non-reaping check exists the answer is "not known to have exited":
+        the request then fails on the pipe or at its deadline instead.
+        """
+        process = self._process
+        if process.returncode is not None:
+            return True
+        pid = getattr(process, "pid", None)
+        if os.name == "nt" or not isinstance(pid, int) or pid <= 0:
+            return process.poll() is not None
+        waitid = getattr(os, "waitid", None)
+        if waitid is None:
+            return False
+        try:
+            return (
+                waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                is not None
+            )
+        except ChildProcessError:
+            return True
+        except OSError:
+            return False
+
+    def _terminate_once(self) -> None:
         cleanup_error: Optional[BaseException] = None
         process = getattr(self, "_process", None)
-        if process is not None and process.poll() is None:
-            pid = getattr(process, "pid", None)
+        pid = getattr(process, "pid", None)
+        if (
+            process is not None
+            and os.name != "nt"
+            and isinstance(pid, int)
+            and pid > 0
+        ):
+            # Ownership rule: every signal goes out while the leader is
+            # unreaped — running or exited, an unreaped leader pins its pid and
+            # its group number. `returncode` is set only by a reap through this
+            # Popen object, and nothing but this method reaps. A leader that
+            # exited by itself is therefore still unreaped here, and the
+            # descendants it left in its group are ended with it. Once reaped,
+            # nothing is signalled by that number again.
+            if process.returncode is None:
+                cleanup_error = self._kill_posix_tree(pid)
+                if cleanup_error is None:
+                    cleanup_error = self._resend_group_kill(pid)
+                elif (
+                    isinstance(cleanup_error, PermissionError)
+                    and self._group_has_live_members(pid) is False
+                ):
+                    # Darwin reports EPERM for a group whose only member is
+                    # the exited, unreaped leader. Settled by looking, before
+                    # the reap; if the look fails the error stands.
+                    cleanup_error = None
+                # Every wait is bounded: an instance that cannot be reaped is a
+                # reported cleanup failure, not a hang.
+                try:
+                    process.wait(timeout=_REAP_SECONDS)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    try:
+                        process.wait(timeout=_REAP_SECONDS)
+                    except subprocess.TimeoutExpired as error:
+                        cleanup_error = cleanup_error or error
+        elif process is not None and process.poll() is None:
             if isinstance(pid, int) and pid > 0:
-                if os.name == "nt":
-                    result = subprocess.run(
-                        ("taskkill", "/F", "/T", "/PID", str(pid)),
-                        check=False,
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    if result.returncode != 0 and process.poll() is None:
-                        cleanup_error = OSError("taskkill failed")
-                else:
-                    cleanup_error = self._kill_posix_tree(pid)
+                cleanup_error = self._kill_windows_tree(pid)
             else:
                 process.terminate()
             try:
-                process.wait(timeout=2)
+                process.wait(timeout=_REAP_SECONDS)
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.wait()
+                try:
+                    process.wait(timeout=_REAP_SECONDS)
+                except subprocess.TimeoutExpired as error:
+                    cleanup_error = cleanup_error or error
+        self._close_pipes()
         stderr = getattr(self, "_stderr", None)
         if stderr is not None and not stderr.closed:
             stderr.close()
         self._remove_policy()
         if cleanup_error is not None:
-            raise EngineExecutionError(
+            raise InstanceExecutionError(
                 "Agent Tools process tree could not be terminated"
             ) from cleanup_error
+
+    @staticmethod
+    def _kill_windows_tree(pid: int) -> Optional[BaseException]:
+        """`taskkill /T` within a budget; a failed or hung tree kill is reported.
+
+        Exit status 128 means the process was already gone. A descendant whose
+        parent already exited is not reachable this way (needs a Job Object).
+        """
+        # Not subprocess.run(timeout=...): after its timeout that waits for the
+        # killed helper without any bound. Here the helper's own reap has a
+        # budget too, and a helper that overran or could not be ended is a
+        # failed tree kill.
+        try:
+            helper = subprocess.Popen(
+                ("taskkill", "/F", "/T", "/PID", str(pid)),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as error:
+            return error
+        try:
+            status = helper.wait(timeout=_TASKKILL_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            helper.kill()
+            try:
+                helper.wait(timeout=_REAP_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            return error
+        if status not in (0, 128):
+            return OSError("taskkill failed with status %d" % status)
+        return None
+
+    def _close_pipes(self) -> None:
+        """Release the pipe handles of an ended instance.
+
+        A stream is left alone while one of this context's own threads may
+        still be inside it; that thread's owner closes it afterwards.
+        """
+        process = getattr(self, "_process", None)
+        # `returncode`, not `poll()`: this may run on a caller's thread while
+        # the cleanup owner is still signalling, and `poll()` would reap.
+        if process is None or process.returncode is None:
+            return
+        reader = getattr(self, "_reader", None)
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=1)
+        for name in ("stdin", "stdout"):
+            stream = getattr(process, name, None)
+            if stream is None or getattr(stream, "closed", True):
+                continue
+            if name == "stdin" and getattr(self, "_writing", False):
+                continue
+            if name == "stdout" and reader is not None and reader.is_alive():
+                continue
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
+
+    @staticmethod
+    def _resend_group_kill(pid: int) -> Optional[BaseException]:
+        """Ends what a first group kill missed and confirms the group is empty.
+
+        A member that was in the middle of a fork when the group was signalled
+        can leave a child the signal did not reach. The group is signalled
+        again until the process table shows no live member, for at most one
+        second. Called only while the leader is unreaped, which is what keeps
+        the group number this context's own for the whole loop. Returns an
+        error if live members remain; returns None when the group is empty or
+        the process table cannot be read (then the result is unconfirmed).
+        """
+        for _ in range(3):
+            time.sleep(0.002)
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                break
+        deadline = time.monotonic() + 1.0
+        while AgentContext._group_has_live_members(pid):
+            if time.monotonic() > deadline:
+                return OSError("the instance's process group still has live members")
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            time.sleep(0.01)
+        return None
+
+    @staticmethod
+    def _group_has_live_members(pgid: int) -> Optional[bool]:
+        """Whether the group has a member that is not a zombie. Only observes.
+
+        None when the process table could not be read.
+        """
+        try:
+            output = subprocess.run(
+                ("ps", "-A", "-o", "pgid=", "-o", "stat="),
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=_REAP_SECONDS,
+            ).stdout.decode("ascii", "replace")
+        except (OSError, subprocess.SubprocessError):
+            return None
+        for line in output.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[0] == str(pgid) and not fields[1].startswith("Z"):
+                return True
+        return False
 
     @staticmethod
     def _kill_posix_tree(pid: int) -> Optional[BaseException]:
@@ -883,11 +1214,11 @@ class AgentContext:
 
     def _crash_message(self) -> str:
         if self._stderr.closed:
-            return "Agent Tools Engine exited"
+            return "Agent Tools instance exited"
         self._stderr.flush()
         self._stderr.seek(0)
         detail = self._stderr.read(4096).decode("utf-8", "replace").strip()
-        return "Agent Tools Engine exited" + ((": " + detail) if detail else "")
+        return "Agent Tools instance exited" + ((": " + detail) if detail else "")
 
     def __enter__(self) -> "AgentContext":
         return self
@@ -912,17 +1243,21 @@ class AsyncAgentContext:
         task: str = "",
         permissions: AgentPermissions = AgentPermissions(),
         execution_policy: ExecutionPolicy = ExecutionPolicy(),
-        engine_binary: Union[os.PathLike[str], str] = "lean-ctx",
+        instance_binary: Optional[Union[os.PathLike[str], str]] = None,
         timeout: float = 30.0,
         gitlab_source: Optional[Union[GitLabSource, Mapping[str, object]]] = None,
+        engine_binary: Optional[Union[os.PathLike[str], str]] = None,
     ) -> None:
+        selected_binary = _deprecation.renamed_kwarg(
+            "engine_binary", engine_binary, "instance_binary", instance_binary, "lean-ctx"
+        )
         self._factory: Callable[[], AgentContext] = partial(
             AgentContext,
             project_root,
             task=task,
             permissions=permissions,
             execution_policy=execution_policy,
-            engine_binary=engine_binary,
+            instance_binary=selected_binary,
             timeout=timeout,
             gitlab_source=_copy_gitlab_source(gitlab_source),
         )
@@ -936,12 +1271,16 @@ class AsyncAgentContext:
     @property
     def context(self) -> AgentContext:
         if self._context is None:
-            raise EngineUnavailable("AsyncAgentContext is not open")
+            raise InstanceUnavailable("AsyncAgentContext is not open")
         return self._context
 
     @property
     def capabilities(self) -> Tuple[str, ...]:
         return self.context.capabilities
+
+    @property
+    def session_containment(self) -> str:
+        return self.context.session_containment
 
     @property
     def metrics(self) -> AgentMetrics:

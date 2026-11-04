@@ -60,13 +60,13 @@ func newEnterprisePlanServer(t *testing.T, status int, payload []byte) (*httptes
 	return server, capture
 }
 
-func newEnterprisePlanClient(t *testing.T, server *httptest.Server) *EnterpriseEngineClient {
+func newEnterprisePlanClient(t *testing.T, server *httptest.Server) *EnterpriseInstanceClient {
 	t.Helper()
-	client, err := NewEnterpriseEngineClient(
+	client, err := NewEnterpriseInstanceClient(
 		server.URL,
 		"credential-test",
 		enterpriseTestTenant,
-		EngineContextClientOptions{AllowLoopbackHTTP: true},
+		InstanceContextClientOptions{AllowLoopbackHTTP: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -74,9 +74,9 @@ func newEnterprisePlanClient(t *testing.T, server *httptest.Server) *EnterpriseE
 	return client
 }
 
-func enterpriseTestRequest(t *testing.T) EnginePlanningRequest {
+func enterpriseTestRequest(t *testing.T) InstancePlanningRequest {
 	t.Helper()
-	request, err := NewEnginePlanningRequest("enterprise-task", "invoice ledger", 64, 64)
+	request, err := NewInstancePlanningRequest("enterprise-task", "invoice ledger", 64, 64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,11 +195,11 @@ func enterpriseErrorIs[T error](t *testing.T, err error) bool {
 	return errors.As(err, &target)
 }
 
-func assertEnterpriseProtocolError(t *testing.T, client *EnterpriseEngineClient, request EnginePlanningRequest, sourceIDs []string) {
+func assertEnterpriseProtocolError(t *testing.T, client *EnterpriseInstanceClient, request InstancePlanningRequest, sourceIDs []string) {
 	t.Helper()
 	_, err := client.ContextPlanSourcesContext(context.Background(), request, sourceIDs)
-	if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-		t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+	if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+		t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 	}
 	if strings.Contains(err.Error(), "credential-"+"test") {
 		t.Fatal("protocol error leaked the bearer credential")
@@ -411,7 +411,7 @@ func TestEnterpriseContextPlanSourcesRejectsNonCanonicalExtensionNumbers(t *test
 	// protocol integer fields whose lexical form must also be an integer.
 	for _, lexical := range []string{"1.5", "9007199254740992", "1e50"} {
 		t.Run(lexical, func(t *testing.T) {
-			if err := enterpriseExtensionValue(json.Number(lexical), 0); !enterpriseErrorIs[*EngineProtocolError](t, err) {
+			if err := enterpriseExtensionValue(json.Number(lexical), 0); !enterpriseErrorIs[*InstanceProtocolError](t, err) {
 				t.Fatalf("non-canonical extension number accepted without a projection digest: %v", err)
 			}
 			response := enterprisePlanResponseValue(t, enterpriseTestTenant, request.TaskID, enterpriseTestSource, request.BudgetTokens, "permitted")
@@ -470,7 +470,7 @@ func TestEnterpriseContextPlanSourcesMapsHTTPBoundaries(t *testing.T) {
 			name:   "redirect",
 			status: http.StatusTemporaryRedirect,
 			wantError: func(t *testing.T, err error) {
-				if !enterpriseErrorIs[*EngineProtocolError](t, err) {
+				if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
 					t.Fatalf("expected redirect protocol error, got %T: %v", err, err)
 				}
 			},
@@ -479,8 +479,8 @@ func TestEnterpriseContextPlanSourcesMapsHTTPBoundaries(t *testing.T) {
 			name:   "unauthorized",
 			status: http.StatusUnauthorized,
 			wantError: func(t *testing.T, err error) {
-				if !enterpriseErrorIs[*EngineRejected](t, err) {
-					t.Fatalf("expected EngineRejected, got %T: %v", err, err)
+				if !enterpriseErrorIs[*InstanceRejected](t, err) {
+					t.Fatalf("expected InstanceRejected, got %T: %v", err, err)
 				}
 			},
 		},
@@ -517,7 +517,7 @@ func TestEnterpriseContextPlanSourcesRejectsOversizedResponse(t *testing.T) {
 		bytes.Repeat([]byte("x"), enterpriseMaxResponseBytes+1),
 	)
 	_, err := newEnterprisePlanClient(t, server).ContextPlanSources(request, []string{enterpriseTestSource})
-	if !enterpriseErrorIs[*EngineProtocolError](t, err) {
+	if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
 		t.Fatalf("expected response-bound error, got %T: %v", err, err)
 	}
 	if capture.calls != 1 || strings.Contains(err.Error(), "credential-"+"test") {

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 
 /** Internal strict JSON codec shared by all public protocol boundaries. */
+@SuppressWarnings("removal")
 final class Json {
     static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private static final BigInteger MAX_SAFE = BigInteger.valueOf(MAX_SAFE_INTEGER);

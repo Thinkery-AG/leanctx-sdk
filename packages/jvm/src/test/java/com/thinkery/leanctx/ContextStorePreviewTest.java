@@ -44,7 +44,7 @@ class ContextStorePreviewTest {
             }
             for (Object name : names(kind, "invalid")) {
                 Object document = load(kind, "invalid", (String) name);
-                assertThrows(EngineProtocolError.class, () -> parser.getValue().apply(document),
+                assertThrows(InstanceProtocolError.class, () -> parser.getValue().apply(document),
                         kind + "/" + name);
             }
         }
@@ -67,9 +67,9 @@ class ContextStorePreviewTest {
 
     @Test
     void liveEngineFreshScopeAndUnknownTask() throws IOException {
-        String binary = System.getenv("LEANCTX_ENGINE_BINARY");
-        assumeTrue(binary != null && !binary.isBlank(), "needs a real Engine");
-        SubprocessEngineClient engine = new SubprocessEngineClient(binary);
+        String binary = TestEnv.get(TestEnv.INSTANCE_BINARY);
+        assumeTrue(binary != null && !binary.isBlank(), "needs a real LeanCTX instance");
+        SubprocessInstanceClient engine = new SubprocessInstanceClient(binary);
         // Private Engine storage refuses symlinked ancestors (macOS /var).
         String root = Files.createTempDirectory("leanctx-store-").toRealPath().toString();
         ContextStorePreview.ContextPolicyEvidence evidence = ContextStorePreview.readPolicyEvidence(

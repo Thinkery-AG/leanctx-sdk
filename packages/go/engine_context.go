@@ -25,22 +25,22 @@ const (
 	contextReadMaxURL         = 4096
 )
 
-// EngineContextClientOptions configures the guarded Engine context-read client.
-type EngineContextClientOptions struct {
+// InstanceContextClientOptions configures the guarded Engine context-read client.
+type InstanceContextClientOptions struct {
 	Timeout           time.Duration
 	AllowLoopbackHTTP bool
 }
 
-// EngineContextReadResult contains guarded text and the host's receipt metadata.
+// InstanceContextReadResult contains guarded text and the host's receipt metadata.
 // The metadata is not a signed receipt artifact and does not establish tenant binding.
-type EngineContextReadResult struct {
+type InstanceContextReadResult struct {
 	Text             string
 	CanonicalReceipt map[string]any
 	RawResponse      map[string]any
 }
 
-// EngineContextClient calls the public Engine's guarded context-read boundary.
-type EngineContextClient struct {
+// InstanceContextClient calls the public Engine's guarded context-read boundary.
+type InstanceContextClient struct {
 	endpoint   string
 	credential string
 	baseURL    string
@@ -48,12 +48,12 @@ type EngineContextClient struct {
 	httpClient *http.Client
 }
 
-// NewEngineContextClient constructs a bounded authenticated context-read client.
-func NewEngineContextClient(baseURL, credential string, options ...EngineContextClientOptions) (*EngineContextClient, error) {
+// NewInstanceContextClient constructs a bounded authenticated context-read client.
+func NewInstanceContextClient(baseURL, credential string, options ...InstanceContextClientOptions) (*InstanceContextClient, error) {
 	if len(options) > 1 {
-		return nil, NewConfigurationError("at most one EngineContextClientOptions value is allowed")
+		return nil, NewConfigurationError("at most one InstanceContextClientOptions value is allowed")
 	}
-	option := EngineContextClientOptions{Timeout: contextReadDefaultTimeout}
+	option := InstanceContextClientOptions{Timeout: contextReadDefaultTimeout}
 	if len(options) == 1 {
 		option = options[0]
 		if option.Timeout == 0 {
@@ -76,7 +76,7 @@ func NewEngineContextClient(baseURL, credential string, options ...EngineContext
 		DisableKeepAlives:  true,
 		DisableCompression: true,
 	}
-	return &EngineContextClient{
+	return &InstanceContextClient{
 		endpoint:   endpoint,
 		baseURL:    strings.TrimSuffix(endpoint, contextReadEndpoint),
 		credential: checkedCredential,
@@ -90,14 +90,14 @@ func noContextReadRedirect(_ *http.Request, _ []*http.Request) error {
 }
 
 // ContextRead executes one guarded Engine read with the client's bounded deadline.
-func (c *EngineContextClient) ContextRead(path string) (*EngineContextReadResult, error) {
+func (c *InstanceContextClient) ContextRead(path string) (*InstanceContextReadResult, error) {
 	return c.ContextReadContext(context.Background(), path)
 }
 
 // ContextReadContext executes one guarded Engine read with caller cancellation.
-func (c *EngineContextClient) ContextReadContext(parent context.Context, path string) (*EngineContextReadResult, error) {
+func (c *InstanceContextClient) ContextReadContext(parent context.Context, path string) (*InstanceContextReadResult, error) {
 	if c == nil || c.httpClient == nil {
-		return nil, NewConfigurationError("EngineContextClient is not initialized")
+		return nil, NewConfigurationError("InstanceContextClient is not initialized")
 	}
 	if parent == nil {
 		parent = context.Background()
@@ -115,81 +115,95 @@ func (c *EngineContextClient) ContextReadContext(parent context.Context, path st
 		"name": "ctx_read",
 	})
 	if err != nil {
-		return nil, NewEngineProtocolError("Engine context-read request is not canonical JSON")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read request is not canonical JSON")
 	}
 	if len(payload) > maxRequestBytes {
-		return nil, NewEngineProtocolError("Engine context-read request exceeds its byte bound")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read request exceeds its byte bound")
 	}
-	raw, err := c.postJSONContext(parent, contextReadEndpoint, payload, maxResponseBytes, "Engine context-read", "request")
+	raw, err := c.postJSONContext(parent, contextReadEndpoint, payload, maxResponseBytes, "LeanCTX instance context-read", "request")
 	if err != nil {
 		return nil, err
 	}
-	return parseEngineContextReadResponse(raw)
+	return parseInstanceContextReadResponse(raw)
 }
 
 // postJSONContext is the shared bounded authenticated transport for local and
 // Enterprise Engine operations. The path is always selected by a fixed SDK
 // operation; callers cannot supply a URL or follow a redirect.
-func (c *EngineContextClient) postJSONContext(parent context.Context, path string, payload []byte, maxResponseBytes int, operation, rejection string) ([]byte, error) {
+func (c *InstanceContextClient) postJSONContext(parent context.Context, path string, payload []byte, maxResponseBytes int, operation, rejection string) ([]byte, error) {
+	return c.postJSONPresentedContext(parent, path, payload, maxResponseBytes, operation, rejection, nil, "")
+}
+
+// postJSONPresentedContext is postJSONContext for an operation that may show a
+// presenter capability (a request header, never a body member) and that an
+// older suite or Engine may not serve: with a non-empty unsupported message,
+// 404, 405 and 501 become an UnsupportedInstanceError.
+func (c *InstanceContextClient) postJSONPresentedContext(parent context.Context, path string, payload []byte, maxResponseBytes int, operation, rejection string, presenter *PresenterCapability, unsupported string) ([]byte, error) {
 	if c == nil || c.httpClient == nil || c.baseURL == "" {
-		return nil, NewConfigurationError("EngineContextClient is not initialized")
+		return nil, NewConfigurationError("InstanceContextClient is not initialized")
 	}
 	if parent == nil {
 		parent = context.Background()
 	}
 	if path == "" || path[0] != '/' {
-		return nil, NewEngineProtocolError(operation + " path is invalid")
+		return nil, NewInstanceProtocolError(operation + " path is invalid")
 	}
 	requestContext, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
-		return nil, NewEngineUnavailable(operation + " request could not be created")
+		return nil, NewInstanceUnavailable(operation + " request could not be created")
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.credential)
 	request.Header.Set("Connection", "close")
+	if presenter != nil {
+		request.Header.Set(PresenterCapabilityHeader, presenter.Reveal())
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, contextTransportError(requestContext, err, operation)
 	}
 	defer response.Body.Close()
+	if unsupported != "" && (response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusMethodNotAllowed || response.StatusCode == http.StatusNotImplemented) {
+		return nil, NewUnsupportedInstanceError(unsupported)
+	}
 	if err := contextTransportStatus(response.StatusCode, operation, rejection); err != nil {
 		return nil, err
 	}
 	if response.ContentLength < -1 || response.ContentLength > int64(maxResponseBytes) {
-		return nil, NewEngineProtocolError(operation + " response exceeds its byte bound")
+		return nil, NewInstanceProtocolError(operation + " response exceeds its byte bound")
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, int64(maxResponseBytes)+1))
 	if err != nil {
 		return nil, contextTransportError(requestContext, err, operation)
 	}
 	if len(raw) > maxResponseBytes {
-		return nil, NewEngineProtocolError(operation + " response exceeds its byte bound")
+		return nil, NewInstanceProtocolError(operation + " response exceeds its byte bound")
 	}
 	return raw, nil
 }
 
 func contextTransportError(ctx context.Context, err error, operation string) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return NewEngineTimeout(operation + " request exceeded its deadline")
+		return NewInstanceTimeout(operation + " request exceeded its deadline")
 	}
-	return NewEngineUnavailable(operation + " request failed")
+	return NewInstanceUnavailable(operation + " request failed")
 }
 
 func contextTransportStatus(status int, operation, rejection string) error {
 	switch {
 	case status >= 300 && status < 400:
-		return NewEngineProtocolError(operation + " redirects are not followed")
+		return NewInstanceProtocolError(operation + " redirects are not followed")
 	case status == http.StatusUnauthorized:
-		return NewEngineRejected(operation+" authentication was rejected", nil, nil)
+		return NewInstanceRejected(operation+" authentication was rejected", nil, nil)
 	case status == http.StatusForbidden:
 		return NewPolicyAdmissionError(operation+" policy rejected the request", nil, nil)
 	case status >= 500:
-		return NewEngineUnavailable(operation + " returned a server error")
+		return NewInstanceUnavailable(operation + " returned a server error")
 	case status < 200 || status >= 300:
-		return NewEngineRejected(operation+" rejected the "+rejection, nil, nil)
+		return NewInstanceRejected(operation+" rejected the "+rejection, nil, nil)
 	default:
 		return nil
 	}
@@ -269,47 +283,47 @@ func contextReadPath(value string) (string, error) {
 	return value, nil
 }
 
-func parseEngineContextReadResponse(raw []byte) (*EngineContextReadResult, error) {
+func parseInstanceContextReadResponse(raw []byte) (*InstanceContextReadResult, error) {
 	if !contextReadUnicodeEscapesValid(raw) {
-		return nil, NewEngineProtocolError("Engine context-read response has an unpaired Unicode surrogate")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read response has an unpaired Unicode surrogate")
 	}
-	decoded, err := strictJSONLoads(raw, "Engine context-read response")
+	decoded, err := strictJSONLoads(raw, "LeanCTX instance context-read response")
 	if err != nil {
-		return nil, NewEngineProtocolError("Engine context-read response is not valid JSON")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read response is not valid JSON")
 	}
-	wrapper, err := objectValue(decoded, "Engine context-read response")
+	wrapper, err := objectValue(decoded, "LeanCTX instance context-read response")
 	if err != nil || len(wrapper) != 1 {
-		return nil, NewEngineProtocolError("Engine context-read response wrapper is invalid")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read response wrapper is invalid")
 	}
 	resultValue, ok := wrapper["result"]
 	if !ok {
-		return nil, NewEngineProtocolError("Engine context-read response wrapper is invalid")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read response wrapper is invalid")
 	}
-	result, err := objectValue(resultValue, "Engine context-read result")
+	result, err := objectValue(resultValue, "LeanCTX instance context-read result")
 	if err != nil {
 		return nil, err
 	}
 	if isError, present := result["isError"]; present && isError != nil {
 		value, ok := isError.(bool)
 		if !ok || value {
-			return nil, NewEngineProtocolError("Engine context-read returned an error result")
+			return nil, NewInstanceProtocolError("LeanCTX instance context-read returned an error result")
 		}
 	}
 	contentValue, ok := result["content"]
 	if !ok {
-		return nil, NewEngineProtocolError("Engine context-read content must contain one item")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read content must contain one item")
 	}
 	content, ok := contentValue.([]any)
 	if !ok || len(content) != 1 {
-		return nil, NewEngineProtocolError("Engine context-read content must contain one item")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read content must contain one item")
 	}
-	contentItem, err := objectValue(content[0], "Engine context-read content")
+	contentItem, err := objectValue(content[0], "LeanCTX instance context-read content")
 	if err != nil {
 		return nil, err
 	}
 	contentType, ok := contentItem["type"].(string)
 	if !ok || contentType != "text" {
-		return nil, NewEngineProtocolError("Engine context-read content must be text")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read content must be text")
 	}
 	text, err := contextReadText(contentItem["text"])
 	if err != nil {
@@ -317,33 +331,33 @@ func parseEngineContextReadResponse(raw []byte) (*EngineContextReadResult, error
 	}
 	metadataValue, ok := result["_meta"]
 	if !ok {
-		return nil, NewEngineProtocolError("Engine context-read metadata is missing")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read metadata is missing")
 	}
-	metadata, err := objectValue(metadataValue, "Engine context-read metadata")
+	metadata, err := objectValue(metadataValue, "LeanCTX instance context-read metadata")
 	if err != nil {
 		return nil, err
 	}
 	receiptValue, ok := metadata["canonical_receipt"]
 	if !ok {
-		return nil, NewEngineProtocolError("Engine context-read metadata is missing")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read metadata is missing")
 	}
 	receipt, err := parseContextReceipt(receiptValue)
 	if err != nil {
 		return nil, err
 	}
-	return &EngineContextReadResult{Text: text, CanonicalReceipt: receipt, RawResponse: wrapper}, nil
+	return &InstanceContextReadResult{Text: text, CanonicalReceipt: receipt, RawResponse: wrapper}, nil
 }
 
 func contextReadText(value any) (string, error) {
 	text, ok := value.(string)
 	if !ok || !utf8.ValidString(text) || len([]byte(text)) > maxTextBytes {
-		return "", NewEngineProtocolError("Engine context-read response text exceeds its byte bound")
+		return "", NewInstanceProtocolError("LeanCTX instance context-read response text exceeds its byte bound")
 	}
 	return text, nil
 }
 
 func parseContextReceipt(value any) (map[string]any, error) {
-	receipt, err := objectValue(value, "Engine context-read canonical receipt")
+	receipt, err := objectValue(value, "LeanCTX instance context-read canonical receipt")
 	if err != nil {
 		return nil, err
 	}
@@ -356,12 +370,12 @@ func parseContextReceipt(value any) (map[string]any, error) {
 		"schema_version": true, "receipt_id": true, "receipt_ref": true,
 		"receipt_digest": true, "outcome": true, "delivery": true,
 	}
-	if err := allowedObjectKeys(receipt, allowed, required, "Engine context-read canonical receipt"); err != nil {
+	if err := allowedObjectKeys(receipt, allowed, required, "LeanCTX instance context-read canonical receipt"); err != nil {
 		return nil, err
 	}
 	schema, ok := receipt["schema_version"].(json.Number)
 	if !ok || schema.String() != "1" {
-		return nil, NewEngineProtocolError("Engine context-read canonical receipt schema_version is unsupported")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read canonical receipt schema_version is unsupported")
 	}
 	if _, err := protocolRef(receipt["receipt_id"], "canonical_receipt.receipt_id"); err != nil {
 		return nil, err
@@ -375,15 +389,15 @@ func parseContextReceipt(value any) (map[string]any, error) {
 		return nil, err
 	}
 	if reference != "id:"+digest {
-		return nil, NewEngineProtocolError("Engine context-read canonical receipt reference is not digest-bound")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read canonical receipt reference is not digest-bound")
 	}
 	outcome, ok := receipt["outcome"].(string)
 	if !ok || outcome != "unknown" {
-		return nil, NewEngineProtocolError("Engine context-read canonical receipt outcome is unsupported")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read canonical receipt outcome is unsupported")
 	}
 	delivery, ok := receipt["delivery"].(string)
 	if !ok || delivery != "native_engine_view" {
-		return nil, NewEngineProtocolError("Engine context-read canonical receipt delivery is unsupported")
+		return nil, NewInstanceProtocolError("LeanCTX instance context-read canonical receipt delivery is unsupported")
 	}
 	for _, field := range []string{"context_decision_ref", "outcome_observation_ref"} {
 		if value, present := receipt[field]; present {

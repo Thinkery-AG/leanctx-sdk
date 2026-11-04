@@ -76,14 +76,14 @@ const (
 	SessionStateClosed    SessionState = "closed"
 )
 
-// EngineStatus is the status recorded by Engine observation evidence.
-type EngineStatus string
+// InstanceStatus is the status recorded by Engine observation evidence.
+type InstanceStatus string
 
 const (
-	EngineStatusSucceeded EngineStatus = "succeeded"
-	EngineStatusDegraded  EngineStatus = "degraded"
-	EngineStatusRejected  EngineStatus = "rejected"
-	EngineStatusFailed    EngineStatus = "failed"
+	InstanceStatusSucceeded InstanceStatus = "succeeded"
+	InstanceStatusDegraded  InstanceStatus = "degraded"
+	InstanceStatusRejected  InstanceStatus = "rejected"
+	InstanceStatusFailed    InstanceStatus = "failed"
 )
 
 // HostOutcome records the host-owned agent result.
@@ -114,9 +114,9 @@ const (
 	FreshnessRefresh Freshness = "refresh"
 )
 
-func validStatus(status EngineStatus) bool {
-	return status == EngineStatusSucceeded || status == EngineStatusDegraded ||
-		status == EngineStatusRejected || status == EngineStatusFailed
+func validStatus(status InstanceStatus) bool {
+	return status == InstanceStatusSucceeded || status == InstanceStatusDegraded ||
+		status == InstanceStatusRejected || status == InstanceStatusFailed
 }
 
 func validOutcome(outcome HostOutcome) bool {
@@ -1047,7 +1047,7 @@ type ContextViewOptions struct {
 	SourceRef              string
 	SourceDigest           string
 	RecoveryRef            string
-	Status                 EngineStatus
+	Status                 InstanceStatus
 	Measurements           []ContextMeasurement
 	Failure                *ContextFailure
 	ReceiptLink            *ContextReceiptLink
@@ -1067,7 +1067,7 @@ type ContextView struct {
 	SourceRef              string
 	SourceDigest           string
 	RecoveryRef            string
-	Status                 EngineStatus
+	Status                 InstanceStatus
 	Measurements           []ContextMeasurement
 	Failure                *ContextFailure
 	ReceiptLink            *ContextReceiptLink
@@ -1124,7 +1124,7 @@ func NewContextView(options ContextViewOptions) (*ContextView, error) {
 		}
 	}
 	if !validStatus(options.Status) {
-		return nil, NewValidationError("invalid Engine observation status")
+		return nil, NewValidationError("invalid instance observation status")
 	}
 	if len(options.Measurements) > maxMeasurements {
 		return nil, NewValidationError("too many measurements")
@@ -1249,7 +1249,7 @@ func (v ContextView) CapabilityVersion() string {
 
 func (v ContextView) RequireText() (string, error) {
 	if v.Text == nil {
-		return "", NewEngineExecutionError("Engine view has no text", nil, &v)
+		return "", NewInstanceExecutionError("LeanCTX instance view has no text", nil, &v)
 	}
 	return *v.Text, nil
 }
@@ -1262,7 +1262,7 @@ func (v ContextView) RecoveryBinding() map[string]string {
 }
 
 func (v ContextView) Verify() bool {
-	if v.Status != EngineStatusSucceeded && v.Status != EngineStatusDegraded {
+	if v.Status != InstanceStatusSucceeded && v.Status != InstanceStatusDegraded {
 		return false
 	}
 	if v.RecoveryRef == "" || v.OutputRef == nil || v.OutputDigest == nil || v.Text == nil {

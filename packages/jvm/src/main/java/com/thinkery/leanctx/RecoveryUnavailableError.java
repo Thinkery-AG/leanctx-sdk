@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
 /** Exact recovery cannot be completed from the available binding. */
+@SuppressWarnings("removal")
 public class RecoveryUnavailableError extends EngineExecutionError {
     public RecoveryUnavailableError() {
         this(null);

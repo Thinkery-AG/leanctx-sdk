@@ -2,7 +2,7 @@
 
 The public SDK v1 root intentionally does not import this module.  Values here
 are immutable canonical artifacts; Workspace lifecycle integration lives in
-``workspace.py`` and the Engine remains unaware of these Product contracts.
+``workspace.py`` and the instance remains unaware of these Product contracts.
 """
 
 from __future__ import annotations

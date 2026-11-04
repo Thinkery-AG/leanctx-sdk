@@ -1,3 +1,6 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -192,13 +195,29 @@ public sealed class AgentMetrics
 /// <summary>Persistent Agent Tools 1.1 JSONL client.</summary>
 public sealed class AgentContext : IAsyncDisposable, IDisposable
 {
-    private const string EngineInterfaceVersion = Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION;
+    // The (interface, schema, transport, engine) pairs a hello is accepted for: the
+    // rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
+    // equal to it by scripts/check_language_versions.py. A pair that is not a row
+    // is refused, whatever the LeanCTX instance says about itself.
+    // agent-tools-compatibility: begin
+    private static readonly (string Interface, long Schema, long Transport, string Engine)[] AdmittedEnginePairs =
+    {
+        ("1.0.0", 1, 1, "3.11.0"),
+        ("1.0.0", 1, 1, "3.11.3"),
+        ("1.0.0", 1, 1, "3.11.4"),
+        ("1.0.0", 1, 1, "3.11.5"),
+        ("1.0.0", 1, 1, "3.12.0"),
+        ("1.0.0", 1, 1, "3.12.1"),
+    };
+    // agent-tools-compatibility: end
     private static readonly HashSet<string> ReadTools = SetOf(
         "ctx_compose", "ctx_glob", "ctx_read", "ctx_search", "ctx_symbol", "ctx_tree");
     private static readonly HashSet<string> WriteTools = SetOf("ctx_edit", "ctx_fill", "ctx_patch");
     private static readonly HashSet<string> ExecuteTools = SetOf("ctx_shell");
     private readonly object sync = new();
     private readonly SemaphoreSlim writeLock = new(1, 1);
+    private readonly TaskCompletionSource cleanupDone =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, object?>>> pending = new();
     private readonly Process process;
     private readonly Task stdoutTask;
@@ -213,7 +232,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     private AgentMetrics metricsValue = new();
     private int terminal;
     private int helloAccepted;
-    private EngineError? cleanupError;
+    private InstanceError? cleanupError;
 
     public AgentContext(
         string projectRoot,
@@ -243,9 +262,9 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
             throw new ConfigurationError("execute permission requires at least one allowed executable");
         if (!double.IsFinite(timeout) || timeout < 0.1 || timeout > 120)
             throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
-        EngineBinary = engineBinary ?? Environment.GetEnvironmentVariable("LEANCTX_ENGINE_BIN") ?? "lean-ctx";
-        if (string.IsNullOrWhiteSpace(EngineBinary) || EngineBinary.Contains('\0'))
-            throw new ConfigurationError("engine_binary must be a non-empty path");
+        InstanceBinary = InstanceEnvironment.Binary(engineBinary);
+        if (string.IsNullOrWhiteSpace(InstanceBinary) || InstanceBinary.Contains('\0'))
+            throw new ConfigurationError("instance_binary must be a non-empty path");
         Timeout = timeout;
         this.gitlabSource = gitlabSource;
         policyDirectory = Path.Combine(ProjectRoot, $".leanctx-agent-{Guid.NewGuid():N}");
@@ -283,10 +302,21 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     public string Task { get; }
     public AgentPermissions Permissions { get; }
     public ExecutionPolicy ExecutionPolicy { get; }
-    public string EngineBinary { get; }
+    public string InstanceBinary { get; }
+
+    /// <summary>Deprecated name of <see cref="InstanceBinary"/>; removed in 2.0.</summary>
+    [Obsolete("Use InstanceBinary; removed in 2.0")]
+    public string EngineBinary => InstanceBinary;
     public double Timeout { get; }
     public GitLabSource? GitLabSource => gitlabSource;
     public IReadOnlyList<string> Capabilities => capabilitiesValue;
+    /// <summary>
+    /// How the instance's process tree is contained; see <see cref="Thinkery.LeanCtx.SessionContainment"/>.
+    /// Final once the context is open: the acknowledgement precedes the instance's first response.
+    /// </summary>
+    public SessionContainment SessionContainment =>
+        sessionContained ? SessionContainment.InstanceStarter : SessionContainment.Unavailable;
+    private volatile bool sessionContained;
     public AgentMetrics Metrics => metricsValue;
     public Task ReadyAsync() => readyTask;
 
@@ -537,24 +567,19 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
 
     public async Task CloseAsync()
     {
-        if (Volatile.Read(ref terminal) != 0)
+        if (Volatile.Read(ref terminal) == 0)
         {
-            await ReapAsync().ConfigureAwait(false);
-            await stdoutTask.ConfigureAwait(false);
-            if (cleanupError is not null)
-                throw cleanupError;
-            return;
+            try
+            {
+                await ExchangeRawAsync(Args(("op", "close")), bypassReady: false,
+                    Timeout, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (InstanceError) { }
         }
-        try
-        {
-            await ExchangeRawAsync(Args(("op", "close")), bypassReady: false,
-                Timeout, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (EngineError) { }
+        // Owner or waiter: either way this returns only once the one cleanup
+        // has finished, or throws when it failed or is still pending.
         await TerminateAsync(null).ConfigureAwait(false);
-        await stdoutTask.ConfigureAwait(false);
-        if (cleanupError is not null)
-            throw cleanupError;
+        await ConfirmCleanupAsync().ConfigureAwait(false);
     }
 
     public void Close() => CloseAsync().GetAwaiter().GetResult();
@@ -562,9 +587,28 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     public async Task CancelAsync()
     {
         await TerminateAsync(new EngineCrashed("AgentContext cancelled")).ConfigureAwait(false);
-        await stdoutTask.ConfigureAwait(false);
+        await ConfirmCleanupAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reports the stored outcome of the one cleanup. A stored failure is
+    /// thrown before anything else is awaited: with a LeanCTX instance that survived,
+    /// the reader may never finish. Success is reported only when the reader
+    /// has stopped and the policy is gone.
+    /// </summary>
+    private async Task ConfirmCleanupAsync()
+    {
         if (cleanupError is not null)
             throw cleanupError;
+        try { await stdoutTask.WaitAsync(ReapBudget).ConfigureAwait(false); }
+        catch (TimeoutException)
+        {
+            cleanupError ??= new EngineExecutionError(
+                "Agent Tools reader did not stop within its budget");
+        }
+        if (cleanupError is not null)
+            throw cleanupError;
+        RequirePolicyRemoved();
     }
     public void Cancel() => CancelAsync().GetAwaiter().GetResult();
 
@@ -572,7 +616,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
     {
         await CloseAsync().ConfigureAwait(false);
         return await OpenAsync(ProjectRoot, Task.Length == 0 ? null : Task, Permissions, ExecutionPolicy,
-            EngineBinary, Timeout, gitlabSource).ConfigureAwait(false);
+            InstanceBinary, Timeout, gitlabSource).ConfigureAwait(false);
     }
 
     public AgentContext Reconnect() => ReconnectAsync().GetAwaiter().GetResult();
@@ -597,7 +641,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         }
         catch (Exception error)
         {
-            var typed = error as EngineError ?? new EngineProtocolError(
+            var typed = error as InstanceError ?? new EngineProtocolError(
                 "Agent Tools startup failed", error);
             await TerminateAsync(typed).ConfigureAwait(false);
             throw typed;
@@ -609,18 +653,31 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         try
         {
             var reader = new BoundedLineReader(process.StandardOutput.BaseStream);
+            // Only the very first line can be the session starter's
+            // acknowledgement: it is written before the LeanCTX instance exists. It is
+            // recorded and is not a response.
+            var firstLine = true;
             while (Volatile.Read(ref terminal) == 0)
             {
                 var line = await reader.ReadLineAsync(WireJson.MaxResponseBytes).ConfigureAwait(false);
                 if (line is null)
                     break;
+                if (firstLine)
+                {
+                    firstLine = false;
+                    if (SessionContainmentProtocol.IsAck(line))
+                    {
+                        sessionContained = true;
+                        continue;
+                    }
+                }
                 Dictionary<string, object?> response;
                 try
                 {
                     response = WireJson.ParseObject(line, "Agent Tools response",
                         WireJson.MaxResponseBytes);
                 }
-                catch (EngineProtocolError) { throw; }
+                catch (InstanceProtocolError) { throw; }
                 Dispatch(response);
             }
             if (Volatile.Read(ref terminal) == 0)
@@ -629,7 +686,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
                 await TerminateAsync(new EngineCrashed(message)).ConfigureAwait(false);
             }
         }
-        catch (EngineProtocolError error)
+        catch (InstanceProtocolError error)
         {
             await TerminateFromReaderAsync(error).ConfigureAwait(false);
         }
@@ -638,20 +695,21 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
             await TerminateFromReaderAsync(new EngineProtocolError(
                 "Agent Tools response is invalid", error)).ConfigureAwait(false);
         }
-        catch (Exception error) when (error is IOException or DecoderFallbackException)
+        catch (Exception error) when (error is IOException or DecoderFallbackException
+            or ObjectDisposedException or OperationCanceledException)
         {
-            await TerminateFromReaderAsync(new EngineCrashed("Agent Tools Engine exited", error))
+            await TerminateFromReaderAsync(new EngineCrashed("Agent Tools instance exited", error))
                 .ConfigureAwait(false);
         }
     }
 
-    private async Task TerminateFromReaderAsync(EngineError error)
+    private async Task TerminateFromReaderAsync(InstanceError error)
     {
         try
         {
             await TerminateAsync(error).ConfigureAwait(false);
         }
-        catch (EngineError cleanup)
+        catch (InstanceError cleanup)
         {
             cleanupError = cleanup;
             foreach (var pair in pending)
@@ -738,7 +796,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         CancellationToken cancellationToken)
     {
         if (!capabilitiesValue.Contains(tool, StringComparer.Ordinal))
-            throw new UnsupportedCapabilityError($"Engine did not negotiate capability: {tool}");
+            throw new UnsupportedCapabilityError($"LeanCTX instance did not negotiate capability: {tool}");
         var canonical = WireJson.CanonicalBytes(arguments);
         if (canonical.Length > WireJson.MaxAgentRequestBytes)
             throw new ValidationError("arguments exceed the request bound");
@@ -746,7 +804,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
             ("arguments", arguments)), false, responseTimeout, cancellationToken).ConfigureAwait(false);
         ToolResult parsed;
         try { parsed = ParseToolResult(tool, result); }
-        catch (EngineProtocolError error)
+        catch (InstanceProtocolError error)
         {
             await TerminateAsync(error).ConfigureAwait(false);
             throw;
@@ -788,16 +846,28 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
             cancellationToken, timeoutSource.Token);
         try
         {
-            await writeLock.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                await process.StandardInput.BaseStream.WriteAsync(bytes, linked.Token)
-                    .ConfigureAwait(false);
-                await process.StandardInput.BaseStream.FlushAsync(linked.Token)
-                    .ConfigureAwait(false);
-            }
-            finally { writeLock.Release(); }
+            // One deadline covers the request write and the response. A pipe write
+            // need not observe a cancellation token once it has started, so the
+            // write runs detached and this call waits for it under the token;
+            // termination then ends the LeanCTX instance, which fails the abandoned write.
+            var write = WriteRequestAsync(bytes);
+            _ = write.ContinueWith(static task => { _ = task.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            await write.WaitAsync(linked.Token).ConfigureAwait(false);
             return await waiter.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not SDKError &&
+            error is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // The LeanCTX instance stopped reading because it is gone: a typed terminal
+            // error, never a raw I/O exception.
+            pending.TryRemove(id, out _);
+            if (waiter.Task.IsFaulted)
+                await waiter.Task.ConfigureAwait(false);
+            var crashed = new EngineCrashed(CrashMessage(), error);
+            await TerminateAsync(crashed).ConfigureAwait(false);
+            throw crashed;
         }
         catch (OperationCanceledException)
         {
@@ -820,6 +890,25 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes one framed request. Runs off the caller's thread and takes no
+    /// cancellation token: the caller bounds it, termination unblocks it.
+    /// </summary>
+    private async Task WriteRequestAsync(ReadOnlyMemory<byte> bytes)
+    {
+        await writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await System.Threading.Tasks.Task.Run(async () =>
+            {
+                var input = process.StandardInput.BaseStream;
+                await input.WriteAsync(bytes).ConfigureAwait(false);
+                await input.FlushAsync().ConfigureAwait(false);
+            }).ConfigureAwait(false);
+        }
+        finally { writeLock.Release(); }
+    }
+
     private void AcceptHello(IReadOnlyDictionary<string, object?> value)
     {
         var expected = SetOf("agent_tools_interface_version", "allow_exec", "allow_write",
@@ -827,13 +916,18 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         if (value.Count != expected.Count || value.Keys.Any(key => !expected.Contains(key)) ||
             value.GetValueOrDefault("agent_tools_interface_version") as string !=
                 Constants.AGENT_TOOLS_INTERFACE_VERSION ||
-            value.GetValueOrDefault("engine_version") as string != EngineInterfaceVersion ||
             value.GetValueOrDefault("schema_version") is not long schema || schema != 1 ||
             value.GetValueOrDefault("transport_version") is not long transport || transport != 1 ||
             value.GetValueOrDefault("allow_write") is not bool allowWrite ||
             value.GetValueOrDefault("allow_exec") is not bool allowExec ||
             allowWrite != Permissions.Write || allowExec != Permissions.Execute)
             throw new EngineProtocolError("Agent Tools hello is incompatible");
+        if (value.GetValueOrDefault("engine_version") is not string engineVersion ||
+            !AdmittedEnginePairs.Any(pair =>
+                pair.Interface == Constants.AGENT_TOOLS_INTERFACE_VERSION &&
+                pair.Schema == schema && pair.Transport == transport &&
+                pair.Engine == engineVersion))
+            throw new EngineProtocolError("Agent Tools instance pair is unsupported");
         if (value.GetValueOrDefault("capabilities") is not List<object?> rawCapabilities ||
             rawCapabilities.Any(item => item is not string))
             throw new EngineProtocolError("Agent Tools capabilities are invalid");
@@ -917,7 +1011,15 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
                     waiter.TrySetException(failure);
             }
             RemovePolicy();
-            KillAndReap(process);
+            // This caller owns the one cleanup. Its failure is stored for every
+            // later caller, and cleanupDone releases those that wait for it.
+            try { KillAndReap(process); }
+            catch (InstanceError cleanupFailure)
+            {
+                cleanupError ??= cleanupFailure;
+                throw;
+            }
+            finally { cleanupDone.TrySetResult(); }
         }
         else
         {
@@ -926,18 +1028,44 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
                 if (pending.TryRemove(pair.Key, out var waiter))
                     waiter.TrySetException(error ?? new EngineCrashed("AgentContext terminated"));
             }
+            // Another caller owns the cleanup: wait for it, bounded, so that
+            // nobody reports success before the cleanup is confirmed.
+            try
+            {
+                await cleanupDone.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                throw new EngineExecutionError("Agent Tools cleanup is still pending");
+            }
+            // The owner's cleanup failed: its stored failure is the outcome.
+            // There is nothing left to wait for that could still succeed.
+            if (cleanupError is not null)
+                return;
         }
         await ReapAsync().ConfigureAwait(false);
     }
 
     private async Task ReapAsync()
     {
-        try { await process.WaitForExitAsync().ConfigureAwait(false); }
+        // Both waits are bounded: a LeanCTX instance that cannot be reaped is a stored
+        // cleanup failure for every later Cancel and Close, not a hang.
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(ReapBudget).ConfigureAwait(false);
+        }
         catch (InvalidOperationException) { }
+        catch (TimeoutException)
+        {
+            cleanupError ??= new EngineExecutionError(
+                "Agent Tools process could not be reaped within its budget");
+        }
         RemovePolicy();
-        try { await stderrTask.ConfigureAwait(false); }
+        try { await stderrTask.WaitAsync(ReapBudget).ConfigureAwait(false); }
         catch { }
     }
+
+    private static readonly TimeSpan ReapBudget = TimeSpan.FromSeconds(5);
 
     private async Task ReadStdErrAsync(Stream stream)
     {
@@ -961,7 +1089,9 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
 
     private async Task<string> CrashMessageAsync()
     {
-        try { await stderrTask.ConfigureAwait(false); }
+        // A closed stdout is terminal even when the LeanCTX instance keeps running and holds
+        // stderr open: wait briefly for diagnostics, never indefinitely.
+        try { await stderrTask.WaitAsync(TimeSpan.FromMilliseconds(200)).ConfigureAwait(false); }
         catch { }
         return CrashMessage();
     }
@@ -971,8 +1101,8 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         lock (sync)
         {
             var detail = Encoding.UTF8.GetString(stderr.ToArray()).Trim();
-            return detail.Length == 0 ? "Agent Tools Engine exited" :
-                "Agent Tools Engine exited: " + detail[..Math.Min(detail.Length, 4096)];
+            return detail.Length == 0 ? "Agent Tools instance exited" :
+                "Agent Tools instance exited: " + detail[..Math.Min(detail.Length, 4096)];
         }
     }
 
@@ -1003,12 +1133,22 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         child.StartInfo.Environment["LC_ALL"] = "C";
         child.StartInfo.Environment["PYTHONHASHSEED"] = "0";
         child.StartInfo.Environment["TZ"] = "UTC";
-        // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+        // Host-selected LeanCTX instance stores/privacy only; shell execution keeps its own policy.
         foreach (var name in new[] { "LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK" })
         {
             var value = Environment.GetEnvironmentVariable(name);
             if (value is not null) child.StartInfo.Environment[name] = value;
         }
+        // Executable resolution needs a search path; forward it only under the execute permission.
+        if (Permissions.Execute)
+        {
+            foreach (var name in new[] { "PATH", "TMPDIR", "TEMP", "TMP" })
+            {
+                var value = Environment.GetEnvironmentVariable(name);
+                if (value is not null) child.StartInfo.Environment[name] = value;
+            }
+        }
+        SessionContainmentProtocol.Request(child.StartInfo);
         try
         {
             if (!child.Start())
@@ -1018,26 +1158,26 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             child.Dispose();
-            throw new EngineUnavailable("Agent Tools Engine could not be started", error);
+            throw new EngineUnavailable("Agent Tools instance could not be started", error);
         }
     }
 
     private string ResolveBinary()
     {
-        var candidate = EngineBinary;
+        var candidate = InstanceBinary;
         if (!Path.IsPathRooted(candidate) && !candidate.Contains('/') && !candidate.Contains('\\'))
         {
             var paths = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
                 .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
             candidate = paths.Select(path => Path.GetFullPath(Path.Combine(path, candidate)))
                 .FirstOrDefault(IsExecutableFile) ??
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
         }
         else
         {
             candidate = Path.GetFullPath(candidate);
             if (!IsExecutableFile(candidate))
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
         }
         return candidate;
     }
@@ -1107,6 +1247,10 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         finally { child.Dispose(); }
     }
 
+    /// <summary>
+    /// Removes exactly the policy file and directory this context created; the
+    /// directory is never removed recursively. Idempotent.
+    /// </summary>
     private void RemovePolicy()
     {
         try { if (File.Exists(policyPath)) File.Delete(policyPath); }
@@ -1115,6 +1259,14 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         try { if (Directory.Exists(policyDirectory)) Directory.Delete(policyDirectory); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>A cleanup failure never passes as a clean termination.</summary>
+    private void RequirePolicyRemoved()
+    {
+        RemovePolicy();
+        if (File.Exists(policyPath) || Directory.Exists(policyDirectory))
+            throw new EngineExecutionError("Agent Tools policy could not be removed");
     }
 
     private static void SetFileMode(string path)
@@ -1192,6 +1344,7 @@ public sealed class AsyncAgentContext : IAsyncDisposable
     }
 
     public IReadOnlyList<string> Capabilities => Current.Capabilities;
+    public SessionContainment SessionContainment => Current.SessionContainment;
     public AgentMetrics Metrics => Current.Metrics;
     public Task ReadyAsync() => Current.ReadyAsync();
     public Task<ToolResult> CallAsync(string tool,

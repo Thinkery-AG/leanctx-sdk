@@ -24,7 +24,7 @@ func providerExecutionPlanFixture() map[string]any {
 	return plan
 }
 
-func providerExecutionRequestFixture(t *testing.T) EngineProviderExecutionRequest {
+func providerExecutionRequestFixture(t *testing.T) InstanceProviderExecutionRequest {
 	t.Helper()
 	materialization := enterpriseMaterializationRequest(
 		t,
@@ -34,7 +34,7 @@ func providerExecutionRequestFixture(t *testing.T) EngineProviderExecutionReques
 	)
 	evaluationTime := "2026-09-20T12:34:56Z"
 	materialization.PlanningEvaluationTime = &evaluationTime
-	return EngineProviderExecutionRequest{
+	return InstanceProviderExecutionRequest{
 		Task:            providerExecutionTaskFixture(),
 		Plan:            providerExecutionPlanFixture(),
 		Materialization: materialization,
@@ -156,48 +156,48 @@ func TestEnterpriseProviderExecutePostsBoundedRequestAndParsesSuccess(t *testing
 func TestEnterpriseProviderExecuteRejectsInvalidInputBeforeHTTP(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*EngineProviderExecutionRequest)
+		mutate func(*InstanceProviderExecutionRequest)
 	}{
 		{
 			name: "local-native provider",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.Plan["provider"] = "local-native"
 				request.Plan["model"] = "local-native"
 			},
 		},
 		{
 			name: "retry",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.Plan["max_retries"] = uint64(1)
 			},
 		},
 		{
 			name: "fallback",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.Plan["fallback_refs"] = []any{"provider-fallback"}
 			},
 		},
 		{
 			name: "missing context plan",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				delete(request.Plan, "context_plan_id")
 			},
 		},
 		{
 			name: "budget exceeds planning request",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.Plan["context_budget_tokens"] = uint64(65)
 			},
 		},
 		{
 			name: "output bound",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.MaxOutputTokens = 65_537
 			},
 		},
 		{
 			name: "lexical request integer",
-			mutate: func(request *EngineProviderExecutionRequest) {
+			mutate: func(request *InstanceProviderExecutionRequest) {
 				request.Plan["max_retries"] = json.Number("0.0")
 			},
 		},
@@ -315,8 +315,8 @@ func TestEnterpriseProviderExecuteRejectsResponseTamperingAndNonCanonicalInteger
 			}
 			server, _ := newEnterprisePlanServer(t, http.StatusOK, payload)
 			_, err := newEnterprisePlanClient(t, server).ProviderExecute(providerExecutionRequestFixture(t))
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 		})
 	}
@@ -329,7 +329,7 @@ func TestEnterpriseProviderExecuteRejectsResponseIdentityChanges(t *testing.T) {
 			response[field] = "different"
 			server, _ := newEnterprisePlanServer(t, http.StatusOK, providerExecutionResponseBytes(t, response))
 			_, err := newEnterprisePlanClient(t, server).ProviderExecute(providerExecutionRequestFixture(t))
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
 				t.Fatalf("expected identity rejection, got %T: %v", err, err)
 			}
 		})

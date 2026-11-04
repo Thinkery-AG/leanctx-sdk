@@ -1,24 +1,30 @@
 package com.thinkery.leanctx;
 
-/** Base class for failures at the public Engine process boundary. */
-public class EngineError extends SDKError {
+/**
+ * Deprecated alias of {@link InstanceError}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineError e)} and {@code catch (InstanceError e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceError}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public class EngineError extends InstanceError {
     public EngineError() {
-        this(null);
+        super();
     }
 
     public EngineError(String message) {
-        this(message, null);
+        super(message);
     }
 
     public EngineError(String message, Throwable cause) {
-        super(message, cause, "engine_error",
-                "preserve Engine evidence and classify the concrete error",
-                false, false, true, false, false);
+        super(message, cause);
     }
 
     protected EngineError(String message, Throwable cause, String code, String guidance,
-                          boolean retryable, boolean degradeAllowed, boolean abortRequired,
-                          boolean configurationFix, boolean versionChange) {
+                     boolean retryable, boolean degradeAllowed, boolean abortRequired,
+                     boolean configurationFix, boolean versionChange) {
         super(message, cause, code, guidance, retryable, degradeAllowed, abortRequired,
                 configurationFix, versionChange);
     }

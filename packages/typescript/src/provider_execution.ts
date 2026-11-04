@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** Strict TypeScript validation for governed Engine provider execution. */
 
-import { EngineProtocolError, ValidationError } from "./errors.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
 import {
   ENGINE_INTERFACE_VERSION,
   MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
-  EnginePlanningRequest,
+  InstancePlanningRequest,
 } from "./planning.js";
 import { sha256Digest, strictJsonLoads, validateDigest, validateRef } from "./protocol.js";
 import { validatePlan, validateTask } from "./source_execution.js";
@@ -51,12 +51,12 @@ const COST_BASES = new Set(["unavailable", "usage_priced_estimate", "observed_ch
 
 type JsonRecord = Record<string, unknown>;
 
-export type EngineProviderExecutionOutput = Readonly<{
+export type InstanceProviderExecutionOutput = Readonly<{
   content: string;
   sha256_digest: string;
 }>;
 
-export type EngineProviderExecutionUsage = Readonly<{
+export type InstanceProviderExecutionUsage = Readonly<{
   state: "measured" | "estimated" | "unavailable";
   uncached_input_tokens: number | null;
   cache_write_input_tokens: number | null;
@@ -65,12 +65,12 @@ export type EngineProviderExecutionUsage = Readonly<{
   output_tokens: number | null;
 }>;
 
-export type EngineProviderExecutionCost = Readonly<
+export type InstanceProviderExecutionCost = Readonly<
   | { basis: "unavailable" }
   | { basis: "usage_priced_estimate" | "observed_charge"; micros: number }
 >;
 
-export type EngineProviderExecutionFailure = Readonly<{
+export type InstanceProviderExecutionFailure = Readonly<{
   code:
     | "policy_rejected"
     | "source_unavailable"
@@ -82,7 +82,7 @@ export type EngineProviderExecutionFailure = Readonly<{
   recovery_ref?: string | null;
 }>;
 
-export type EngineProviderExecutionResponse = Readonly<{
+export type InstanceProviderExecutionResponse = Readonly<{
   schema_version: 1;
   transport_version: 1;
   engine_interface_version: "1.0.0";
@@ -95,10 +95,10 @@ export type EngineProviderExecutionResponse = Readonly<{
   model: string;
   status: "succeeded" | "failed" | "rejected" | "timed_out" | "dispatch_uncertain";
   acceptance: "unknown";
-  output?: EngineProviderExecutionOutput | null;
-  usage: EngineProviderExecutionUsage;
-  cost: EngineProviderExecutionCost;
-  failure?: EngineProviderExecutionFailure | null;
+  output?: InstanceProviderExecutionOutput | null;
+  usage: InstanceProviderExecutionUsage;
+  cost: InstanceProviderExecutionCost;
+  failure?: InstanceProviderExecutionFailure | null;
 }>;
 
 export type ProviderExecutionRequestValidation = Readonly<{
@@ -136,14 +136,14 @@ function protocolInteger(
     || value < minimum
     || value > maximum
   ) {
-    throw new EngineProtocolError(fieldName + " is outside its protocol bounds");
+    throw new InstanceProtocolError(fieldName + " is outside its protocol bounds");
   }
   return value;
 }
 
 function protocolRecord(value: unknown, fieldName: string): JsonRecord {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new EngineProtocolError(fieldName + " must be an object");
+    throw new InstanceProtocolError(fieldName + " must be an object");
   }
   return value as JsonRecord;
 }
@@ -155,7 +155,7 @@ function exactKeys(
 ): void {
   const keys = Object.keys(value);
   if (keys.length !== expected.size || keys.some((key) => !expected.has(key))) {
-    throw new EngineProtocolError(fieldName + " fields do not match the v1 contract");
+    throw new InstanceProtocolError(fieldName + " fields do not match the v1 contract");
   }
 }
 
@@ -167,7 +167,7 @@ function protocolText(
   controls = true,
 ): string {
   if (typeof value !== "string") {
-    throw new EngineProtocolError(fieldName + " must be a string");
+    throw new InstanceProtocolError(fieldName + " must be a string");
   }
   for (const character of value) {
     const codePoint = character.codePointAt(0) as number;
@@ -175,15 +175,15 @@ function protocolText(
       codePoint >= 0xd800
       && codePoint <= 0xdfff
     ) {
-      throw new EngineProtocolError(fieldName + " is not valid UTF-8");
+      throw new InstanceProtocolError(fieldName + " is not valid UTF-8");
     }
     if (controls && (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f))) {
-      throw new EngineProtocolError(fieldName + " contains a control character");
+      throw new InstanceProtocolError(fieldName + " contains a control character");
     }
   }
   const bytes = Buffer.byteLength(value, "utf8");
   if ((nonempty && bytes === 0) || bytes > maximum) {
-    throw new EngineProtocolError(fieldName + " exceeds its byte bound");
+    throw new InstanceProtocolError(fieldName + " exceeds its byte bound");
   }
   return value;
 }
@@ -197,12 +197,12 @@ function providerIntegerPaths(): readonly (readonly (string | number)[])[] {
   ];
 }
 
-function parseUsage(value: unknown): EngineProviderExecutionUsage {
+function parseUsage(value: unknown): InstanceProviderExecutionUsage {
   const raw = protocolRecord(value, "provider usage");
   exactKeys(raw, USAGE_FIELDS, "provider usage");
   const state = raw.state;
   if (state !== "measured" && state !== "estimated" && state !== "unavailable") {
-    throw new EngineProtocolError("provider usage state is unsupported");
+    throw new InstanceProtocolError("provider usage state is unsupported");
   }
   const counters: Record<string, number | null> = {};
   for (const field of USAGE_COUNTERS) {
@@ -213,11 +213,11 @@ function parseUsage(value: unknown): EngineProviderExecutionUsage {
   }
   if (state === "unavailable") {
     if (Object.values(counters).some((counter) => counter !== null)) {
-      throw new EngineProtocolError("unavailable provider usage must omit every counter");
+      throw new InstanceProtocolError("unavailable provider usage must omit every counter");
     }
   } else {
     if (Object.values(counters).some((counter) => counter === null)) {
-      throw new EngineProtocolError(
+      throw new InstanceProtocolError(
         "measured or estimated provider usage requires every counter",
       );
     }
@@ -225,7 +225,7 @@ function parseUsage(value: unknown): EngineProviderExecutionUsage {
       + (counters.cache_write_input_tokens as number)
       + (counters.cache_read_input_tokens as number);
     if (counters.total_input_tokens !== expected) {
-      throw new EngineProtocolError(
+      throw new InstanceProtocolError(
         "provider usage total_input_tokens does not match components",
       );
     }
@@ -240,7 +240,7 @@ function parseUsage(value: unknown): EngineProviderExecutionUsage {
   };
 }
 
-function parseCost(value: unknown): EngineProviderExecutionCost {
+function parseCost(value: unknown): InstanceProviderExecutionCost {
   const raw = protocolRecord(value, "provider cost");
   const basis = raw.basis;
   if (basis === "unavailable") {
@@ -248,7 +248,7 @@ function parseCost(value: unknown): EngineProviderExecutionCost {
     return { basis: "unavailable" };
   }
   if (typeof basis !== "string" || !COST_BASES.has(basis)) {
-    throw new EngineProtocolError("provider cost basis is unsupported");
+    throw new InstanceProtocolError("provider cost basis is unsupported");
   }
   exactKeys(raw, new Set(["basis", "micros"]), "provider cost");
   const micros = protocolInteger(raw.micros, "provider cost.micros", 0, MAX_SAFE_INTEGER);
@@ -256,7 +256,7 @@ function parseCost(value: unknown): EngineProviderExecutionCost {
   return { basis: "observed_charge", micros };
 }
 
-function parseFailure(value: unknown): EngineProviderExecutionFailure {
+function parseFailure(value: unknown): InstanceProviderExecutionFailure {
   const raw = protocolRecord(value, "provider failure");
   const allowed = new Set(["code", "retryable_by_host", "recovery_ref"]);
   const required = new Set(["code", "retryable_by_host"]);
@@ -264,43 +264,43 @@ function parseFailure(value: unknown): EngineProviderExecutionFailure {
     ![...required].every((key) => key in raw)
     || Object.keys(raw).some((key) => !allowed.has(key))
   ) {
-    throw new EngineProtocolError("provider failure fields do not match the v1 contract");
+    throw new InstanceProtocolError("provider failure fields do not match the v1 contract");
   }
   const code = raw.code;
   if (typeof code !== "string" || !FAILURE_CODES.has(code)) {
-    throw new EngineProtocolError("provider failure code is unsupported");
+    throw new InstanceProtocolError("provider failure code is unsupported");
   }
   if (typeof raw.retryable_by_host !== "boolean") {
-    throw new EngineProtocolError("provider failure retryable_by_host must be boolean");
+    throw new InstanceProtocolError("provider failure retryable_by_host must be boolean");
   }
   if (raw.retryable_by_host) {
-    throw new EngineProtocolError("provider failures must not request host retry");
+    throw new InstanceProtocolError("provider failures must not request host retry");
   }
   let recoveryRef: string | null | undefined = raw.recovery_ref as string | null | undefined;
   if (recoveryRef !== undefined && recoveryRef !== null) {
     try {
       recoveryRef = validateRef(recoveryRef, "provider failure recovery_ref");
     } catch (cause) {
-      throw new EngineProtocolError("provider failure recovery_ref is invalid", { cause });
+      throw new InstanceProtocolError("provider failure recovery_ref is invalid", { cause });
     }
   }
   if (code === "policy_rejected" && recoveryRef !== undefined && recoveryRef !== null) {
-    throw new EngineProtocolError("policy rejection cannot request recovery");
+    throw new InstanceProtocolError("policy rejection cannot request recovery");
   }
   if (
     (code === "source_unavailable" || code === "source_integrity_mismatch")
     && (recoveryRef === undefined || recoveryRef === null)
   ) {
-    throw new EngineProtocolError("source failure requires a recovery_ref");
+    throw new InstanceProtocolError("source failure requires a recovery_ref");
   }
   return {
-    code: code as EngineProviderExecutionFailure["code"],
+    code: code as InstanceProviderExecutionFailure["code"],
     retryable_by_host: false,
     ...(recoveryRef === undefined ? {} : { recovery_ref: recoveryRef }),
   };
 }
 
-function parseOutput(value: unknown): EngineProviderExecutionOutput {
+function parseOutput(value: unknown): InstanceProviderExecutionOutput {
   const raw = protocolRecord(value, "provider output");
   exactKeys(raw, new Set(["content", "sha256_digest"]), "provider output");
   const content = protocolText(
@@ -314,10 +314,10 @@ function parseOutput(value: unknown): EngineProviderExecutionOutput {
   try {
     digest = validateDigest(raw.sha256_digest, "provider output.sha256_digest");
   } catch (cause) {
-    throw new EngineProtocolError("provider output digest is invalid", { cause });
+    throw new InstanceProtocolError("provider output digest is invalid", { cause });
   }
   if (digest !== sha256Digest(content)) {
-    throw new EngineProtocolError("provider output digest does not match content");
+    throw new InstanceProtocolError("provider output digest does not match content");
   }
   return { content, sha256_digest: digest };
 }
@@ -325,12 +325,12 @@ function parseOutput(value: unknown): EngineProviderExecutionOutput {
 export function validateProviderExecutionRequest(
   task: unknown,
   plan: unknown,
-  request: EnginePlanningRequest,
+  request: InstancePlanningRequest,
   tenantId: string,
   maxOutputTokens: unknown,
 ): ProviderExecutionRequestValidation {
-  if (!(request instanceof EnginePlanningRequest)) {
-    throw new ValidationError("providerExecute requires EnginePlanningRequest");
+  if (!(request instanceof InstancePlanningRequest)) {
+    throw new ValidationError("providerExecute requires InstancePlanningRequest");
   }
   const normalizedTask = validateTask(task, request, tenantId);
   const normalizedPlan = validatePlan(plan, String(normalizedTask.task_id), false, true);
@@ -375,21 +375,21 @@ export function parseProviderExecutionResponse(
   task: Readonly<Record<string, unknown>>,
   plan: Readonly<Record<string, unknown>>,
   tenantId: string,
-): EngineProviderExecutionResponse {
+): InstanceProviderExecutionResponse {
   const rawBytes = typeof raw === "string" ? Buffer.byteLength(raw, "utf8") : raw.byteLength;
   if (rawBytes > MAX_ENGINE_PROVIDER_EXECUTION_RESPONSE_BYTES) {
-    throw new EngineProtocolError("provider execution response exceeds its byte bound");
+    throw new InstanceProtocolError("provider execution response exceeds its byte bound");
   }
   let value: unknown;
   try {
     value = strictJsonLoads(
       raw,
-      "Enterprise Engine provider execution response",
+      "Enterprise instance provider execution response",
       providerIntegerPaths(),
     );
   } catch (cause) {
-    throw new EngineProtocolError(
-      "Enterprise Engine provider execution response is not valid JSON",
+    throw new InstanceProtocolError(
+      "Enterprise instance provider execution response is not valid JSON",
       { cause },
     );
   }
@@ -415,23 +415,23 @@ export function parseProviderExecutionResponse(
     Object.keys(response).some((key) => !allowed.has(key))
     || ![...required].every((key) => key in response)
   ) {
-    throw new EngineProtocolError(
+    throw new InstanceProtocolError(
       "provider execution response fields do not match the v1 contract",
     );
   }
   protocolInteger(response.schema_version, "response.schema_version", 1, 1);
   protocolInteger(response.transport_version, "response.transport_version", 1, 1);
   if (response.engine_interface_version !== ENGINE_INTERFACE_VERSION) {
-    throw new EngineProtocolError("provider execution Engine interface is unsupported");
+    throw new InstanceProtocolError("provider execution Engine interface is unsupported");
   }
   if (task.tenant_id !== tenantId) {
-    throw new EngineProtocolError("provider execution task tenant does not bind the client");
+    throw new InstanceProtocolError("provider execution task tenant does not bind the client");
   }
   const attemptId = protocolText(response.attempt_id, "response.attempt_id");
   const taskId = protocolText(response.task_id, "response.task_id");
   const planId = protocolText(response.plan_id, "response.plan_id");
   if (taskId !== task.task_id || planId !== plan.plan_id) {
-    throw new EngineProtocolError("provider execution response task or plan does not bind request");
+    throw new InstanceProtocolError("provider execution response task or plan does not bind request");
   }
   let contextDigest: string;
   let requestDigest: string;
@@ -439,25 +439,25 @@ export function parseProviderExecutionResponse(
     contextDigest = validateDigest(response.context_digest, "response.context_digest");
     requestDigest = validateDigest(response.request_digest, "response.request_digest");
   } catch (cause) {
-    throw new EngineProtocolError("provider execution response digest is invalid", { cause });
+    throw new InstanceProtocolError("provider execution response digest is invalid", { cause });
   }
   const provider = protocolText(response.provider, "response.provider");
   const model = protocolText(response.model, "response.model");
   if (provider !== plan.provider || model !== plan.model) {
-    throw new EngineProtocolError(
+    throw new InstanceProtocolError(
       "provider execution response provider or model does not bind plan",
     );
   }
   if (typeof response.status !== "string" || !PROVIDER_STATUSES.has(response.status)) {
-    throw new EngineProtocolError("provider execution response status is unsupported");
+    throw new InstanceProtocolError("provider execution response status is unsupported");
   }
   if (response.acceptance !== "unknown") {
-    throw new EngineProtocolError("provider execution response acceptance must remain unknown");
+    throw new InstanceProtocolError("provider execution response acceptance must remain unknown");
   }
   const usage = parseUsage(response.usage);
   const cost = parseCost(response.cost);
   if (cost.basis === "usage_priced_estimate" && usage.state === "unavailable") {
-    throw new EngineProtocolError("provider cost cannot price unavailable usage");
+    throw new InstanceProtocolError("provider cost cannot price unavailable usage");
   }
   const output = response.output === undefined || response.output === null
     ? null
@@ -467,10 +467,10 @@ export function parseProviderExecutionResponse(
     : parseFailure(response.failure);
   if (response.status === "succeeded") {
     if (output === null || failure !== null) {
-      throw new EngineProtocolError("succeeded provider response requires output only");
+      throw new InstanceProtocolError("succeeded provider response requires output only");
     }
   } else if (output !== null || failure === null) {
-    throw new EngineProtocolError("non-success provider response requires failure only");
+    throw new InstanceProtocolError("non-success provider response requires failure only");
   }
   return {
     ...response,
@@ -484,7 +484,7 @@ export function parseProviderExecutionResponse(
     request_digest: requestDigest,
     provider,
     model,
-    status: response.status as EngineProviderExecutionResponse["status"],
+    status: response.status as InstanceProviderExecutionResponse["status"],
     acceptance: "unknown",
     ...(response.output === undefined ? {} : { output }),
     usage,

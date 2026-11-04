@@ -1,5 +1,7 @@
 """Small, stable error taxonomy for the local Product SDK."""
 
+from . import _deprecation
+
 
 class SDKError(Exception):
     """Base class for Product SDK failures."""
@@ -111,29 +113,29 @@ class WorkspaceIOError(WorkspaceError):
     code = "workspace_io"
 
 
-class EngineError(SDKError):
-    """Base class for failures at the public Engine process boundary."""
+class InstanceError(SDKError):
+    """Base class for failures at the public instance process boundary."""
 
     code = "engine_error"
-    guidance = "preserve Engine evidence and classify the concrete error"
+    guidance = "preserve instance evidence and classify the concrete error"
 
     def __init__(self, message=""):
         super().__init__(message or self.code)
 
 
-class EngineUnavailable(EngineError):
-    """The configured Engine could not be started."""
+class InstanceUnavailable(InstanceError):
+    """The configured instance could not be started."""
 
     code = "engine_unavailable"
-    guidance = "restore the configured Engine binary or use explicit bounded fail-open"
+    guidance = "restore the configured instance binary or use explicit bounded fail-open"
     retryable = True
     degrade_allowed = True
     abort_required = False
     configuration_fix = True
 
 
-class EngineTimeout(EngineError):
-    """The Engine exceeded its bounded deadline."""
+class InstanceTimeout(InstanceError):
+    """The instance exceeded its bounded deadline."""
 
     code = "engine_timeout"
     guidance = "retry within host policy or use explicit bounded fail-open"
@@ -142,8 +144,8 @@ class EngineTimeout(EngineError):
     abort_required = False
 
 
-class EngineCrashed(EngineError):
-    """The persistent Agent Tools Engine process exited unexpectedly."""
+class InstanceCrashed(InstanceError):
+    """The persistent Agent Tools instance process exited unexpectedly."""
 
     code = "engine_crashed"
     guidance = (
@@ -151,7 +153,7 @@ class EngineCrashed(EngineError):
     )
 
 
-class AgentPermissionError(EngineError):
+class AgentPermissionError(InstanceError):
     """The immutable AgentContext policy rejected a tool call."""
 
     code = "agent_permission_denied"
@@ -159,22 +161,22 @@ class AgentPermissionError(EngineError):
     configuration_fix = True
 
 
-class UnsupportedCapabilityError(EngineError):
-    """The connected Engine did not negotiate the requested capability."""
+class UnsupportedCapabilityError(InstanceError):
+    """The connected instance did not negotiate the requested capability."""
 
     code = "unsupported_capability"
-    guidance = "install a compatible Engine or choose a negotiated capability"
+    guidance = "install a compatible instance or choose a negotiated capability"
     version_change = True
 
 
-class EngineProtocolError(EngineError):
-    """The Engine response or process boundary violated the wire contract."""
+class InstanceProtocolError(InstanceError):
+    """The instance response or process boundary violated the wire contract."""
 
     code = "engine_protocol_error"
     guidance = "fail closed and verify Engine interface, schema, and transport"
 
 
-class CompatibilityError(EngineProtocolError):
+class CompatibilityError(InstanceProtocolError):
     """The SDK and a dependency expose incompatible versioned contracts."""
 
     code = "compatibility_error"
@@ -182,18 +184,18 @@ class CompatibilityError(EngineProtocolError):
     version_change = True
 
 
-class UnsupportedEngineError(CompatibilityError):
-    """The configured Engine identity or capability is unsupported."""
+class UnsupportedInstanceError(CompatibilityError):
+    """The configured instance identity or capability is unsupported."""
 
     code = "unsupported_engine"
-    guidance = "install an Engine identity and capability supported by this SDK"
+    guidance = "install an instance identity and capability supported by this SDK"
 
 
-class EngineRejected(EngineError):
-    """The Engine validly rejected a request for policy or security reasons."""
+class InstanceRejected(InstanceError):
+    """The instance validly rejected a request for policy or security reasons."""
 
     code = "engine_rejected"
-    guidance = "fail closed and satisfy the reported Engine policy"
+    guidance = "fail closed and satisfy the reported instance policy"
 
     def __init__(self, message="", *, failure=None, view=None):
         super().__init__(message or self.code)
@@ -203,19 +205,19 @@ class EngineRejected(EngineError):
             self.retryable = bool(getattr(failure, "retryable_by_host", False))
 
 
-class PolicyAdmissionError(EngineRejected):
-    """The Engine rejected the request at policy admission."""
+class PolicyAdmissionError(InstanceRejected):
+    """The instance rejected the request at policy admission."""
 
     code = "policy_admission_rejected"
-    guidance = "abort or change the request to satisfy the reported Engine policy"
+    guidance = "abort or change the request to satisfy the reported instance policy"
     configuration_fix = True
 
 
-class EngineExecutionError(EngineError):
-    """The Engine returned a valid failed observation."""
+class InstanceExecutionError(InstanceError):
+    """The instance returned a valid failed observation."""
 
     code = "engine_execution_error"
-    guidance = "fail closed and retain the factual Engine failure evidence"
+    guidance = "fail closed and retain the factual instance failure evidence"
 
     def __init__(self, message="", *, failure=None, view=None):
         super().__init__(message or self.code)
@@ -225,14 +227,14 @@ class EngineExecutionError(EngineError):
             self.retryable = bool(getattr(failure, "retryable_by_host", False))
 
 
-class SourceUnavailableError(EngineExecutionError):
-    """The selected source cannot currently be read by the Engine."""
+class SourceUnavailableError(InstanceExecutionError):
+    """The selected source cannot currently be read by the instance."""
 
     code = "source_unavailable"
     guidance = "restore source access or select another source before retrying"
 
 
-class RecoveryUnavailableError(EngineExecutionError):
+class RecoveryUnavailableError(InstanceExecutionError):
     """Exact recovery cannot be completed from the available binding."""
 
     code = "recovery_unavailable"
@@ -255,7 +257,7 @@ class FrameworkCompatibilityError(FrameworkIntegrationError):
     version_change = True
 
 
-class ArtifactIntegrityError(EngineExecutionError):
+class ArtifactIntegrityError(InstanceExecutionError):
     """Artifact, receipt, or source evidence failed an integrity check."""
 
     code = "artifact_integrity_error"
@@ -264,8 +266,29 @@ class ArtifactIntegrityError(EngineExecutionError):
 
 # Friendly aliases retained inside the private staging API for callers that
 # prefer the explicit ``Error`` suffix.
-EngineUnavailableError = EngineUnavailable
-EngineTimeoutError = EngineTimeout
-EngineProtocolErrorError = EngineProtocolError
-EngineRejectedError = EngineRejected
-EngineExecutionErrorError = EngineExecutionError
+InstanceUnavailableError = InstanceUnavailable
+InstanceTimeoutError = InstanceTimeout
+InstanceProtocolErrorError = InstanceProtocolError
+InstanceRejectedError = InstanceRejected
+InstanceExecutionErrorError = InstanceExecutionError
+
+# Engine names are deprecated aliases of the same classes until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "EngineError",
+        "EngineUnavailable",
+        "EngineProtocolError",
+        "EngineExecutionError",
+        "EngineTimeout",
+        "EngineCrashed",
+        "EngineRejected",
+        "UnsupportedEngineError",
+        "EngineUnavailableError",
+        "EngineTimeoutError",
+        "EngineProtocolErrorError",
+        "EngineRejectedError",
+        "EngineExecutionErrorError",
+    },
+)

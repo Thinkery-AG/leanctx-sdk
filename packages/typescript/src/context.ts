@@ -6,11 +6,12 @@ import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import {
   ConfigurationError,
-  EngineProtocolError,
-  EngineRejected,
-  EngineTimeout,
-  EngineUnavailable,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceTimeout,
+  InstanceUnavailable,
   PolicyAdmissionError,
+  UnsupportedInstanceError,
   ValidationError,
 } from "./errors.js";
 import {
@@ -32,12 +33,12 @@ const MAX_URL_BYTES = 4096;
 
 type JsonRecord = Record<string, unknown>;
 
-export type EngineContextClientOptions = Readonly<{
+export type InstanceContextClientOptions = Readonly<{
   timeout?: number;
   allowLoopbackHttp?: boolean;
 }>;
 
-export type EngineContextReadResult = Readonly<{
+export type InstanceContextReadResult = Readonly<{
   text: string;
   canonicalReceipt: Readonly<JsonRecord>;
   rawResponse: Readonly<JsonRecord>;
@@ -45,7 +46,7 @@ export type EngineContextReadResult = Readonly<{
 
 function record(value: unknown, label: string): JsonRecord {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new EngineProtocolError(`${label} must be an object`);
+    throw new InstanceProtocolError(`${label} must be an object`);
   }
   return value as JsonRecord;
 }
@@ -161,17 +162,17 @@ function validatePath(value: unknown): string {
 }
 
 function parseReceipt(value: unknown): Readonly<JsonRecord> {
-  const receipt = record(value, "Engine context-read canonical receipt");
+  const receipt = record(value, "LeanCTX instance context-read canonical receipt");
   const required = ["schema_version", "receipt_id", "receipt_ref", "receipt_digest", "outcome", "delivery"];
   const allowed = new Set([...required, "context_decision_ref", "outcome_observation_ref"]);
   if (Object.keys(receipt).some((key) => !allowed.has(key))) {
-    throw new EngineProtocolError("context-read canonical receipt fields are unsupported");
+    throw new InstanceProtocolError("context-read canonical receipt fields are unsupported");
   }
   for (const key of required) {
-    if (!(key in receipt)) throw new EngineProtocolError(`context-read canonical receipt is missing ${key}`);
+    if (!(key in receipt)) throw new InstanceProtocolError(`context-read canonical receipt is missing ${key}`);
   }
   if (typeof receipt.schema_version !== "number" || !Number.isSafeInteger(receipt.schema_version) || receipt.schema_version !== 1) {
-    throw new EngineProtocolError("context-read canonical receipt schema_version is unsupported");
+    throw new InstanceProtocolError("context-read canonical receipt schema_version is unsupported");
   }
   let receiptRef: string;
   let receiptDigest: string;
@@ -180,62 +181,62 @@ function parseReceipt(value: unknown): Readonly<JsonRecord> {
     receiptRef = validateRef(receipt.receipt_ref, "receipt_ref");
     receiptDigest = validateDigest(receipt.receipt_digest, "receipt_digest");
   } catch (error) {
-    throw new EngineProtocolError("context-read canonical receipt identity is invalid", { cause: error });
+    throw new InstanceProtocolError("context-read canonical receipt identity is invalid", { cause: error });
   }
   if (receiptRef !== `id:${receiptDigest}`) {
-    throw new EngineProtocolError("context-read canonical receipt reference is not digest-bound");
+    throw new InstanceProtocolError("context-read canonical receipt reference is not digest-bound");
   }
   if (receipt.outcome !== "unknown") {
-    throw new EngineProtocolError("context-read canonical receipt outcome is unsupported");
+    throw new InstanceProtocolError("context-read canonical receipt outcome is unsupported");
   }
   if (receipt.delivery !== "native_engine_view") {
-    throw new EngineProtocolError("context-read canonical receipt delivery is unsupported");
+    throw new InstanceProtocolError("context-read canonical receipt delivery is unsupported");
   }
   for (const key of ["context_decision_ref", "outcome_observation_ref"]) {
     if (key in receipt) {
       try {
         validateRef(receipt[key], key);
       } catch (error) {
-        throw new EngineProtocolError(`context-read canonical receipt ${key} is invalid`, { cause: error });
+        throw new InstanceProtocolError(`context-read canonical receipt ${key} is invalid`, { cause: error });
       }
     }
   }
   return receipt;
 }
 
-export function parseContextReadResponse(raw: Uint8Array | string): EngineContextReadResult {
+export function parseContextReadResponse(raw: Uint8Array | string): InstanceContextReadResult {
   let parsed: unknown;
   try {
-    parsed = strictJsonLoads(raw, "Engine context-read response", [
+    parsed = strictJsonLoads(raw, "LeanCTX instance context-read response", [
       ["result", "_meta", "canonical_receipt", "schema_version"],
     ]);
   } catch (error) {
-    throw new EngineProtocolError("Engine context-read response is not valid JSON", { cause: error });
+    throw new InstanceProtocolError("LeanCTX instance context-read response is not valid JSON", { cause: error });
   }
-  const wrapper = record(parsed, "Engine context-read response wrapper");
+  const wrapper = record(parsed, "LeanCTX instance context-read response wrapper");
   if (Object.keys(wrapper).length !== 1 || !("result" in wrapper)) {
-    throw new EngineProtocolError("Engine context-read response wrapper is invalid");
+    throw new InstanceProtocolError("LeanCTX instance context-read response wrapper is invalid");
   }
-  const result = record(wrapper.result, "Engine context-read result");
+  const result = record(wrapper.result, "LeanCTX instance context-read result");
   const isError = result.isError;
   if (isError !== undefined && isError !== null && typeof isError !== "boolean") {
-    throw new EngineProtocolError("Engine context-read isError must be boolean");
+    throw new InstanceProtocolError("LeanCTX instance context-read isError must be boolean");
   }
-  if (isError === true) throw new EngineProtocolError("Engine context-read returned an error result");
+  if (isError === true) throw new InstanceProtocolError("LeanCTX instance context-read returned an error result");
   if (!Array.isArray(result.content) || result.content.length !== 1) {
-    throw new EngineProtocolError("Engine context-read content must contain one item");
+    throw new InstanceProtocolError("LeanCTX instance context-read content must contain one item");
   }
-  const content = record(result.content[0], "Engine context-read content");
-  if (content.type !== "text") throw new EngineProtocolError("Engine context-read content must be text");
-  if (typeof content.text !== "string") throw new EngineProtocolError("Engine context-read response text is not a string");
+  const content = record(result.content[0], "LeanCTX instance context-read content");
+  if (content.type !== "text") throw new InstanceProtocolError("LeanCTX instance context-read content must be text");
+  if (typeof content.text !== "string") throw new InstanceProtocolError("LeanCTX instance context-read response text is not a string");
   let textBytes: number;
   try {
-    textBytes = validUtf8(content.text, "Engine context-read response text");
+    textBytes = validUtf8(content.text, "LeanCTX instance context-read response text");
   } catch (error) {
-    throw new EngineProtocolError("Engine context-read response text is not valid UTF-8", { cause: error });
+    throw new InstanceProtocolError("LeanCTX instance context-read response text is not valid UTF-8", { cause: error });
   }
-  if (textBytes > MAX_TEXT_BYTES) throw new EngineProtocolError("Engine context-read response text exceeds its byte bound");
-  const metadata = record(result._meta, "Engine context-read metadata");
+  if (textBytes > MAX_TEXT_BYTES) throw new InstanceProtocolError("LeanCTX instance context-read response text exceeds its byte bound");
+  const metadata = record(result._meta, "LeanCTX instance context-read metadata");
   const canonicalReceipt = parseReceipt(metadata.canonical_receipt);
   return {
     text: content.text,
@@ -245,11 +246,11 @@ export function parseContextReadResponse(raw: Uint8Array | string): EngineContex
 }
 
 function statusError(status: number, operation: string): Error | null {
-  if (status >= 300 && status < 400) return new EngineProtocolError(`${operation} redirects are not followed`);
-  if (status === 401) return new EngineRejected(`${operation} authentication was rejected`);
+  if (status >= 300 && status < 400) return new InstanceProtocolError(`${operation} redirects are not followed`);
+  if (status === 401) return new InstanceRejected(`${operation} authentication was rejected`);
   if (status === 403) return new PolicyAdmissionError(`${operation} policy rejected the request`);
-  if (status >= 500) return new EngineUnavailable(`${operation} returned a server error`);
-  if (status < 200 || status >= 300) return new EngineRejected(`${operation} rejected the request`);
+  if (status >= 500) return new InstanceUnavailable(`${operation} returned a server error`);
+  if (status < 200 || status >= 300) return new InstanceRejected(`${operation} rejected the request`);
   return null;
 }
 
@@ -279,15 +280,15 @@ function readResponse(
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += bytes.byteLength;
       if (total > maxBytes) {
-        finishError(new EngineProtocolError(`${operation} response exceeds its byte bound`));
+        finishError(new InstanceProtocolError(`${operation} response exceeds its byte bound`));
         return;
       }
       chunks.push(bytes);
     });
     response.on("end", () => finish(Buffer.concat(chunks)));
     response.on("error", (error) => {
-      if (Date.now() >= deadline) finishError(new EngineTimeout(`${operation} response exceeded its deadline`));
-      else finishError(new EngineUnavailable(`${operation} response could not be read`, { cause: error }));
+      if (Date.now() >= deadline) finishError(new InstanceTimeout(`${operation} response exceeded its deadline`));
+      else finishError(new InstanceUnavailable(`${operation} response could not be read`, { cause: error }));
     });
   });
 }
@@ -298,7 +299,11 @@ export function _postJson(
   payload: Buffer,
   timeoutSeconds: number,
   maxBytes = MAX_RESPONSE_BYTES,
-  operation = "Engine context-read",
+  operation = "LeanCTX instance context-read",
+  // A presenter operation: `capability` (when held) is one more request
+  // header, never a body member, and a suite without the route (404, 405) or
+  // an Engine without the operation (501) is a typed "unsupported".
+  presenter?: Readonly<{ capability?: string; unsupported: string }>,
 ): Promise<Buffer> {
   return new Promise((resolvePromise, rejectPromise) => {
     const deadline = Date.now() + timeoutSeconds * 1000;
@@ -340,12 +345,16 @@ export function _postJson(
         "Content-Length": String(payload.byteLength),
         Authorization: `Bearer ${credential}`,
         Connection: "close",
+        ...(presenter?.capability === undefined ? {} : { "x-leanctx-presenter": presenter.capability }),
       },
     };
     const requestFunction: typeof httpRequest = url.protocol === "https:" ? (httpsRequest as typeof httpRequest) : httpRequest;
     request = requestFunction(requestOptions, (incoming) => {
       response = incoming;
-      const error = statusError(incoming.statusCode ?? 0, operation);
+      const status = incoming.statusCode ?? 0;
+      const error = presenter !== undefined && (status === 404 || status === 405 || status === 501)
+        ? new UnsupportedInstanceError(presenter.unsupported)
+        : statusError(status, operation);
       if (error !== null) {
         finishError(error);
         return;
@@ -354,31 +363,31 @@ export function _postJson(
       if (contentLength !== undefined) {
         const declared = Number(contentLength);
         if (!Number.isSafeInteger(declared) || declared < 0 || declared > maxBytes) {
-          finishError(new EngineProtocolError(`${operation} response exceeds its byte bound`));
+          finishError(new InstanceProtocolError(`${operation} response exceeds its byte bound`));
           return;
         }
       }
       readResponse(incoming, deadline, maxBytes, operation).then(finish, finishError);
     });
-    timer = setTimeout(() => finishError(new EngineTimeout(`${operation} request exceeded its deadline`)), timeoutSeconds * 1000);
+    timer = setTimeout(() => finishError(new InstanceTimeout(`${operation} request exceeded its deadline`)), timeoutSeconds * 1000);
     timer.unref?.();
-    request.setTimeout(remaining(), () => finishError(new EngineTimeout(`${operation} request exceeded its deadline`)));
+    request.setTimeout(remaining(), () => finishError(new InstanceTimeout(`${operation} request exceeded its deadline`)));
     request.on("error", (error: Error) => {
       if (settled) return;
-      if (Date.now() >= deadline) finishError(new EngineTimeout(`${operation} request exceeded its deadline`));
-      else finishError(new EngineUnavailable(`${operation} request failed`, { cause: error }));
+      if (Date.now() >= deadline) finishError(new InstanceTimeout(`${operation} request exceeded its deadline`));
+      else finishError(new InstanceUnavailable(`${operation} request failed`, { cause: error }));
     });
     request.end(payload);
   });
 }
 
-export class EngineContextClient {
+export class InstanceContextClient {
   readonly baseUrl: string;
   readonly timeout: number;
   private readonly endpoint: URL;
   private readonly credential: string;
 
-  constructor(baseUrl: string, credential: string, options: EngineContextClientOptions = {}) {
+  constructor(baseUrl: string, credential: string, options: InstanceContextClientOptions = {}) {
     if (typeof options.allowLoopbackHttp !== "undefined" && typeof options.allowLoopbackHttp !== "boolean") {
       throw new ConfigurationError("allowLoopbackHttp must be a boolean");
     }
@@ -388,14 +397,14 @@ export class EngineContextClient {
     this.baseUrl = baseUrl;
   }
 
-  async contextRead(path: string): Promise<EngineContextReadResult> {
+  async contextRead(path: string): Promise<InstanceContextReadResult> {
     const checkedPath = validatePath(path);
     const payload = canonicalBytes({
       arguments: { engine_interface: "v1", mode: "aggressive", path: checkedPath },
       name: "ctx_read",
     });
     if (payload.byteLength > MAX_REQUEST_BYTES) {
-      throw new EngineProtocolError("Engine context-read request exceeds its byte bound");
+      throw new InstanceProtocolError("LeanCTX instance context-read request exceeds its byte bound");
     }
     const raw = await _postJson(this.endpoint, this.credential, payload, this.timeout);
     return parseContextReadResponse(raw);

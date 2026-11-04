@@ -27,24 +27,24 @@ var (
 	}
 )
 
-// EngineProviderExecutionRequest is a bounded, authenticated provider
+// InstanceProviderExecutionRequest is a bounded, authenticated provider
 // execution request. The Enterprise host remains authoritative for provider
 // admission, source content, dispatch, accounting, and acceptance.
-type EngineProviderExecutionRequest struct {
+type InstanceProviderExecutionRequest struct {
 	Task            map[string]any
 	Plan            map[string]any
-	Materialization EngineSourceMaterializationRequest
+	Materialization InstanceSourceMaterializationRequest
 	MaxOutputTokens uint64
 }
 
-// EngineProviderExecutionOutput contains provider output and its content hash.
-type EngineProviderExecutionOutput struct {
+// InstanceProviderExecutionOutput contains provider output and its content hash.
+type InstanceProviderExecutionOutput struct {
 	Content      string
 	SHA256Digest string
 }
 
-// EngineProviderExecutionUsage preserves nullable provider usage counters.
-type EngineProviderExecutionUsage struct {
+// InstanceProviderExecutionUsage preserves nullable provider usage counters.
+type InstanceProviderExecutionUsage struct {
 	State                 string
 	UncachedInputTokens   *uint64
 	CacheWriteInputTokens *uint64
@@ -53,22 +53,22 @@ type EngineProviderExecutionUsage struct {
 	OutputTokens          *uint64
 }
 
-// EngineProviderExecutionCost is a provenance label, not a billing proof.
-type EngineProviderExecutionCost struct {
+// InstanceProviderExecutionCost is a provenance label, not a billing proof.
+type InstanceProviderExecutionCost struct {
 	Basis  string
 	Micros *uint64
 }
 
-// EngineProviderExecutionFailure is always non-retryable by the host.
-type EngineProviderExecutionFailure struct {
+// InstanceProviderExecutionFailure is always non-retryable by the host.
+type InstanceProviderExecutionFailure struct {
 	Code            string
 	RecoveryRef     *string
 	RetryableByHost bool
 }
 
-// EngineProviderExecutionResponse is a validated provider projection. It does
+// InstanceProviderExecutionResponse is a validated provider projection. It does
 // not verify a signer, establish acceptance, or claim an observed charge.
-type EngineProviderExecutionResponse struct {
+type InstanceProviderExecutionResponse struct {
 	SchemaVersion          uint64
 	TransportVersion       uint64
 	EngineInterfaceVersion string
@@ -81,22 +81,22 @@ type EngineProviderExecutionResponse struct {
 	Model                  string
 	Status                 string
 	Acceptance             string
-	Output                 *EngineProviderExecutionOutput
-	Usage                  EngineProviderExecutionUsage
-	Cost                   EngineProviderExecutionCost
-	Failure                *EngineProviderExecutionFailure
+	Output                 *InstanceProviderExecutionOutput
+	Usage                  InstanceProviderExecutionUsage
+	Cost                   InstanceProviderExecutionCost
+	Failure                *InstanceProviderExecutionFailure
 	RawResponse            map[string]any
 }
 
 // ProviderExecute performs one bounded authenticated provider execution.
-func (c *EnterpriseEngineClient) ProviderExecute(request EngineProviderExecutionRequest) (*EngineProviderExecutionResponse, error) {
+func (c *EnterpriseInstanceClient) ProviderExecute(request InstanceProviderExecutionRequest) (*InstanceProviderExecutionResponse, error) {
 	return c.ProviderExecuteContext(context.Background(), request)
 }
 
 // ProviderExecuteContext is the cancellable form of ProviderExecute.
-func (c *EnterpriseEngineClient) ProviderExecuteContext(parent context.Context, request EngineProviderExecutionRequest) (*EngineProviderExecutionResponse, error) {
+func (c *EnterpriseInstanceClient) ProviderExecuteContext(parent context.Context, request InstanceProviderExecutionRequest) (*InstanceProviderExecutionResponse, error) {
 	if c == nil || c.transport == nil {
-		return nil, NewConfigurationError("EnterpriseEngineClient is not initialized")
+		return nil, NewConfigurationError("EnterpriseInstanceClient is not initialized")
 	}
 	planning, sourceIDs, bindingDigest, err := request.Materialization.checked()
 	if err != nil {
@@ -152,7 +152,7 @@ func (c *EnterpriseEngineClient) ProviderExecuteContext(parent context.Context, 
 	}
 	payload, err := canonicalJSON(payloadValue)
 	if err != nil || len(payload) > enterpriseMaxRequestBytes {
-		return nil, NewValidationError("Enterprise Engine provider execution request exceeds its byte bound")
+		return nil, NewValidationError("Enterprise instance provider execution request exceeds its byte bound")
 	}
 	raw, err := c.transport.postJSONContext(parent, enterpriseProviderExecutionPath, payload, enterpriseProviderExecutionMaxResponse, "Enterprise provider execution", "provider execution request")
 	if err != nil {
@@ -161,7 +161,7 @@ func (c *EnterpriseEngineClient) ProviderExecuteContext(parent context.Context, 
 	return parseEnterpriseProviderExecutionResponse(raw, normalizedTask, normalizedPlan, c.tenantID)
 }
 
-func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]any, tenantID string) (*EngineProviderExecutionResponse, error) {
+func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]any, tenantID string) (*InstanceProviderExecutionResponse, error) {
 	if len(raw) > enterpriseProviderExecutionMaxResponse {
 		return nil, enterpriseProtocol("provider execution response exceeds its byte bound")
 	}
@@ -209,7 +209,7 @@ func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]
 		return nil, err
 	}
 	if interfaceVersion != EngineInterfaceVersion {
-		return nil, enterpriseProtocol("provider execution Engine interface is unsupported")
+		return nil, enterpriseProtocol("provider execution instance interface is unsupported")
 	}
 	if task["tenant_id"] != tenantID {
 		return nil, enterpriseProtocol("provider execution task tenant does not bind the client")
@@ -271,14 +271,14 @@ func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]
 	if cost.Basis == "usage_priced_estimate" && usage.State == "unavailable" {
 		return nil, enterpriseProtocol("provider cost cannot price unavailable usage")
 	}
-	var output *EngineProviderExecutionOutput
+	var output *InstanceProviderExecutionOutput
 	if value, present := response["output"]; present && value != nil {
 		output, err = parseEnterpriseProviderOutput(value)
 		if err != nil {
 			return nil, err
 		}
 	}
-	var failure *EngineProviderExecutionFailure
+	var failure *InstanceProviderExecutionFailure
 	if value, present := response["failure"]; present && value != nil {
 		failure, err = parseEnterpriseProviderFailure(value)
 		if err != nil {
@@ -292,7 +292,7 @@ func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]
 	} else if output != nil || failure == nil {
 		return nil, enterpriseProtocol("non-success provider response requires failure only")
 	}
-	return &EngineProviderExecutionResponse{
+	return &InstanceProviderExecutionResponse{
 		SchemaVersion: schemaVersion, TransportVersion: transportVersion,
 		EngineInterfaceVersion: interfaceVersion, AttemptID: attemptID,
 		TaskID: taskID, PlanID: planID, ContextDigest: contextDigest,
@@ -302,18 +302,18 @@ func parseEnterpriseProviderExecutionResponse(raw []byte, task, plan map[string]
 	}, nil
 }
 
-func parseEnterpriseProviderUsage(value any) (EngineProviderExecutionUsage, error) {
+func parseEnterpriseProviderUsage(value any) (InstanceProviderExecutionUsage, error) {
 	raw, err := enterpriseObject(value, "provider usage")
 	if err != nil {
-		return EngineProviderExecutionUsage{}, err
+		return InstanceProviderExecutionUsage{}, err
 	}
 	fields := map[string]bool{"state": true, "uncached_input_tokens": true, "cache_write_input_tokens": true, "cache_read_input_tokens": true, "total_input_tokens": true, "output_tokens": true}
 	if err := enterpriseExecutionFields(raw, fields, fields, "provider usage", true); err != nil {
-		return EngineProviderExecutionUsage{}, err
+		return InstanceProviderExecutionUsage{}, err
 	}
 	state, err := enterpriseExecutionText(raw["state"], "provider usage.state", enterpriseMaxIdentifierBytes, true, true, true)
 	if err != nil || (state != "measured" && state != "estimated" && state != "unavailable") {
-		return EngineProviderExecutionUsage{}, enterpriseProtocol("provider usage state is unsupported")
+		return InstanceProviderExecutionUsage{}, enterpriseProtocol("provider usage state is unsupported")
 	}
 	values := make(map[string]*uint64, 5)
 	for _, field := range []string{"uncached_input_tokens", "cache_write_input_tokens", "cache_read_input_tokens", "total_input_tokens", "output_tokens"} {
@@ -323,11 +323,11 @@ func parseEnterpriseProviderUsage(value any) (EngineProviderExecutionUsage, erro
 			continue
 		}
 		if err := enterpriseExecutionLexicalInteger(value, "provider usage."+field, false); err != nil {
-			return EngineProviderExecutionUsage{}, err
+			return InstanceProviderExecutionUsage{}, err
 		}
 		parsed, parseErr := enterpriseExecutionBoundedU64(value, "provider usage."+field, enterpriseProviderExecutionMaxSafe, true)
 		if parseErr != nil {
-			return EngineProviderExecutionUsage{}, parseErr
+			return InstanceProviderExecutionUsage{}, parseErr
 		}
 		copyValue := parsed
 		values[field] = &copyValue
@@ -335,13 +335,13 @@ func parseEnterpriseProviderUsage(value any) (EngineProviderExecutionUsage, erro
 	if state == "unavailable" {
 		for _, value := range values {
 			if value != nil {
-				return EngineProviderExecutionUsage{}, enterpriseProtocol("unavailable provider usage must omit every counter")
+				return InstanceProviderExecutionUsage{}, enterpriseProtocol("unavailable provider usage must omit every counter")
 			}
 		}
 	} else {
 		for _, value := range values {
 			if value == nil {
-				return EngineProviderExecutionUsage{}, enterpriseProtocol("measured or estimated provider usage requires every counter")
+				return InstanceProviderExecutionUsage{}, enterpriseProtocol("measured or estimated provider usage requires every counter")
 			}
 		}
 		if values["uncached_input_tokens"] != nil && values["cache_write_input_tokens"] != nil && values["cache_read_input_tokens"] != nil && values["total_input_tokens"] != nil {
@@ -349,42 +349,42 @@ func parseEnterpriseProviderUsage(value any) (EngineProviderExecutionUsage, erro
 			writes := *values["cache_write_input_tokens"]
 			reads := *values["cache_read_input_tokens"]
 			if uncached > enterpriseProviderExecutionMaxSafe-writes || uncached+writes > enterpriseProviderExecutionMaxSafe-reads || uncached+writes+reads != *values["total_input_tokens"] {
-				return EngineProviderExecutionUsage{}, enterpriseProtocol("provider usage total_input_tokens does not match components")
+				return InstanceProviderExecutionUsage{}, enterpriseProtocol("provider usage total_input_tokens does not match components")
 			}
 		}
 	}
-	return EngineProviderExecutionUsage{State: state, UncachedInputTokens: values["uncached_input_tokens"], CacheWriteInputTokens: values["cache_write_input_tokens"], CacheReadInputTokens: values["cache_read_input_tokens"], TotalInputTokens: values["total_input_tokens"], OutputTokens: values["output_tokens"]}, nil
+	return InstanceProviderExecutionUsage{State: state, UncachedInputTokens: values["uncached_input_tokens"], CacheWriteInputTokens: values["cache_write_input_tokens"], CacheReadInputTokens: values["cache_read_input_tokens"], TotalInputTokens: values["total_input_tokens"], OutputTokens: values["output_tokens"]}, nil
 }
 
-func parseEnterpriseProviderCost(value any) (EngineProviderExecutionCost, error) {
+func parseEnterpriseProviderCost(value any) (InstanceProviderExecutionCost, error) {
 	raw, err := enterpriseObject(value, "provider cost")
 	if err != nil {
-		return EngineProviderExecutionCost{}, err
+		return InstanceProviderExecutionCost{}, err
 	}
 	basis, basisOK := raw["basis"].(string)
 	if !basisOK || basis == "" {
-		return EngineProviderExecutionCost{}, enterpriseProtocol("provider cost basis is unsupported")
+		return InstanceProviderExecutionCost{}, enterpriseProtocol("provider cost basis is unsupported")
 	}
 	if basis == "unavailable" {
 		if len(raw) != 1 {
-			return EngineProviderExecutionCost{}, enterpriseProtocol("unavailable provider cost has unexpected fields")
+			return InstanceProviderExecutionCost{}, enterpriseProtocol("unavailable provider cost has unexpected fields")
 		}
-		return EngineProviderExecutionCost{Basis: basis}, nil
+		return InstanceProviderExecutionCost{Basis: basis}, nil
 	}
 	if basis != "usage_priced_estimate" && basis != "observed_charge" || len(raw) != 2 || raw["micros"] == nil {
-		return EngineProviderExecutionCost{}, enterpriseProtocol("provider cost fields do not match the v1 contract")
+		return InstanceProviderExecutionCost{}, enterpriseProtocol("provider cost fields do not match the v1 contract")
 	}
 	if err := enterpriseExecutionLexicalInteger(raw["micros"], "provider cost.micros", false); err != nil {
-		return EngineProviderExecutionCost{}, err
+		return InstanceProviderExecutionCost{}, err
 	}
 	micros, err := enterpriseExecutionBoundedU64(raw["micros"], "provider cost.micros", enterpriseProviderExecutionMaxSafe, true)
 	if err != nil {
-		return EngineProviderExecutionCost{}, err
+		return InstanceProviderExecutionCost{}, err
 	}
-	return EngineProviderExecutionCost{Basis: basis, Micros: &micros}, nil
+	return InstanceProviderExecutionCost{Basis: basis, Micros: &micros}, nil
 }
 
-func parseEnterpriseProviderFailure(value any) (*EngineProviderExecutionFailure, error) {
+func parseEnterpriseProviderFailure(value any) (*InstanceProviderExecutionFailure, error) {
 	raw, err := enterpriseObject(value, "provider failure")
 	if err != nil {
 		return nil, err
@@ -419,10 +419,10 @@ func parseEnterpriseProviderFailure(value any) (*EngineProviderExecutionFailure,
 	if (code == "source_unavailable" || code == "source_integrity_mismatch") && recovery == nil {
 		return nil, enterpriseProtocol("source failure requires a recovery_ref")
 	}
-	return &EngineProviderExecutionFailure{Code: code, RetryableByHost: false, RecoveryRef: recovery}, nil
+	return &InstanceProviderExecutionFailure{Code: code, RetryableByHost: false, RecoveryRef: recovery}, nil
 }
 
-func parseEnterpriseProviderOutput(value any) (*EngineProviderExecutionOutput, error) {
+func parseEnterpriseProviderOutput(value any) (*InstanceProviderExecutionOutput, error) {
 	raw, err := enterpriseObject(value, "provider output")
 	if err != nil {
 		return nil, err
@@ -441,5 +441,5 @@ func parseEnterpriseProviderOutput(value any) (*EngineProviderExecutionOutput, e
 	if sha256Hex([]byte(content)) != digest {
 		return nil, enterpriseProtocol("provider output digest does not match content")
 	}
-	return &EngineProviderExecutionOutput{Content: content, SHA256Digest: digest}, nil
+	return &InstanceProviderExecutionOutput{Content: content, SHA256Digest: digest}, nil
 }

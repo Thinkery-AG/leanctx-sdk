@@ -134,16 +134,16 @@ final class Protocol {
     }
 
     static void checkStatus(String status) {
-        for (EngineStatus item : EngineStatus.values()) {
+        for (InstanceStatus item : InstanceStatus.values()) {
             if (item.value().equals(status)) {
                 return;
             }
         }
-        throw new ValidationError("invalid Engine observation status");
+        throw new ValidationError("invalid LeanCTX instance observation status");
     }
 
     static boolean isSuccess(String status) {
-        return EngineStatus.SUCCEEDED.value().equals(status)
-                || EngineStatus.DEGRADED.value().equals(status);
+        return InstanceStatus.SUCCEEDED.value().equals(status)
+                || InstanceStatus.DEGRADED.value().equals(status);
     }
 }

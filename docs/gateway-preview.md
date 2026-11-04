@@ -4,7 +4,7 @@
 > releases. It requires an Engine that implements `engine egress-admit`.
 
 Before your app sends a model request, it hands the request to the local
-LeanCTX Engine. The Engine does three things:
+LeanCTX | OSS. The Engine does three things:
 
 - It masks secrets, such as provider keys and tokens.
 - It withholds content that must not reach a remote model, such as anything
@@ -26,10 +26,10 @@ Two rules for callers:
 2. Send only when `may_send` is true. A refused request must not be sent.
 
 ```python
-from leanctx_sdk import SubprocessEngineClient
+from leanctx_sdk import SubprocessInstanceClient
 from leanctx_sdk.preview import admit_egress
 
-engine = SubprocessEngineClient("lean-ctx")
+engine = SubprocessInstanceClient("lean-ctx")
 admission = admit_egress(engine, project_root, provider="openai",
                          upstream_base="https://api.openai.com", body=request)
 if admission.may_send:
@@ -59,17 +59,34 @@ The same API exists in all six SDKs:
 | `ContextDecisionReceipt` | The whole delivery: mode, principal, destination, policy, source and security counts, tokens, outcome, and the final context digest. |
 | `EgressAdmission` | Disposition (`forward`, `rewritten` or `refused`), body, refusal, classification and receipt. |
 
+### Receipt schema versions
+
+Receipts with `schema_version: 2` (Engine 3.12.1 and later) name each decision
+object by a **keyed** digest: `HMAC-SHA256` under the installation's receipt
+key instead of the plain SHA-256 of the object, so a receipt no longer
+confirms a guess of a short string it describes. Such a receipt carries
+`object_digest` (`{"algorithm": "hmac-sha256", "key_id": "rk-…"}`, exposed as
+`object_digest` / `objectDigest` / `ObjectDigest`); the key itself never leaves
+the installation. The lexical form of `object` (`sha256:<hex>`) is unchanged,
+and `final_context` stays the plain SHA-256 of the delivered bytes. Receipts
+with `schema_version: 1` still parse unchanged. Whoever holds the key can
+confirm an object with `receipt_key_id(key)` and
+`keyed_object_digest(key, plain_object)` (language-cased). Contract:
+`docs/contracts/context-gateway-v2.md` in the Engine repository.
+
 Parsing is strict in every SDK and mirrors the Engine's own validation.
 Unknown fields and unknown values are rejected, and so are inconsistent
-receipts, for example a withheld receipt that names a delivered context.
+receipts, for example a withheld receipt that names a delivered context, or
+a `schema_version: 2` receipt without its `object_digest`.
 
 ## Conformance
 
 - `fixtures/gateway-preview-v1/valid/*`: real Engine responses for a masked
-  credential, withheld restricted content and a classified marking.
-- `fixtures/gateway-preview-v1/invalid/*`: 29 documents that each violate
+  credential, withheld restricted content, a classified marking and a
+  `schema_version: 2` receipt issued under a fixed test key (`keyed-v2`).
+- `fixtures/gateway-preview-v1/invalid/*`: 33 documents that each violate
   exactly one invariant. Every SDK must reject all of them.
-- Live: with `LEANCTX_ENGINE_BINARY` set, every SDK runs the same three
+- Live: with `LEANCTX_INSTANCE_BINARY` (deprecated fallback `LEANCTX_ENGINE_BINARY`) set, every SDK runs the same three
   journeys against a real Engine.
 
 ## Flagship journey: "Fix the production login issue"

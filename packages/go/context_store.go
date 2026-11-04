@@ -168,7 +168,7 @@ type ContextStoreScope struct {
 }
 
 func storeBad(format string, args ...any) error {
-	return NewEngineProtocolError("context store: " + fmt.Sprintf(format, args...))
+	return NewInstanceProtocolError("context store: " + fmt.Sprintf(format, args...))
 }
 
 func storeObject(value any, label string) (map[string]any, error) {
@@ -745,7 +745,7 @@ func storeRequest(scope ContextStoreScope, taskID string) ([]byte, error) {
 	return json.Marshal(request)
 }
 
-func (c *SubprocessEngineClient) storeRead(parent context.Context, operation, projectRoot string, payload []byte, body string) (any, error) {
+func (c *SubprocessInstanceClient) storeRead(parent context.Context, operation, projectRoot string, payload []byte, body string) (any, error) {
 	if err := c.configured(); err != nil {
 		return nil, err
 	}
@@ -783,7 +783,7 @@ func (c *SubprocessEngineClient) storeRead(parent context.Context, operation, pr
 }
 
 // ReadPolicyEvidence returns the scope's read-strategy evidence.
-func (c *SubprocessEngineClient) ReadPolicyEvidence(parent context.Context, projectRoot string, scope ContextStoreScope) (*ContextPolicyEvidence, error) {
+func (c *SubprocessInstanceClient) ReadPolicyEvidence(parent context.Context, projectRoot string, scope ContextStoreScope) (*ContextPolicyEvidence, error) {
 	payload, err := storeRequest(scope, "")
 	if err != nil {
 		return nil, err
@@ -796,7 +796,7 @@ func (c *SubprocessEngineClient) ReadPolicyEvidence(parent context.Context, proj
 }
 
 // ReadTaskLineage returns one task's lineage within the scope.
-func (c *SubprocessEngineClient) ReadTaskLineage(parent context.Context, projectRoot, taskID string, scope ContextStoreScope) (*TaskLineage, error) {
+func (c *SubprocessInstanceClient) ReadTaskLineage(parent context.Context, projectRoot, taskID string, scope ContextStoreScope) (*TaskLineage, error) {
 	if strings.TrimSpace(taskID) == "" {
 		return nil, NewValidationError("task id must be a non-empty string")
 	}

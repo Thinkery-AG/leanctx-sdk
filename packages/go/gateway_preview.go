@@ -2,6 +2,9 @@
 
 package leanctx
 
+// Source resolution: preserve private preparation, host-report and refusal behavior.
+// The public context-store surface is added in context_store.go.
+
 // Preview: the information gateway's egress admission and decision receipts.
 //
 // AdmitEgress runs one model request through the local Engine's egress
@@ -13,9 +16,13 @@ package leanctx
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -23,20 +30,24 @@ import (
 )
 
 const (
-	GatewayPreviewContract = "leanctx-gateway-preview"
-	GatewayPreviewVersion  = "0.1.0"
-	EgressSchemaVersion    = 1
-	MaxEgressRequestBytes  = 8 * 1024 * 1024
-	gatewayMaxRefBytes     = 512
-	gatewayMaxDecisions    = 4096
-	gatewayMaxReasonCodes  = 32
-	gatewayMaxSignals      = 32
-	gatewayU32             = math.MaxUint32
-	gatewayMaxSafe         = 1<<53 - 1
+	GatewayPreviewContract     = "leanctx-gateway-preview"
+	GatewayPreviewVersion      = "0.1.0"
+	EgressSchemaVersion        = 1
+	EgressPrepareSchemaVersion = 2
+	MaxEgressRequestBytes      = 8 * 1024 * 1024
+	MaxEgressAttempts          = 32
+	MaxEgressReportBytes       = 4096
+	gatewayMaxRefBytes         = 512
+	gatewayMaxDecisions        = 4096
+	gatewayMaxReasonCodes      = 32
+	gatewayMaxSignals          = 32
+	gatewayU32                 = math.MaxUint32
+	gatewayMaxSafe             = 1<<53 - 1
 )
 
 var (
 	gatewayDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	gatewayKeyID  = regexp.MustCompile(`^rk-[0-9a-f]{32}$`)
 	gatewayReason = regexp.MustCompile(`^[a-z][a-z0-9_.]{2,63}$`)
 
 	gatewayClassifications = []string{"public", "internal", "confidential", "restricted"}
@@ -107,22 +118,34 @@ func (d ContextDecision) DeliversContent() bool {
 	return slices.Index(gatewayContextDisps, d.Disposition) <= slices.Index(gatewayContextDisps, "allow_local_model_only")
 }
 
-// ContextDecisionReceipt is one governed delivery.
+// ReceiptObjectDigest names how a schema_version 2 receipt digests its
+// decision objects: keyed ("hmac-sha256") under the installation key KeyID.
+type ReceiptObjectDigest struct {
+	Algorithm string
+	KeyID     string
+}
+
+// ContextDecisionReceipt is one governed delivery. In SchemaVersion 2 every
+// decision Object is HMAC-SHA256 under the installation's receipt key
+// (ObjectDigest); in SchemaVersion 1 the plain SHA-256 of the object.
+// FinalContext is plain SHA-256 of the delivered bytes in both.
 type ContextDecisionReceipt struct {
-	ReceiptID    string
-	Mode         string
-	Principal    ContextPrincipal
-	Destination  ContextDestination
-	Sources      map[string]int64
-	Security     map[string]int64
-	Tokens       map[string]int64
-	Outcome      string
-	DurationUs   int64
-	Decisions    []ContextDecision
-	Policy       map[string]string
-	Task         *string
-	FinalContext *string
-	Quality      map[string]any
+	SchemaVersion int64
+	ObjectDigest  *ReceiptObjectDigest
+	ReceiptID     string
+	Mode          string
+	Principal     ContextPrincipal
+	Destination   ContextDestination
+	Sources       map[string]int64
+	Security      map[string]int64
+	Tokens        map[string]int64
+	Outcome       string
+	DurationUs    int64
+	Decisions     []ContextDecision
+	Policy        map[string]string
+	Task          *string
+	FinalContext  *string
+	Quality       map[string]any
 }
 
 // Signals flattens the signals of every decision.
@@ -143,6 +166,34 @@ type EgressAdmission struct {
 	Receipt        *ContextDecisionReceipt
 }
 
+// EgressPreparation preserves the exact JSON text that the host must transmit.
+type EgressPreparation struct {
+	Decision               *EgressAdmission
+	PreparedBody           *string
+	AdmissionReceiptDigest *string
+}
+
+// MaySend requires both a non-refused decision and exact prepared bytes.
+func (p EgressPreparation) MaySend() bool {
+	return p.Decision != nil && p.Decision.MaySend() && p.PreparedBody != nil
+}
+
+// EgressHostReportRequest contains bounded host observations, never Engine claims.
+type EgressHostReportRequest struct {
+	AdmissionReceiptDigest string
+	Attempt                uint32
+	Transport              string
+	Result                 string
+	HTTPStatus             *uint16
+	Failure                *string
+}
+
+// EgressHostReportResponse is explicitly a host-reported observation.
+type EgressHostReportResponse struct {
+	ObservationDigest string
+	Observation       map[string]any
+}
+
 // MaySend reports whether Body may be sent; a refused request must not be.
 func (a EgressAdmission) MaySend() bool { return a.Disposition != "refused" }
 
@@ -154,7 +205,7 @@ type EgressRequest struct {
 }
 
 func gatewayBad(format string, args ...any) error {
-	return NewEngineProtocolError("egress admission: " + fmt.Sprintf(format, args...))
+	return NewInstanceProtocolError("egress admission: " + fmt.Sprintf(format, args...))
 }
 
 func gwObject(value any, label string) (map[string]any, error) {
@@ -494,19 +545,87 @@ func gwCounts(raw any, names []string, label string, maximum int64) (map[string]
 	return counts, nil
 }
 
-// ParseDecisionReceipt parses and validates a ContextDecisionReceiptV1 document.
+var (
+	receiptObjectDomain = []byte("leanctx.receipt.object.v2\x00")
+	receiptKeyIDDomain  = []byte("leanctx.receipt.key-id.v2")
+)
+
+func receiptMAC(key []byte, parts ...[]byte) ([]byte, error) {
+	if len(key) != 32 {
+		return nil, NewValidationError("a receipt key is exactly 32 bytes")
+	}
+	mac := hmac.New(sha256.New, key)
+	for _, part := range parts {
+		mac.Write(part)
+	}
+	return mac.Sum(nil), nil
+}
+
+// ReceiptKeyID is the public id a schema_version 2 receipt names for the 32-byte key.
+func ReceiptKeyID(key []byte) (string, error) {
+	sum, err := receiptMAC(key, receiptKeyIDDomain)
+	if err != nil {
+		return "", err
+	}
+	return "rk-" + hex.EncodeToString(sum)[:32], nil
+}
+
+// KeyedObjectDigest is the schema_version 2 object for the plain sha256:<hex>
+// digest a schema_version 1 receipt would name. Only the key holder can compute it.
+func KeyedObjectDigest(key []byte, plainObject string) (string, error) {
+	if !gatewayDigest.MatchString(plainObject) {
+		return "", NewValidationError("plainObject must be a sha256 digest")
+	}
+	sum, err := receiptMAC(key, receiptObjectDomain, []byte(plainObject))
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(sum), nil
+}
+
+func parseObjectDigest(raw any) (*ReceiptObjectDigest, error) {
+	value, err := gwObject(raw, "receipt.object_digest")
+	if err != nil {
+		return nil, err
+	}
+	if err := gwKeys(value, []string{"algorithm", "key_id"}, nil, "receipt.object_digest"); err != nil {
+		return nil, err
+	}
+	keyID, ok := value["key_id"].(string)
+	if !ok || !gatewayKeyID.MatchString(keyID) {
+		return nil, gatewayBad("receipt.object_digest.key_id must be rk- and 32 hex digits")
+	}
+	algorithm, err := gwEnum(value["algorithm"], []string{"hmac-sha256"}, "receipt.object_digest.algorithm")
+	if err != nil {
+		return nil, err
+	}
+	return &ReceiptObjectDigest{Algorithm: algorithm, KeyID: keyID}, nil
+}
+
+// ParseDecisionReceipt parses and validates a ContextDecisionReceiptV1
+// document (receipt schema_version 1 or 2).
 func ParseDecisionReceipt(raw any) (*ContextDecisionReceipt, error) {
 	value, err := gwObject(raw, "receipt")
 	if err != nil {
 		return nil, err
 	}
-	if err := gwKeys(value, []string{"schema_version", "receipt_id", "mode", "principal", "destination", "sources", "security", "tokens", "outcome", "duration_us"}, []string{"task", "policy", "decisions", "final_context", "quality"}, "receipt"); err != nil {
+	if err := gwKeys(value, []string{"schema_version", "receipt_id", "mode", "principal", "destination", "sources", "security", "tokens", "outcome", "duration_us"}, []string{"task", "policy", "decisions", "final_context", "quality", "object_digest"}, "receipt"); err != nil {
 		return nil, err
 	}
-	if version, err := gwInt(value["schema_version"], "receipt.schema_version", gatewayMaxSafe); err != nil || version != 1 {
+	version, err := gwInt(value["schema_version"], "receipt.schema_version", gatewayMaxSafe)
+	if err != nil || (version != 1 && version != 2) {
 		return nil, gatewayBad("unsupported receipt schema_version")
 	}
-	receipt := &ContextDecisionReceipt{}
+	receipt := &ContextDecisionReceipt{SchemaVersion: version}
+	rawKey, keyed := value["object_digest"]
+	if (version == 2) != keyed {
+		return nil, gatewayBad("exactly a schema_version 2 receipt names its object digest key")
+	}
+	if keyed {
+		if receipt.ObjectDigest, err = parseObjectDigest(rawKey); err != nil {
+			return nil, err
+		}
+	}
 	decisions, _ := gwList(value, "decisions")
 	list, ok := decisions.([]any)
 	if !ok || len(list) > gatewayMaxDecisions {
@@ -602,7 +721,7 @@ func ParseDecisionReceipt(raw any) (*ContextDecisionReceipt, error) {
 	return receipt, nil
 }
 
-// ParseEgressAdmission parses and validates an EngineEgressAdmissionResponseV1 document.
+// ParseEgressAdmission parses and validates an InstanceEgressAdmissionResponseV1 document.
 func ParseEgressAdmission(raw any) (*EgressAdmission, error) {
 	value, err := gwObject(raw, "response")
 	if err != nil {
@@ -648,9 +767,253 @@ func ParseEgressAdmission(raw any) (*EgressAdmission, error) {
 	return admission, nil
 }
 
+// ParseEgressPreparation parses InstanceEgressPrepareResponseV2 and retains its
+// exact prepared_body string so callers can send those bytes unchanged.
+func ParseEgressPreparation(raw any) (*EgressPreparation, error) {
+	value, err := gwObject(raw, "preparation")
+	if err != nil {
+		return nil, err
+	}
+	if err := gwKeys(value, []string{"schema_version", "decision"}, []string{"prepared_body", "admission_receipt_digest"}, "preparation"); err != nil {
+		return nil, err
+	}
+	version, err := gwInt(value["schema_version"], "schema_version", gatewayMaxSafe)
+	if err != nil || version != EgressPrepareSchemaVersion {
+		return nil, gatewayBad("unsupported egress preparation schema_version")
+	}
+	decision, err := ParseEgressAdmission(value["decision"])
+	if err != nil {
+		return nil, err
+	}
+	if receipt := decision.Receipt; receipt != nil {
+		if decision.Disposition == "refused" {
+			if receipt.Outcome == "delivered" || receipt.FinalContext != nil {
+				return nil, gatewayBad("decision receipt outcome/final_context do not match disposition")
+			}
+		} else if receipt.Outcome != "delivered" || receipt.FinalContext == nil {
+			return nil, gatewayBad("decision receipt outcome/final_context do not match disposition")
+		}
+	}
+	preparation := &EgressPreparation{Decision: decision}
+	rawPrepared, hasPrepared := value["prepared_body"]
+	if decision.Disposition == "refused" {
+		if hasPrepared && rawPrepared != nil {
+			return nil, gatewayBad("a refused preparation cannot carry prepared bytes")
+		}
+	} else {
+		prepared, ok := rawPrepared.(string)
+		if !hasPrepared || !ok {
+			return nil, gatewayBad("a dispatchable preparation must carry exact bytes")
+		}
+		parsed, err := strictJSONLoads([]byte(prepared), "prepared egress body")
+		if err != nil {
+			return nil, gatewayBad("prepared bytes are not strict JSON")
+		}
+		parsedBody, ok := parsed.(map[string]any)
+		if !ok || !reflect.DeepEqual(parsedBody, decision.Body) {
+			return nil, gatewayBad("prepared bytes do not match the admitted decision body")
+		}
+		if decision.Receipt != nil && decision.Receipt.FinalContext != nil {
+			digest := sha256.Sum256([]byte(prepared))
+			if *decision.Receipt.FinalContext != fmt.Sprintf("sha256:%x", digest) {
+				return nil, gatewayBad("prepared bytes do not match the decision receipt digest")
+			}
+		}
+		preparation.PreparedBody = &prepared
+	}
+	if rawDigest, ok := value["admission_receipt_digest"]; ok && rawDigest != nil {
+		text, ok := rawDigest.(string)
+		if !ok || !gatewayDigest.MatchString(text) {
+			return nil, gatewayBad("admission_receipt_digest must be a sha256 digest")
+		}
+		if decision.Receipt == nil {
+			return nil, gatewayBad("egress admission digest requires its decision receipt")
+		}
+		preparation.AdmissionReceiptDigest = &text
+	}
+	return preparation, nil
+}
+
+// PrepareEgress invokes the separate opt-in egress-prepare V2 operation.
+func (c *SubprocessInstanceClient) PrepareEgress(parent context.Context, projectRoot string, request EgressRequest) (*EgressPreparation, error) {
+	if strings.TrimSpace(request.Provider) == "" {
+		return nil, NewValidationError("provider must be a non-empty string")
+	}
+	if !strings.HasPrefix(request.UpstreamBase, "https://") && !strings.HasPrefix(request.UpstreamBase, "http://") {
+		return nil, NewValidationError("upstream base must be an http(s) URL")
+	}
+	if request.Body == nil {
+		return nil, NewValidationError("body must be a JSON object")
+	}
+	payload, err := json.Marshal(map[string]any{"schema_version": EgressSchemaVersion, "provider": request.Provider,
+		"upstream_base": request.UpstreamBase, "body": request.Body})
+	if err != nil {
+		return nil, NewValidationError("body is not JSON data")
+	}
+	if len(payload) > MaxEgressRequestBytes {
+		return nil, NewValidationError("egress request exceeds its bound")
+	}
+	if err := c.configured(); err != nil {
+		return nil, err
+	}
+	root, err := validateRoot(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.runPayload(parent, "egress-prepare", root, payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 32*1024*1024 {
+		return nil, gatewayBad("preparation response exceeds its bound")
+	}
+	document, err := strictJSONLoads(raw, "egress preparation")
+	if err != nil {
+		return nil, gatewayBad("response is not strict JSON")
+	}
+	return ParseEgressPreparation(document)
+}
+
+func (r EgressHostReportRequest) document() (map[string]any, error) {
+	if !gatewayDigest.MatchString(r.AdmissionReceiptDigest) {
+		return nil, NewValidationError("admission_receipt_digest must be a sha256 digest")
+	}
+	if r.Attempt == 0 || r.Attempt > MaxEgressAttempts {
+		return nil, NewValidationError("attempt must be in 1..32")
+	}
+	if !slices.Contains([]string{"http", "websocket"}, r.Transport) {
+		return nil, NewValidationError("transport is invalid")
+	}
+	if !slices.Contains([]string{"response_observed", "no_response_observed"}, r.Result) {
+		return nil, NewValidationError("result is invalid")
+	}
+	if r.Failure != nil && !slices.Contains([]string{"connect", "timeout", "cancelled", "other"}, *r.Failure) {
+		return nil, NewValidationError("failure is invalid")
+	}
+	if r.HTTPStatus != nil && (*r.HTTPStatus < 100 || *r.HTTPStatus > 599) {
+		return nil, NewValidationError("http_status must be in 100..599")
+	}
+	if r.Result == "response_observed" {
+		if r.Failure != nil || (r.Transport == "http" && r.HTTPStatus == nil) {
+			return nil, NewValidationError("response_observed requires no failure and an HTTP status for HTTP")
+		}
+	} else if r.HTTPStatus != nil || r.Failure == nil {
+		return nil, NewValidationError("no_response_observed requires a bounded failure and no HTTP status")
+	}
+	document := map[string]any{"schema_version": EgressSchemaVersion, "admission_receipt_digest": r.AdmissionReceiptDigest,
+		"attempt": r.Attempt, "transport": r.Transport, "result": r.Result}
+	if r.HTTPStatus != nil {
+		document["http_status"] = *r.HTTPStatus
+	}
+	if r.Failure != nil {
+		document["failure"] = *r.Failure
+	}
+	return document, nil
+}
+
+// ParseEgressHostReport accepts only the matching HostReported Engine result.
+func ParseEgressHostReport(raw any, request EgressHostReportRequest) (*EgressHostReportResponse, error) {
+	expected, err := request.document()
+	if err != nil {
+		return nil, err
+	}
+	value, err := gwObject(raw, "report")
+	if err != nil {
+		return nil, err
+	}
+	if err := gwKeys(value, []string{"schema_version", "observation_digest", "observation"}, nil, "report"); err != nil {
+		return nil, err
+	}
+	version, err := gwInt(value["schema_version"], "schema_version", gatewayMaxSafe)
+	if err != nil || version != EgressSchemaVersion {
+		return nil, gatewayBad("unsupported egress report schema_version")
+	}
+	observationDigest, ok := value["observation_digest"].(string)
+	if !ok || !gatewayDigest.MatchString(observationDigest) {
+		return nil, gatewayBad("observation_digest must be a sha256 digest")
+	}
+	observation, err := gwObject(value["observation"], "observation")
+	if err != nil {
+		return nil, err
+	}
+	if err := gwKeys(observation, []string{"schema_version", "admission_receipt_digest", "attempt", "transport", "observer", "result"}, []string{"http_status", "failure"}, "observation"); err != nil {
+		return nil, err
+	}
+	obsVersion, err := gwInt(observation["schema_version"], "observation.schema_version", gatewayMaxSafe)
+	if err != nil || obsVersion != EgressSchemaVersion {
+		return nil, gatewayBad("unsupported observation schema_version")
+	}
+	if observation["observer"] != "host_reported" {
+		return nil, gatewayBad("host report response must be HostReported")
+	}
+	for key, expectedValue := range expected {
+		actual, present := observation[key]
+		if !present {
+			return nil, gatewayBad("report observation does not match request field %s", key)
+		}
+		actualJSON, actualErr := json.Marshal(actual)
+		expectedJSON, expectedErr := json.Marshal(expectedValue)
+		if actualErr != nil || expectedErr != nil || string(actualJSON) != string(expectedJSON) {
+			return nil, gatewayBad("report observation does not match request field %s", key)
+		}
+	}
+	for key := range observation {
+		if key != "observer" {
+			if _, ok := expected[key]; !ok {
+				return nil, gatewayBad("report observation has unexpected field %s", key)
+			}
+		}
+	}
+	canonicalObservation := make(map[string]any, len(expected)+1)
+	for key, item := range expected {
+		canonicalObservation[key] = item
+	}
+	canonicalObservation["observer"] = "host_reported"
+	canonicalBytes, err := json.Marshal(canonicalObservation)
+	if err != nil {
+		return nil, gatewayBad("observation serialization failed")
+	}
+	canonicalDigest := sha256.Sum256(canonicalBytes)
+	if observationDigest != fmt.Sprintf("sha256:%x", canonicalDigest) {
+		return nil, gatewayBad("observation_digest does not match the reported observation")
+	}
+	return &EgressHostReportResponse{ObservationDigest: observationDigest, Observation: observation}, nil
+}
+
+// ReportEgress submits one bounded host-observed transport attempt.
+func (c *SubprocessInstanceClient) ReportEgress(parent context.Context, projectRoot string, request EgressHostReportRequest) (*EgressHostReportResponse, error) {
+	document, err := request.document()
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(document)
+	if err != nil || len(payload) > MaxEgressReportBytes {
+		return nil, NewValidationError("egress report request exceeds its bound")
+	}
+	if err := c.configured(); err != nil {
+		return nil, err
+	}
+	root, err := validateRoot(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.runPayload(parent, "egress-report", root, payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 32*1024*1024 {
+		return nil, gatewayBad("report response exceeds its bound")
+	}
+	response, err := strictJSONLoads(raw, "egress report")
+	if err != nil {
+		return nil, gatewayBad("response is not strict JSON")
+	}
+	return ParseEgressHostReport(response, request)
+}
+
 // AdmitEgress admits one model request through the local Engine before it is
 // sent. Send admission.Body, never the original body, and only when MaySend.
-func (c *SubprocessEngineClient) AdmitEgress(parent context.Context, projectRoot string, request EgressRequest) (*EgressAdmission, error) {
+func (c *SubprocessInstanceClient) AdmitEgress(parent context.Context, projectRoot string, request EgressRequest) (*EgressAdmission, error) {
 	if strings.TrimSpace(request.Provider) == "" {
 		return nil, NewValidationError("provider must be a non-empty string")
 	}

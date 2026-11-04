@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-type fakeEngine struct {
+type fakeInstance struct {
 	view         *ContextView
 	contextCalls int
 	recover      *RecoveredSource
@@ -13,7 +13,7 @@ type fakeEngine struct {
 	contextErr   error
 }
 
-func (e *fakeEngine) ContextView(plan *ContextPlan) (*ContextView, error) {
+func (e *fakeInstance) ContextView(plan *ContextPlan) (*ContextView, error) {
 	e.contextCalls++
 	if e.contextErr != nil {
 		return e.view, e.contextErr
@@ -21,7 +21,7 @@ func (e *fakeEngine) ContextView(plan *ContextPlan) (*ContextView, error) {
 	return e.view, nil
 }
 
-func (e *fakeEngine) Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
+func (e *fakeInstance) Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
 	if e.recoverErr != nil {
 		return nil, e.recoverErr
 	}
@@ -32,8 +32,8 @@ func TestSessionLifecycleIsIdempotentAndTruthful(t *testing.T) {
 	root := t.TempDir()
 	source := testSource(t, root)
 	view := testFixtureView(t, *source)
-	fake := &fakeEngine{view: view}
-	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "session-fixed", TaskID: "task-fixed", Engine: fake})
+	fake := &fakeInstance{view: view}
+	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "session-fixed", TaskID: "task-fixed", Instance: fake})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestSessionLifecycleIsIdempotentAndTruthful(t *testing.T) {
 }
 
 func TestSessionRequiresLifecycleOrdering(t *testing.T) {
-	session, err := NewContextSession("task", SessionOptions{SessionID: "s", TaskID: "t", Engine: &fakeEngine{}})
+	session, err := NewContextSession("task", SessionOptions{SessionID: "s", TaskID: "t", Instance: &fakeInstance{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestSessionRequiresLifecycleOrdering(t *testing.T) {
 
 func TestSessionFailOpenProducesUnsealedReceipt(t *testing.T) {
 	root := t.TempDir()
-	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", FailOpen: true, Engine: &fakeEngine{contextErr: NewEngineTimeout("deadline")}})
+	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", FailOpen: true, Instance: &fakeInstance{contextErr: NewInstanceTimeout("deadline")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,19 +131,19 @@ func TestSessionFailOpenProducesUnsealedReceipt(t *testing.T) {
 	}
 }
 
-func TestSessionEngineFailureAbortsWithEvidence(t *testing.T) {
+func TestSessionInstanceFailureAbortsWithEvidence(t *testing.T) {
 	root := t.TempDir()
 	source := testSource(t, root)
 	view := testFixtureView(t, *source)
-	fake := &fakeEngine{view: view, contextErr: NewEngineExecutionError("failed", nil, view)}
-	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", Engine: fake})
+	fake := &fakeInstance{view: view, contextErr: NewInstanceExecutionError("failed", nil, view)}
+	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", Instance: fake})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := session.Prepare(source); err == nil {
-		t.Fatal("failed Engine unexpectedly succeeded")
+		t.Fatal("failed instance unexpectedly succeeded")
 	} else {
-		var execution *EngineExecutionError
+		var execution *InstanceExecutionError
 		if !errors.As(err, &execution) {
 			t.Fatalf("error type = %T", err)
 		}
@@ -160,8 +160,8 @@ func TestSessionRejectsUnboundRecovery(t *testing.T) {
 	root := t.TempDir()
 	source := testSource(t, root)
 	view := testFixtureView(t, *source)
-	fake := &fakeEngine{view: view}
-	session, err := NewContextSession("inspect", SessionOptions{SessionID: "s", TaskID: "t", Engine: fake})
+	fake := &fakeInstance{view: view}
+	session, err := NewContextSession("inspect", SessionOptions{SessionID: "s", TaskID: "t", Instance: fake})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestSessionRejectsUnboundRecovery(t *testing.T) {
 
 func TestSessionAbortKeepsHostExceptionPrivate(t *testing.T) {
 	root := t.TempDir()
-	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", Engine: &fakeEngine{view: testFixtureView(t, *testSource(t, root))}})
+	session, err := NewContextSession("inspect", SessionOptions{ProjectRoot: root, SessionID: "s", TaskID: "t", Instance: &fakeInstance{view: testFixtureView(t, *testSource(t, root))}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-//! Context Store preview conformance (fixtures shared by all six SDKs) and live Engine.
+//! Context Store preview conformance (fixtures shared by all six SDKs) and live instance.
 
 use std::fs;
 use std::path::PathBuf;
 
+mod support;
+use support::instance_env;
+
 use leanctx_sdk::preview::{parse_policy_evidence, parse_task_lineage, ContextStoreScope};
-use leanctx_sdk::{EngineProtocolError, SubprocessEngineClient};
+use leanctx_sdk::{InstanceProtocolError, SubprocessInstanceClient};
 use serde_json::Value;
 
 fn fixtures() -> PathBuf {
@@ -53,10 +56,34 @@ fn every_valid_document_parses_and_every_invalid_one_is_rejected() {
             let error = parse(kind, &load(kind, "invalid", &name))
                 .expect_err(&format!("{kind}/{name} must be rejected"));
             assert!(
-                error.downcast_ref::<EngineProtocolError>().is_some(),
+                error.downcast_ref::<InstanceProtocolError>().is_some(),
                 "{kind}/{name}"
             );
         }
+    }
+}
+
+#[test]
+fn a_signed_field_is_held_to_the_safe_range_on_both_sides_without_a_panic() {
+    const MAX_SAFE: i64 = (1 << 53) - 1;
+    let with_delta = |delta: i64| {
+        let mut evidence = load("evidence", "valid", "rich");
+        evidence["evaluations"][0]["delta_milli"] = Value::from(delta);
+        evidence
+    };
+    for delta in [0, -4, MAX_SAFE, -MAX_SAFE] {
+        let parsed = parse_policy_evidence(&with_delta(delta))
+            .unwrap_or_else(|error| panic!("{delta} must be accepted: {error}"));
+        assert_eq!(parsed.evaluations[0].delta_milli, delta);
+    }
+    // `i64::MIN` is the value whose absolute value does not exist.
+    for delta in [MAX_SAFE + 1, -MAX_SAFE - 1, i64::MAX, i64::MIN] {
+        let error = parse_policy_evidence(&with_delta(delta))
+            .expect_err(&format!("{delta} must be rejected"));
+        assert!(
+            error.downcast_ref::<InstanceProtocolError>().is_some(),
+            "{delta}"
+        );
     }
 }
 
@@ -73,13 +100,13 @@ fn unmeasured_never_reads_as_measured() {
 
 #[test]
 fn live_engine_fresh_scope_and_unknown_task() {
-    let Ok(binary) = std::env::var("LEANCTX_ENGINE_BINARY") else {
+    let Some(binary) = instance_env("LEANCTX_INSTANCE_BINARY", "LEANCTX_ENGINE_BINARY") else {
         return;
     };
-    let client = SubprocessEngineClient::with_binary(binary).expect("client");
+    let client = SubprocessInstanceClient::with_binary(binary).expect("client");
     let temporary = std::env::temp_dir().join(format!("leanctx-store-{}", std::process::id()));
     fs::create_dir_all(&temporary).expect("root");
-    // Private Engine storage refuses symlinked ancestors (macOS /var).
+    // Private instance storage refuses symlinked ancestors (macOS /var).
     let root = fs::canonicalize(&temporary).expect("resolved root");
     let scope = ContextStoreScope {
         project_id: Some("sdk-preview-fresh".to_owned()),

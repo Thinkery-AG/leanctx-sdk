@@ -2,13 +2,13 @@
 /** Strict Enterprise source-execution DTO validation. */
 
 import { parseResponse } from "./engine.js";
-import { EngineProtocolError, ValidationError } from "./errors.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
 import {
   ENGINE_INTERFACE_VERSION,
-  EnginePlanningRequest,
+  InstancePlanningRequest,
   parseSourcePlan,
-  type EngineContextPlan,
-  type EngineSourcePlan,
+  type InstanceContextPlan,
+  type InstanceSourcePlan,
 } from "./planning.js";
 import {
   canonicalBytes,
@@ -47,31 +47,31 @@ const TIMESTAMP_RE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([
 type JsonRecord = Record<string, unknown>;
 type JsonPath = readonly (string | number)[];
 
-export type EngineSourceExecution = Readonly<{
+export type InstanceSourceExecution = Readonly<{
   schema_version: 1;
   transport_version: 1;
   engine_interface_version: "1.0.0";
-  source_plan: EngineSourcePlan;
-  execution_plan: EngineContextPlan;
+  source_plan: InstanceSourcePlan;
+  execution_plan: InstanceContextPlan;
   view: Readonly<{ text: string; output_ref: string; output_digest: string }>;
   invocation: Readonly<JsonRecord>;
   observation: Readonly<JsonRecord>;
   canonical_receipt: Readonly<JsonRecord>;
 }>;
 
-export type EngineSourceExecutionV2 = Readonly<{
+export type InstanceSourceExecutionV2 = Readonly<{
   schema_version: 2;
   tenant_id: string;
   governance_revision: number;
   execution: Readonly<{
     schema_version: 2;
-    execution: EngineSourceExecution;
+    execution: InstanceSourceExecution;
     receipt_document_json: string;
   }>;
 }>;
 
 function fail(message: string, protocol = false): never {
-  if (protocol) throw new EngineProtocolError(message);
+  if (protocol) throw new InstanceProtocolError(message);
   throw new ValidationError(message);
 }
 
@@ -167,7 +167,7 @@ function canonicalUuid(value: unknown, fieldName: string): string {
 }
 
 export function normalizeSourceIds(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length > 64) throw new ValidationError("source_ids exceeds the Engine source bound");
+  if (!Array.isArray(value) || value.length > 64) throw new ValidationError("source_ids exceeds the LeanCTX instance source bound");
   const normalized = value.map((item) => canonicalUuid(item, "source_id"));
   if (new Set(normalized).size !== normalized.length) throw new ValidationError("source_ids must not contain duplicates");
   return normalized;
@@ -180,7 +180,7 @@ export function validatePlanningEvaluationTime(value: unknown): string {
 const TASK_REQUIRED = new Set(["schema_version", "task_id", "trace_id", "project_id", "session_id", "agent_id", "complexity", "created_at"]);
 const TASK_OPTIONAL = ["parent_task_id", "tenant_id", "intent", "task_class", "risk_class", "quality_requirement_milli", "cost_budget_micros", "latency_budget_ms", "data_classification", "region_policy_ref", "model_policy_ref", "context_state_ref", "outcome_contract_ref"];
 
-export function validateTask(value: unknown, request: EnginePlanningRequest, tenantId: string, protocol = false): JsonRecord {
+export function validateTask(value: unknown, request: InstancePlanningRequest, tenantId: string, protocol = false): JsonRecord {
   const raw = record(value, "task", protocol);
   for (const key of TASK_REQUIRED) if (!(key in raw)) fail("task is missing a required field", protocol);
   exactVersion(raw.schema_version, "task.schema_version", SCHEMA_VERSION, protocol);
@@ -283,10 +283,10 @@ export function validatePlan(value: unknown, taskId: string, protocol = false, a
 export function validateExecutionRequest(
   task: unknown,
   plan: unknown,
-  request: EnginePlanningRequest,
+  request: InstancePlanningRequest,
   tenantId: string,
 ): { task: JsonRecord; plan: JsonRecord } {
-  if (!(request instanceof EnginePlanningRequest)) throw new ValidationError("context_execute requires EnginePlanningRequest");
+  if (!(request instanceof InstancePlanningRequest)) throw new ValidationError("context_execute requires InstancePlanningRequest");
   const normalizedTask = validateTask(task, request, tenantId);
   const normalizedPlan = validatePlan(plan, String(normalizedTask.task_id), false, false);
   if (normalizedPlan.provider !== LOCAL_NATIVE || normalizedPlan.model !== LOCAL_NATIVE) throw new ValidationError("context_execute requires a local-native plan");
@@ -295,23 +295,23 @@ export function validateExecutionRequest(
   return { task: normalizedTask, plan: normalizedPlan };
 }
 
-function validateSourceScope(sourcePlan: EngineSourcePlan, requestedIds: readonly string[]): void {
+function validateSourceScope(sourcePlan: InstanceSourcePlan, requestedIds: readonly string[]): void {
   const requested = new Set(requestedIds);
   const selections = record(sourcePlan.result.plan, "source plan result.plan", true).selections;
-  if (!Array.isArray(selections)) fail("Enterprise Engine selections are invalid", true);
+  if (!Array.isArray(selections)) fail("Enterprise instance selections are invalid", true);
   for (const value of selections) {
     const selection = record(value, "source plan selection", true);
-    if (!requested.has(String(selection.source_ref)) || !requested.has(String(selection.provider))) fail("Enterprise Engine selection is outside requested sources", true);
+    if (!requested.has(String(selection.source_ref)) || !requested.has(String(selection.provider))) fail("Enterprise instance selection is outside requested sources", true);
   }
   for (const binding of sourcePlan.source_bindings) {
-    if (!requested.has(binding.object_ref) || !requested.has(binding.source_id)) fail("Enterprise Engine source binding is outside requested sources", true);
-    if (binding.permission !== "permitted") fail("Enterprise Engine selected source is not permitted", true);
+    if (!requested.has(binding.object_ref) || !requested.has(binding.source_id)) fail("Enterprise instance source binding is outside requested sources", true);
+    if (binding.permission !== "permitted") fail("Enterprise instance selected source is not permitted", true);
   }
 }
 
 function digestSuffix(value: unknown, prefix: string, fieldName: string): string {
   if (typeof value !== "string" || !value.startsWith(prefix)) fail(fieldName + " has an unsupported reference prefix", true);
-  try { return validateDigest("sha256:" + value.slice(prefix.length), fieldName); } catch (cause) { throw new EngineProtocolError(fieldName + " is not digest-bound", { cause }); }
+  try { return validateDigest("sha256:" + value.slice(prefix.length), fieldName); } catch (cause) { throw new InstanceProtocolError(fieldName + " is not digest-bound", { cause }); }
 }
 
 function parseReceipt(value: unknown): JsonRecord {
@@ -371,7 +371,7 @@ export function collectSourcePlanIntegerPaths(
 }
 
 export function validateSourcePlanScope(
-  sourcePlan: EngineSourcePlan,
+  sourcePlan: InstanceSourcePlan,
   requestedIds: readonly string[],
 ): void {
   validateSourceScope(sourcePlan, requestedIds);
@@ -411,20 +411,20 @@ function knownIntegerPaths(value: JsonRecord): readonly JsonPath[] {
 }
 
 function decode(raw: Uint8Array | string): JsonRecord {
-  const bytes = typeof raw === "string" ? utf8Bytes(raw, "Engine source execution v2 response", true) : Buffer.from(raw);
+  const bytes = typeof raw === "string" ? utf8Bytes(raw, "LeanCTX instance source execution v2 response", true) : Buffer.from(raw);
   if (bytes.byteLength > MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES) fail("Enterprise source execution v2 response exceeds its byte bound", true);
   try {
     const initial = record(strictJsonLoads(raw, "Enterprise source execution v2 response"), "Enterprise source execution v2 response");
     return record(strictJsonLoads(raw, "Enterprise source execution v2 response", knownIntegerPaths(initial)), "Enterprise source execution v2 response");
   } catch (cause) {
-    if (cause instanceof EngineProtocolError) throw cause;
-    throw new EngineProtocolError("Enterprise source execution v2 response is not valid JSON", { cause });
+    if (cause instanceof InstanceProtocolError) throw cause;
+    throw new InstanceProtocolError("Enterprise source execution v2 response is not valid JSON", { cause });
   }
 }
 
 function parseV1Value(
   value: JsonRecord,
-  request: EnginePlanningRequest,
+  request: InstancePlanningRequest,
   requestedIds: readonly string[],
   task: JsonRecord,
   plan: JsonRecord,
@@ -432,7 +432,7 @@ function parseV1Value(
   expectedGovernanceRevision: number,
   expectedBindingDigest: string,
   planningEvaluationTime?: string,
-): EngineSourceExecution {
+): InstanceSourceExecution {
   exactKeys(value, new Set(["schema_version", "tenant_id", "governance_revision", "execution"]), "Enterprise source execution response", true);
   exactVersion(value.schema_version, "response.schema_version", SCHEMA_VERSION, true);
   if (value.tenant_id !== tenantId) fail("Enterprise source execution response tenant binding does not match", true);
@@ -444,8 +444,8 @@ function parseV1Value(
   exactVersion(executionRaw.transport_version, "execution.transport_version", TRANSPORT_VERSION, true);
   if (executionRaw.engine_interface_version !== ENGINE_INTERFACE_VERSION) fail("Enterprise source execution Engine interface is unsupported", true);
   const sourcePlanRaw = record(executionRaw.source_plan, "execution.source_plan", true);
-  let sourcePlan: EngineSourcePlan;
-  try { sourcePlan = parseSourcePlan(canonicalBytes(sourcePlanRaw), request); } catch (cause) { throw new EngineProtocolError("Enterprise source execution source plan is invalid", { cause }); }
+  let sourcePlan: InstanceSourcePlan;
+  try { sourcePlan = parseSourcePlan(canonicalBytes(sourcePlanRaw), request); } catch (cause) { throw new InstanceProtocolError("Enterprise source execution source plan is invalid", { cause }); }
   validateSourceScope(sourcePlan, requestedIds);
   const bindingDigest = validateDigest(expectedBindingDigest, "expected_binding_digest");
   if (sourcePlan.binding_digest !== bindingDigest) fail("Enterprise source execution binding digest does not match", true);
@@ -471,7 +471,7 @@ function parseV1Value(
   let parsed: ReturnType<typeof parseResponse>;
   try {
     parsed = parseResponse(canonicalBytes({ schema_version: 1, transport_version: 1, engine_interface_version: ENGINE_INTERFACE_VERSION, view: executionRaw.view, invocation: executionRaw.invocation, observation: executionRaw.observation, recovery: dummyRecovery }));
-  } catch (cause) { throw new EngineProtocolError("Enterprise source execution invocation or observation is invalid", { cause }); }
+  } catch (cause) { throw new InstanceProtocolError("Enterprise source execution invocation or observation is invalid", { cause }); }
   if (parsed.records === null || parsed.view.outputRef === null || parsed.view.outputDigest === null) fail("Enterprise source execution view is missing output binding", true);
   const viewTextBytes = utf8Bytes(parsed.view.text, "execution.view.text", true);
   if (viewTextBytes.byteLength > MAX_TEXT_BYTES) fail("Enterprise source execution view exceeds its byte bound", true);
@@ -504,7 +504,7 @@ function parseV1Value(
     transport_version: TRANSPORT_VERSION,
     engine_interface_version: ENGINE_INTERFACE_VERSION,
     source_plan: sourcePlan,
-    execution_plan: executionPlan as EngineContextPlan,
+    execution_plan: executionPlan as InstanceContextPlan,
     view: { text: parsed.view.text, output_ref: parsed.view.outputRef, output_digest: parsed.view.outputDigest },
     invocation,
     observation,
@@ -514,7 +514,7 @@ function parseV1Value(
 
 export function parseSourceExecutionV2Response(
   raw: Uint8Array | string,
-  request: EnginePlanningRequest,
+  request: InstancePlanningRequest,
   requestedIds: readonly string[],
   task: JsonRecord,
   plan: JsonRecord,
@@ -522,7 +522,7 @@ export function parseSourceExecutionV2Response(
   expectedGovernanceRevision: number,
   expectedBindingDigest: string,
   planningEvaluationTime?: string,
-): EngineSourceExecutionV2 {
+): InstanceSourceExecutionV2 {
   const value = decode(raw);
   exactKeys(value, new Set(["schema_version", "tenant_id", "governance_revision", "execution"]), "Enterprise source execution v2 response", true);
   exactVersion(value.schema_version, "response.schema_version", V2_SCHEMA_VERSION, true);
@@ -538,20 +538,20 @@ export function parseSourceExecutionV2Response(
   if (receiptDocumentBytes.byteLength > MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES) fail("Enterprise source execution v2 receipt document exceeds its byte bound", true);
   const nestedExecution = record(executionV2.execution, "execution.execution", true);
   const v1Wrapper = { schema_version: 1, tenant_id: tenantId, governance_revision: revision, execution: nestedExecution };
-  let parsedExecution: EngineSourceExecution;
+  let parsedExecution: InstanceSourceExecution;
   try {
     parsedExecution = parseV1Value(v1Wrapper, request, requestedIds, task, plan, tenantId, revision, expectedBindingDigest, planningEvaluationTime);
   } catch (cause) {
-    if (cause instanceof EngineProtocolError) throw cause;
-    throw new EngineProtocolError("Enterprise source execution v2 nested execution is invalid", { cause });
+    if (cause instanceof InstanceProtocolError) throw cause;
+    throw new InstanceProtocolError("Enterprise source execution v2 nested execution is invalid", { cause });
   }
   if (parsedExecution.canonical_receipt.receipt_digest !== sha256Digest(receiptDocumentBytes)) fail("Enterprise source execution v2 receipt document digest does not match", true);
   try {
     const inner = { schema_version: V2_SCHEMA_VERSION, execution: nestedExecution, receipt_document_json: receiptDocumentJson };
     if (canonicalBytes(inner).byteLength > MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES) fail("Enterprise source execution v2 response exceeds its byte bound", true);
   } catch (cause) {
-    if (cause instanceof EngineProtocolError) throw cause;
-    throw new EngineProtocolError("Enterprise source execution v2 response contains non-canonical JSON data", { cause });
+    if (cause instanceof InstanceProtocolError) throw cause;
+    throw new InstanceProtocolError("Enterprise source execution v2 response contains non-canonical JSON data", { cause });
   }
   return {
     schema_version: V2_SCHEMA_VERSION,

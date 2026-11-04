@@ -20,7 +20,7 @@ from ..errors import (
 )
 from ..checkpoint_package import (
     CheckpointPackageInspection,
-    LocalCheckpointPackageEngine,
+    LocalCheckpointPackageInstance,
     SnapshotV1Inspection,
     SnapshotV1MigrationProvenance,
     SnapshotV1MigrationResult,
@@ -68,12 +68,22 @@ from ..gateway import (
     ContextPrincipal,
     DetectorCoverage,
     EgressAdmission,
+    EgressHostReportResponse,
+    EgressPreparation,
+    ReceiptObjectDigest,
     SecuritySignal,
     admit_egress,
+    keyed_object_digest,
+    parse_egress_host_report,
+    parse_egress_preparation,
     parse_decision_receipt,
     parse_egress_admission,
+    prepare_egress,
+    receipt_key_id,
+    report_egress,
 )
 
+# Material change: explicit union of public context-store preview exports; private behavior retained.
 from ..context_store import (
     ContextPolicyEvidence,
     DeliverySummary,
@@ -96,17 +106,6 @@ ContextDelta = ContextDeltaV1
 ContextHandoff = ContextHandoffV1
 
 __all__ = [
-    "CheckpointPackageInspection",
-    "ContextDecision",
-    "ContextDecisionReceipt",
-    "ContextDestination",
-    "ContextPrincipal",
-    "DetectorCoverage",
-    "EgressAdmission",
-    "SecuritySignal",
-    "admit_egress",
-    "parse_decision_receipt",
-    "parse_egress_admission",
     "ContextPolicyEvidence",
     "DeliverySummary",
     "LineageDelivery",
@@ -121,6 +120,26 @@ __all__ = [
     "parse_task_lineage",
     "read_policy_evidence",
     "read_task_lineage",
+    "CheckpointPackageInspection",
+    "ContextDecision",
+    "ContextDecisionReceipt",
+    "ContextDestination",
+    "ContextPrincipal",
+    "DetectorCoverage",
+    "EgressAdmission",
+    "EgressHostReportResponse",
+    "EgressPreparation",
+    "ReceiptObjectDigest",
+    "SecuritySignal",
+    "admit_egress",
+    "keyed_object_digest",
+    "parse_egress_host_report",
+    "parse_egress_preparation",
+    "parse_decision_receipt",
+    "parse_egress_admission",
+    "prepare_egress",
+    "receipt_key_id",
+    "report_egress",
     "ContextCheckpointV2",
     "ContextCheckpoint",
     "ConflictEntryV1",
@@ -134,7 +153,7 @@ __all__ = [
     "EvidenceRefV1",
     "ForkLineageV1",
     "HandoffAdmissionV1",
-    "LocalCheckpointPackageEngine",
+    "LocalCheckpointPackageInstance",
     "PackagePin",
     "NarrowReconciliationV1",
     "PolicyInheritanceV1",
@@ -172,3 +191,15 @@ __all__ = [
     "seal_checkpoint_package",
     "seed_workspace_from_package",
 ]
+
+
+from .. import _deprecation  # noqa: E402
+
+# Engine names are deprecated aliases of the same objects until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "LocalCheckpointPackageEngine",
+    },
+)

@@ -155,6 +155,80 @@ response/document joins and preserves exact receipt bytes. Accepted/rejected
 state is a host projection: the SDK neither evaluates it nor admits signer
 trust, triggers learning, changes accounting or retries the POST automatically.
 
+### Presenter capabilities (additive, unreleased)
+
+All names in this subsection are additive and unreleased: they are in no
+published artifact, change no existing signature and add no required method to
+an existing interface. They consume the Engine's
+`context-materialize-sources-v2`, `context-presented-use` and
+`context-presenter-revoke` operations (Engine 3.11.0 or later) and the suite
+routes in front of them. A presenter capability is a host-internal bearer
+secret: every binding holds it in an opaque type whose string forms are
+redacted and whose secret is reached only through an explicit reveal. It is not
+an identity and not an authorization; current source rights are checked again
+at every use. An Engine or suite that does not serve the operations is reported
+with the EXISTING `UnsupportedEngineError` of each binding — no new error type
+is added in any language.
+
+Python: `PresenterCapability` with `reveal()` is a package-root export (root
+`__all__` gains exactly this one name), so a host that kept the secret in its
+own store can wrap it again. Module `leanctx_sdk.presenter` (not re-exported
+from the root) additionally holds the constants
+`ENGINE_PRESENTER_CAPABILITY_MIN_ENGINE_VERSION`,
+`MAX_ENGINE_PRESENTER_TTL_SECONDS`, `PRESENTER_CAPABILITY_HEADER`,
+`PRESENTED_USE_MODES`, `MAX_PRESENTED_CONTENT_BYTES`; wire helpers
+`presenter_request`, `parse_presenter_grant`, `presented_use_request`,
+`parse_presented_use`, `parse_presenter_revocation`. On the root export
+`EnterpriseEngineClient`: `context_materialize_v2`, `presented_use` (modes
+`check`, `retain`, `expand`) and `presenter_revoke`.
+
+Go (package `leanctx`): `PresenterCapability` with `NewPresenterCapability`,
+`Reveal` and the redacting `String`, `GoString`, `Format`, `MarshalJSON`,
+`MarshalText`; constants `EnginePresenterCapabilityMinEngineVersion`,
+`MaxEnginePresenterTTLSeconds`, `PresenterCapabilityHeader`,
+`MaxPresentedContentBytes`; types `EngineSourceMaterializationRequestV2`,
+`EngineSourceMaterializationResponseV2`, `EnginePresenterGrant`,
+`PresentedUseMode` (`PresentedUseCheck`, `PresentedUseRetain`,
+`PresentedUseExpand`), `PresentedUseRequest`, `PresentedUseResponse`,
+`PresenterRevocation`. On `EnterpriseEngineClient`:
+`ContextMaterializeSourcesV2`/`ContextMaterializeSourcesV2Context`,
+`PresentedUse`/`PresentedUseContext` and
+`RevokePresenter`/`RevokePresenterContext`.
+
+Rust (crate-root exports): `PresenterCapability` (`new`, `reveal`, redacting
+`Debug`, no `Display`, no `Serialize`), `PresenterUse` (`Issue`, `Renew`),
+`EnginePresenterGrant`, `EngineSourceMaterializationResponseV2`, `PresentedUse`
+(`Check`, `Retain`, `Expand`), `PresentedUseResponse`; constants
+`ENGINE_PRESENTER_CAPABILITY_MIN_ENGINE_VERSION`,
+`MAX_ENGINE_PRESENTER_TTL_SECONDS`, `PRESENTER_CAPABILITY_HEADER`. On
+`EnterpriseEngineClient`: `context_materialize_v2`, `presented_use` and
+`presenter_revoke`.
+
+JVM (package `com.thinkery.leanctx`): `PresenterCapability` with `reveal()`, a
+redacting `toString()` and constants `MIN_ENGINE_VERSION`, `MAX_TTL_SECONDS`,
+`HEADER`. On `EnterpriseEngineClient`: `contextMaterializeV2` (one overload
+issues with a lifetime, one renews with a `PresenterCapability`), `presentedUse`
+and `revokePresenter`.
+
+.NET (namespace `Thinkery.LeanCtx`): `PresenterCapability` with `Reveal()`, a
+redacting `ToString()` and constants `MinEngineVersion`, `MaxTtlSeconds`,
+`Header`; result types `EnginePresenterGrant`, `EngineSourceMaterializationV2`,
+`PresentedUseResult`, `PresenterRevocation`. On `EnterpriseEngineClient`:
+`ContextMaterializeV2Async` (one overload issues, one renews),
+`PresentedUseAsync` and `RevokePresenterAsync`.
+
+TypeScript: the package root gains exactly one value export,
+`PresenterCapability` (with `reveal()`), and the type-only exports
+`PresentedUse`, `PresentedUseAnswer`, `PresenterRevocation`,
+`EnginePresenterGrant` and `EngineContextSourceMaterializationV2`; no subpath
+is added to `package.json`. The
+root exports `SubprocessEngineClient`, `EngineSourcePlanningClient` and
+`EnterpriseEngineClient` each gain `contextMaterializeSourcesV2`, `presentedUse`
+and `revokePresenter`. On the two local clients (`SubprocessEngineClient`,
+`EngineSourcePlanningClient`) `presentedUse` takes an optional fourth argument
+`authorizedSourceIds`: the Engine then answers only for a lineage of exactly
+those source ids and stores nothing for any other.
+
 ## Preview namespace
 
 The following symbols are public only from `leanctx_sdk.preview`; they must not
@@ -184,6 +258,14 @@ compatibility guarantee.
   `WorkspaceLockError`, `WorkspaceNotFoundError`, `WorkspacePolicyError`,
   `WorkspaceSensitiveDataError`, `WorkspaceValidationError`.
 
+- Context Store preview (since 1.2.0 source): `ContextPolicyEvidence`,
+  `DeliverySummary`, `LineageDelivery`, `LineageStep`, `QualityEvidence`,
+  `SecurityEvidence`, `StrategyEvaluation`, `StrategyOutcomeRecord`,
+  `TaskLineage`, `Workload`, `parse_policy_evidence`, `parse_task_lineage`,
+  `read_policy_evidence`, `read_task_lineage`. These are additive Python
+  Preview exports only; the Stable/root surface and presenter invariant remain
+  unchanged. Contract: `contracts/context-store-preview-v1.json`.
+
 Status: Preview. Preview symbols are tested but may change before GA. The
 package must expose no `research` alias in the release artifact.
 
@@ -203,7 +285,8 @@ Versioned record names remain schema identifiers, not separate stability tiers.
 ## Release invariants
 
 1. Root `__all__` equals Stable primitives, Agent Tools, Stable supporting
-   surface, and the explicitly listed unreleased v4 Engine additions.
+   surface, the explicitly listed unreleased v4 Engine additions, and the one
+   unreleased presenter name `PresenterCapability`.
 2. Preview `__all__` equals the Preview namespace list above.
 3. Stable imports never depend on Preview modules.
 4. Public modules never import private research or Cloud implementation.

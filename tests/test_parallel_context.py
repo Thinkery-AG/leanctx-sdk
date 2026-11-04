@@ -146,7 +146,7 @@ class ParallelContextTests(unittest.TestCase):
             session = ContextSession(
                 "build",
                 project_root=source.project_root,
-                engine=FakeEngine(),
+                instance=FakeEngine(),
             )
             session.plan(source)
             source_path = Path(root, "project", "source.txt")
@@ -169,7 +169,7 @@ class ParallelContextTests(unittest.TestCase):
             updated_session = ContextSession(
                 "continue",
                 project_root=source.project_root,
-                engine=FakeEngine(),
+                instance=FakeEngine(),
             )
             updated_session.plan(source)
             with self.assertRaises(WorkspaceConflictError):
@@ -246,7 +246,7 @@ class ParallelContextTests(unittest.TestCase):
             reviewer = parent.fork("reviewer", from_checkpoint=checkpoint)
             implementer.bind_source("source-1", source)
             with patch(
-                "leanctx_sdk.session.SubprocessEngineClient",
+                "leanctx_sdk.session.SubprocessInstanceClient",
                 return_value=FakeEngine(),
             ):
                 sender = implementer.start_session(
@@ -345,7 +345,7 @@ class ParallelContextTests(unittest.TestCase):
                     admission=other_admission,
                 )
             with patch(
-                "leanctx_sdk.session.SubprocessEngineClient",
+                "leanctx_sdk.session.SubprocessInstanceClient",
                 return_value=FakeEngine(),
             ):
                 attachment = reviewer.start_session(
@@ -515,7 +515,7 @@ session = ContextSession(
     project_root=project_root,
     session_id="p7-process-session",
     task_id="p7-process-task",
-    engine=FakeEngine(),
+    instance=FakeEngine(),
 )
 session.plan(source)
 session.prepare(source)

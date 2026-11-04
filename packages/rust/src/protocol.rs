@@ -99,14 +99,14 @@ impl fmt::Display for SessionState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EngineStatus {
+pub enum InstanceStatus {
     Succeeded,
     Degraded,
     Rejected,
     Failed,
 }
 
-impl EngineStatus {
+impl InstanceStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Succeeded => "succeeded",
@@ -117,13 +117,13 @@ impl EngineStatus {
     }
 }
 
-impl fmt::Display for EngineStatus {
+impl fmt::Display for InstanceStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
 }
 
-impl std::str::FromStr for EngineStatus {
+impl std::str::FromStr for InstanceStatus {
     type Err = ValidationError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -132,7 +132,7 @@ impl std::str::FromStr for EngineStatus {
             "degraded" => Ok(Self::Degraded),
             "rejected" => Ok(Self::Rejected),
             "failed" => Ok(Self::Failed),
-            _ => Err(ValidationError::new("invalid Engine observation status")),
+            _ => Err(ValidationError::new("invalid instance observation status")),
         }
     }
 }
@@ -885,7 +885,7 @@ pub struct ContextView {
     source_ref: String,
     source_digest: String,
     recovery_ref: Option<String>,
-    status: EngineStatus,
+    status: InstanceStatus,
     measurements: Vec<ContextMeasurement>,
     failure: Option<ContextFailure>,
     receipt_link: Option<ContextReceiptLink>,
@@ -906,7 +906,7 @@ impl ContextView {
         source_ref: String,
         source_digest: String,
         recovery_ref: Option<String>,
-        status: EngineStatus,
+        status: InstanceStatus,
         measurements: Vec<ContextMeasurement>,
         failure: Option<ContextFailure>,
         receipt_link: Option<ContextReceiptLink>,
@@ -942,7 +942,7 @@ impl ContextView {
         source_ref: String,
         source_digest: String,
         recovery_ref: Option<String>,
-        status: EngineStatus,
+        status: InstanceStatus,
         measurements: Vec<ContextMeasurement>,
         failure: Option<ContextFailure>,
         receipt_link: Option<ContextReceiptLink>,
@@ -1045,7 +1045,7 @@ impl ContextView {
         self.recovery_ref.as_deref()
     }
 
-    pub fn status(&self) -> EngineStatus {
+    pub fn status(&self) -> InstanceStatus {
         self.status
     }
 
@@ -1123,8 +1123,8 @@ impl ContextView {
 
     pub fn require_text(&self) -> SdkResult<&str> {
         self.text.as_deref().ok_or_else(|| {
-            crate::errors::boxed(crate::errors::EngineExecutionError::new(
-                "Engine view has no text",
+            crate::errors::boxed(crate::errors::InstanceExecutionError::new(
+                "LeanCTX instance view has no text",
             ))
         })
     }
@@ -1150,7 +1150,7 @@ impl ContextView {
     pub fn verify(&self) -> bool {
         if !matches!(
             self.status,
-            EngineStatus::Succeeded | EngineStatus::Degraded
+            InstanceStatus::Succeeded | InstanceStatus::Degraded
         ) {
             return false;
         }

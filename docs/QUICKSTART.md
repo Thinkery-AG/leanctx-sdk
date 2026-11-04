@@ -5,7 +5,7 @@
 For a released Engine companion package:
 
 ```bash
-python -m pip install "thinkery-leanctx-sdk[agent]==1.2.0"
+python -m pip install "thinkery-leanctx-sdk[agent]==1.3.0"
 ```
 
 During source validation, point the SDK at a locally built Engine:
@@ -16,7 +16,7 @@ from leanctx_sdk import AgentContext
 with AgentContext(
     ".",
     task="Find the public API",
-    engine_binary="/path/to/lean-ctx",
+    instance_binary="/path/to/lean-ctx",
 ) as tools:
     print(tools.tree(depth=2).text)
     print(tools.search("class AgentContext", path="src").text)
@@ -29,7 +29,7 @@ This is read-only. Enable writes or approved commands explicitly with
 
 ## Context lifecycle (SDK 1.0 contract)
 
-Install `thinkery-leanctx-sdk==1.0.0` and the exact LeanCTX Engine `v3.10.0` artifact
+Install `thinkery-leanctx-sdk==1.0.0` and the exact LeanCTX | OSS `v3.10.0` artifact
 listed in the compatibility matrix. Verify its signed checksum before putting
 `lean-ctx` on `PATH`. Provider credentials are not required for deterministic
 local use.
@@ -37,13 +37,13 @@ local use.
 ```python
 from pathlib import Path
 
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import ContextSession, ContextSource, SubprocessInstanceClient
 
 root = Path.cwd()
 session = ContextSession(
     "inspect configuration",
     project_root=str(root),
-    engine=SubprocessEngineClient(),  # uses the compatible `lean-ctx` on PATH
+    instance=SubprocessInstanceClient(),  # uses the compatible `lean-ctx` on PATH
 )
 source = ContextSource("README.md", project_root=str(root))
 view = session.prepare(source)

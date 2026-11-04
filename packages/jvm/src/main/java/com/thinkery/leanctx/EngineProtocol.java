@@ -37,10 +37,10 @@ final class EngineProtocol {
 
     static ParsedResponse parseResponse(byte[] raw) {
         if (raw == null || raw.length > Protocol.MAX_RESPONSE_BYTES) {
-            throw new EngineProtocolError("Engine response exceeds the bound");
+            throw new EngineProtocolError("LeanCTX instance response exceeds the bound");
         }
-        Map<String, Object> top = Json.object(Json.parse(raw, "Engine response"), "Engine response");
-        exact(top, TOP_LEVEL, "Engine response");
+        Map<String, Object> top = Json.object(Json.parse(raw, "LeanCTX instance response"), "LeanCTX instance response");
+        exact(top, TOP_LEVEL, "LeanCTX instance response");
         if (Json.integer(top.get("schema_version"), "response.schema_version")
                 != LeanCtx.SCHEMA_VERSION) {
             throw new CompatibilityError("unsupported schema version");
@@ -124,7 +124,7 @@ final class EngineProtocol {
                 "invocation.engine.engine_version", Protocol.MAX_REF_BYTES);
         if (!"lean-ctx-local".equals(engineId) || !Protocol.SEMVER.matcher(engineVersion).matches()
                 || !engineVersion.startsWith("3.")) {
-            throw new UnsupportedEngineError("unsupported Engine identity");
+            throw new UnsupportedEngineError("unsupported LeanCTX instance identity");
         }
         String capabilityId = Json.string(operation.get("capability_id"),
                 "invocation.operation.capability_id", Protocol.MAX_REF_BYTES);
@@ -132,7 +132,7 @@ final class EngineProtocol {
                 "invocation.operation.capability_version", Protocol.MAX_REF_BYTES);
         if (!"capability://leanctx/context-optimization".equals(capabilityId)
                 || !"1.0.0".equals(capabilityVersion)) {
-            throw new UnsupportedEngineError("unsupported Engine capability");
+            throw new UnsupportedEngineError("unsupported LeanCTX instance capability");
         }
         String decision = Json.string(policy.get("decision"),
                 "invocation.policy_admission.decision", Protocol.MAX_REF_BYTES);
@@ -342,7 +342,7 @@ final class EngineProtocol {
         Json.exactKeys(value, expected, label);
     }
 
-    private static EngineProtocolError protocol(String message) {
+    private static InstanceProtocolError protocol(String message) {
         return new EngineProtocolError(message);
     }
 

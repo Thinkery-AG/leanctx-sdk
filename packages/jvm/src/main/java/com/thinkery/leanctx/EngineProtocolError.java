@@ -1,26 +1,31 @@
 package com.thinkery.leanctx;
 
-/** The Engine response or process boundary violated the wire contract. */
-public class EngineProtocolError extends EngineError {
+/**
+ * Deprecated alias of {@link InstanceProtocolError}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineProtocolError e)} and {@code catch (InstanceProtocolError e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceProtocolError}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public class EngineProtocolError extends InstanceProtocolError {
     public EngineProtocolError() {
-        this(null);
+        super();
     }
 
     public EngineProtocolError(String message) {
-        this(message, null);
+        super(message);
     }
 
     public EngineProtocolError(String message, Throwable cause) {
-        super(message, cause, "engine_protocol_error",
-                "fail closed and verify Engine interface, schema, and transport",
-                false, false, true, false, false);
+        super(message, cause);
     }
 
-    protected EngineProtocolError(String message, Throwable cause, String code,
-                                  String guidance, boolean retryable,
-                                  boolean degradeAllowed, boolean abortRequired,
-                                  boolean configurationFix, boolean versionChange) {
-        super(message, cause, code, guidance, retryable, degradeAllowed,
-                abortRequired, configurationFix, versionChange);
+    protected EngineProtocolError(String message, Throwable cause, String code, String guidance,
+                     boolean retryable, boolean degradeAllowed, boolean abortRequired,
+                     boolean configurationFix, boolean versionChange) {
+        super(message, cause, code, guidance, retryable, degradeAllowed, abortRequired,
+                configurationFix, versionChange);
     }
 }

@@ -10,7 +10,8 @@ import java.util.TreeSet;
 /** Immutable, fail-closed policy for structured Agent Tools execution. */
 public final class ExecutionPolicy {
     private static final Set<String> FORBIDDEN_ENV = Set.of(
-            "COMSPEC", "DYLD_INSERT_LIBRARIES", "HOME", "LD_PRELOAD", "PATH",
+            "COMSPEC", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "HOME",
+            "LD_LIBRARY_PATH", "LD_PRELOAD", "PATH",
             "PATHEXT", "PYTHONPATH", "RUSTC_WRAPPER", "SHELL");
     private final double maxTimeout;
     private final List<String> allowedExecutables;

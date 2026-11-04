@@ -22,7 +22,7 @@ shell commands retain their separate execution permission and environment policy
 An optional `GitLabSource` binds one Agent Tools session to a canonical HTTPS
 host, positive project ID and namespace. The host application also selects the
 absolute `glab` executable and, optionally, its absolute configuration directory.
-These are trusted operator settings, like `engine_binary`: never take them from
+These are trusted operator settings, like `instance_binary`: never take them from
 model-generated tool arguments or project documents. The Engine reads the
 existing glab credential through a bounded in-memory channel. Tokens are not
 SDK arguments, policy fields or forwarded environment variables.
@@ -83,7 +83,7 @@ language tags publish only after all five non-Python SDK build, test, package,
 and clean-install jobs pass.
 
 The public SDK 1.1.0 release requires Engine 3.10.1; current `main` sources
-target Engine 3.11.4. Verify each registry artifact before describing it as
+target Engine 3.12.1. Verify each registry artifact before describing it as
 published; source package version metadata alone is not publication evidence.
 
 ## Registry trust

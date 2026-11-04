@@ -89,7 +89,7 @@ public final class ContextReceipt {
         }
         if (Integrity.SEALED.value().equals(integrityStatus)
                 && (view == null || !view.verify())) {
-            throw new ValidationError("sealed receipt requires verified Engine evidence");
+            throw new ValidationError("sealed receipt requires verified LeanCTX instance evidence");
         }
         this.view = view;
         this.outcome = outcome;

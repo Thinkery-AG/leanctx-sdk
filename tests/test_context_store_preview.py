@@ -10,8 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from leanctx_sdk import SubprocessEngineClient  # noqa: E402
-from leanctx_sdk.errors import EngineProtocolError, ValidationError  # noqa: E402
+from leanctx_sdk import SubprocessInstanceClient  # noqa: E402
+from leanctx_sdk._deprecation import instance_env as _instance_env  # noqa: E402
+from leanctx_sdk.errors import InstanceProtocolError, ValidationError  # noqa: E402
 from leanctx_sdk.preview import (  # noqa: E402
     parse_policy_evidence,
     parse_task_lineage,
@@ -39,7 +40,7 @@ class ContextStorePreviewConformance(unittest.TestCase):
         for kind, parse in PARSERS.items():
             for name in MANIFEST["documents"][kind]["invalid"]:
                 with self.subTest(kind=kind, name=name):
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         parse(_load(kind, "invalid", name))
 
     def test_unmeasured_never_reads_as_measured(self):
@@ -67,11 +68,43 @@ class ContextStorePreviewConformance(unittest.TestCase):
         with self.assertRaises(ValidationError):
             read_task_lineage(None, "/tmp", " ")
 
+    def test_a_version_is_the_integer_not_a_value_equal_to_it(self):
+        # `True == 1` and `1.0 == 1` in Python; neither is version 1. `False`
+        # and `2.0` are refused as well: no boolean and no float is a version.
+        class Engine:
+            def __init__(self, document):
+                self.document = document
 
-@unittest.skipUnless(os.environ.get("LEANCTX_ENGINE_BINARY"), "needs a real Engine")
+            def _invoke_bytes(self, *_args, **_kwargs):
+                return json.dumps(self.document).encode("utf-8")
+
+        documents = {
+            "evidence": (parse_policy_evidence, _load("evidence", "valid", "rich"),
+                         lambda engine: read_policy_evidence(engine, "/tmp", project_id="p")),
+            "lineage": (parse_task_lineage, _load("lineage", "valid", "complete"),
+                        lambda engine: read_task_lineage(engine, "/tmp", "task", project_id="p")),
+        }
+        for kind, (parse, valid, read) in documents.items():
+            envelope = {"schema_version": 1, "transport_version": 1,
+                        "engine_interface_version": "1.0.0", kind: valid}
+            # The integer itself still passes, in the document and in the envelope.
+            self.assertEqual(valid["schema_version"], 1)
+            parse(valid)
+            read(Engine(envelope))
+            for wrong in (True, 1.0, False, 2.0):
+                with self.subTest(kind=kind, where="document", value=wrong):
+                    with self.assertRaises(InstanceProtocolError):
+                        parse({**valid, "schema_version": wrong})
+                for field in ("schema_version", "transport_version"):
+                    with self.subTest(kind=kind, where=field, value=wrong):
+                        with self.assertRaises(InstanceProtocolError):
+                            read(Engine({**envelope, field: wrong}))
+
+
+@unittest.skipUnless(_instance_env("LEANCTX_INSTANCE_BINARY"), "needs a real LeanCTX instance (LEANCTX_INSTANCE_BINARY)")
 class ContextStorePreviewLiveEngine(unittest.TestCase):
     def setUp(self):
-        self.engine = SubprocessEngineClient(os.environ["LEANCTX_ENGINE_BINARY"])
+        self.engine = SubprocessInstanceClient(_instance_env("LEANCTX_INSTANCE_BINARY"))
         # Private Engine storage refuses symlinked ancestors (macOS /var).
         self.root = os.path.realpath(tempfile.mkdtemp(prefix="leanctx-store-"))
 

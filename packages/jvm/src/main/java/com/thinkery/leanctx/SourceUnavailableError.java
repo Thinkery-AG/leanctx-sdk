@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
-/** The selected source cannot currently be read by the Engine. */
+/** The selected source cannot currently be read by the LeanCTX instance. */
+@SuppressWarnings("removal")
 public class SourceUnavailableError extends EngineExecutionError {
     public SourceUnavailableError() {
         this(null, null, null, null);

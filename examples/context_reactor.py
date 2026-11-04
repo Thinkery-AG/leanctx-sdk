@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import ContextSession, ContextSource, SubprocessInstanceClient
 
 
 Specialist = Callable[[str], Dict[str, object]]
@@ -69,7 +69,7 @@ def run(engine: Path, project_root: Path, relative_path: str) -> Dict[str, objec
     session = ContextSession(
         "fan one shaped context view out to three specialists",
         project_root=str(root),
-        engine=SubprocessEngineClient(engine),
+        instance=SubprocessInstanceClient(engine),
     )
     view = session.prepare(ContextSource(relative_path, project_root=str(root)))
     if view is None:

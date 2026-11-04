@@ -84,7 +84,7 @@ export class ContextReceipt {
     if (schemaVersion !== SCHEMA_VERSION || !Number.isInteger(schemaVersion)) throw new ValidationError("receipt schema_version must be 1");
     const degradations = [...(options.degradations ?? [])];
     if (degradations.some((item) => typeof item !== "string" || !item)) throw new ValidationError("degradations must be non-empty strings");
-    if (options.integrityStatus === Integrity.SEALED && (options.view === null || !options.view.verify())) throw new ValidationError("sealed receipt requires verified Engine evidence");
+    if (options.integrityStatus === Integrity.SEALED && (options.view === null || !options.view.verify())) throw new ValidationError("sealed receipt requires verified instance evidence");
     this.sessionId = sessionId;
     this.taskId = taskId;
     this.planId = options.planId;

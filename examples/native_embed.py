@@ -6,7 +6,7 @@ from leanctx_sdk import (
     ContextReceipt,
     ContextSession,
     ContextSource,
-    SubprocessEngineClient,
+    SubprocessInstanceClient,
 )
 from leanctx_sdk.integrations.native_embed import abort, complete, prepare
 
@@ -20,7 +20,7 @@ def run(
     session = ContextSession(
         "example task",
         project_root=project_root,
-        engine=SubprocessEngineClient(engine_binary),
+        instance=SubprocessInstanceClient(engine_binary),
     )
     view = prepare(session, ContextSource(path, project_root=project_root))
     prompt = view.text if view is not None else "use the host's original input"

@@ -1,8 +1,21 @@
 # Changelog
 
+## 1.3.0
+
+Instance names; Engine names deprecated until 2.0; engine interface contract
+unchanged. See `RELEASE-NOTES-1.3.0.md`.
+
+- Python: `Instance*` names are primary; `Engine*` names, `engine_binary=`,
+  `engine=`, the `leanctx_sdk.engine`/`enterprise_engine` modules and the
+  `LEANCTX_ENGINE_*` variables keep working with a `DeprecationWarning`.
+- The release-candidate pipeline, release-evidence script and release-gate
+  tests bind the signed, published LeanCTX | OSS v3.12.1 (tag commit
+  `0f0297e396ecf15f578d6d0fd07dba6353b1497c`), its `SHA256SUMS` and the Linux
+  x86_64 / macOS arm64 archive and binary digests; see `COMPATIBILITY.md`.
+
 ## Unreleased (1.2.0)
 
-SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.4** and
+SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.0** and
 adds the v4 preview surfaces below. Interface, schema and transport versions
 and the stable public-surface contract are unchanged. The published 1.1.x
 packages keep their release identity.
@@ -44,16 +57,14 @@ packages keep their release identity.
 ### Changed
 
 - Every language package, the `[agent]` companion-Engine extras and the Agent
-  Tools contract target **LeanCTX Engine 3.11.4**, a bugfix release (the
-  Agent Tools protocol is unchanged). `main` previously targeted 3.11.3, 3.11.2,
-  3.11.1 and before that
-  3.10.5; before that, only the Python constant had moved
+  Tools contract target **LeanCTX Engine 3.11.0** (not yet published). `main`
+  previously targeted 3.10.5; before that, only the Python constant had moved
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
-- The release-candidate pipeline and release-evidence scripts bind the signed
-  Engine v3.11.4 (commit `3afe2bbffe0834ec58517ffd493e5a51c5c1ca57`), with
-  archive and binary digests taken from the release download and cross-checked
-  against its `SHA256SUMS`. Previously they bound v3.11.3.
+- The release-candidate pipeline and release-evidence scripts still bind the
+  published Engine v3.10.5 (commit `102330a77c36061483f60d914aeb14d3551b6e24`).
+  They move to v3.11.0 with digests taken from the signed release download once
+  that Engine is tagged.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
   1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so

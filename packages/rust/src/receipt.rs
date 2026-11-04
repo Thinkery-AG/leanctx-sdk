@@ -68,7 +68,7 @@ impl ContextReceipt {
             && view.as_ref().map_or(true, |value| !value.verify())
         {
             return Err(boxed(ValidationError::new(
-                "sealed receipt requires verified Engine evidence",
+                "sealed receipt requires verified instance evidence",
             )));
         }
         Ok(Self {
@@ -129,7 +129,7 @@ impl ContextReceipt {
         self.integrity_status == Integrity::Sealed
     }
 
-    pub fn status(&self) -> Option<crate::protocol::EngineStatus> {
+    pub fn status(&self) -> Option<crate::protocol::InstanceStatus> {
         self.view.as_ref().map(ContextView::status)
     }
 

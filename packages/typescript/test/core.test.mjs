@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { INSTANCE_BIN } from "./instance-env.mjs";
 import { fileURLToPath } from "node:url";
 import {
   AgentContext,
@@ -18,44 +19,64 @@ import {
   ContextSession,
   ContextSource,
   ContextView,
-  EngineProtocolError,
+  InstanceProtocolError,
   HostOutcome,
   Integrity,
   RecoveredSource,
-  SubprocessEngineClient,
+  SubprocessInstanceClient,
 } from "../dist/index.js";
 import { parseResponse } from "../dist/engine.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
 
 test("root exports equal the accepted v4 integration-candidate allowlist", async () => {
   const module = await import("../dist/index.js");
+  // Source union: retain private exports and add public context-store runtime names.
   const expected = [
+    "CONTEXT_STORE_PREVIEW_CONTRACT",
+    "CONTEXT_STORE_PREVIEW_VERSION",
+    "MAX_STORE_REQUEST_BYTES",
+    "MAX_STORE_RESPONSE_BYTES",
+    "TASK_CLASSES",
+    "LANGUAGES",
+    "SIZES",
+    "STRATEGIES",
+    "parsePolicyEvidence",
+    "parseTaskLineage",
+    "readPolicyEvidence",
+    "readTaskLineage",
     "AGENT_TOOLS_INTERFACE_VERSION", "AGENT_TOOLS_SCHEMA_VERSION",
     "AGENT_TOOLS_TRANSPORT_VERSION", "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
     "ENGINE_INTERFACE_VERSION", "SCHEMA_VERSION", "TRANSPORT_VERSION", "__version__",
     "AgentContext", "AgentMetrics", "AgentPermissions", "AsyncAgentContext",
     "ExecutionPolicy", "ReadMode", "ToolResult", "ContextSession", "ContextSource",
     "ContextView", "ContextPlan", "ContextReceipt", "ContextFailure",
-    "ContextMeasurement", "ContextReceiptLink", "EngineStatus", "FailureCode",
+    "ContextMeasurement", "ContextReceiptLink", "InstanceStatus", "FailureCode",
     "Freshness", "HostOutcome", "Integrity", "RecoveredSource", "SessionState",
-    "SubprocessEngineClient", "EngineContextClient", "EnterpriseEngineClient",
-    "EnginePlanningRequest", "EngineSource", "EngineSourcePlanningClient",
+    "SubprocessInstanceClient", "InstanceContextClient", "EnterpriseInstanceClient",
+    "InstancePlanningRequest", "InstanceSource", "InstanceSourcePlanningClient",
     "MAX_ENGINE_CONTEXT_PLAN_CANDIDATES", "MAX_ENGINE_CONTEXT_PLAN_QUERY_BYTES",
     "MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES", "MAX_ENGINE_CONTEXT_PLAN_TOKENS",
     "MAX_ENGINE_SOURCE_CONTENT_BYTES", "MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES",
     "MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES", "MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES",
     "MAX_ENGINE_SOURCE_PLAN_SOURCES", "parseMaterialization", "parseSourcePlan",
+    "PresenterCapability",
     "MAX_ENGINE_SOURCE_EXECUTION_REQUEST_BYTES",
     "MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES",
     "MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES", "parseSourceExecutionV2Response",
     "MAX_SOURCE_REQUEST_BYTES", "MAX_SOURCE_RESPONSE_BYTES",
     "SDKError", "ArtifactIntegrityError",
-    "CompatibilityError", "ConfigurationError", "EngineError", "EngineExecutionError",
-    "EngineProtocolError", "EngineRejected", "EngineTimeout", "EngineUnavailable",
+    "CompatibilityError", "ConfigurationError", "InstanceError", "InstanceExecutionError",
+    "InstanceProtocolError", "InstanceRejected", "InstanceTimeout", "InstanceUnavailable",
     "FrameworkCompatibilityError", "FrameworkIntegrationError", "PolicyAdmissionError",
     "RecoveryUnavailableError", "SessionStateError", "SourceUnavailableError",
-    "UnsupportedEngineError", "ValidationError", "EngineCrashed",
+    "UnsupportedInstanceError", "ValidationError", "InstanceCrashed",
     "AgentPermissionError", "UnsupportedCapabilityError",
+    // Deprecated Engine aliases (since 1.3.0, removed in 2.0).
+    "EngineCrashed", "EngineError", "EngineExecutionError", "EngineProtocolError",
+    "EngineRejected", "EngineTimeout", "EngineUnavailable", "UnsupportedEngineError",
+    "EngineContextClient", "EnginePlanningRequest", "EngineSource",
+    "EngineSourcePlanningClient", "EngineStatus", "EnterpriseEngineClient",
+    "SubprocessEngineClient",
   ].sort();
   assert.deepEqual(Object.keys(module).sort(), expected);
 });
@@ -147,7 +168,7 @@ lines.on("line", (line) => {
   const request = JSON.parse(line);
   let result;
   if (request.op === "hello") {
-    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.11.4", schema_version: 1, transport_version: 1 };
+    result = { agent_tools_interface_version: "1.0.0", allow_exec: policy.allow_exec, allow_write: policy.allow_write, capabilities, engine_version: "3.12.1", schema_version: 1, transport_version: 1 };
   } else if (request.op === "call") {
     result = { text: request.tool + ":ok", content_blocks: [], original_tokens: 10, output_tokens: 4, saved_tokens: 6, mode: null, changed: request.tool === "ctx_patch", shell: request.tool === "ctx_shell" ? { exit_code: 0 } : null };
   } else if (request.op === "close") {
@@ -261,8 +282,8 @@ test("strict Engine parser rejects unknown, duplicate, and incompatible fields",
     recovery: view.recoveryBinding(),
   };
   assert.equal(parseResponse(JSON.stringify(response)).records?.observation.status, "succeeded");
-  assert.throws(() => parseResponse(JSON.stringify({ ...response, extra: true })), EngineProtocolError);
-  assert.throws(() => parseResponse('{"schema_version":1,"schema_version":1}'), EngineProtocolError);
+  assert.throws(() => parseResponse(JSON.stringify({ ...response, extra: true })), InstanceProtocolError);
+  assert.throws(() => parseResponse('{"schema_version":1,"schema_version":1}'), InstanceProtocolError);
   assert.throws(() => parseResponse(JSON.stringify({ ...response, transport_version: 2 })), CompatibilityError);
 });
 
@@ -300,8 +321,8 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
   const previousSensitiveEnv = process.env[sensitiveEnvName];
   process.env[sensitiveEnvName] = "must-not-be-inherited";
   try {
-    const engineBinary = fakeAgentEngine(root);
-    const readonly = await AgentContext.open(root, { engineBinary, task: "inspect" });
+    const instanceBinary = fakeAgentEngine(root);
+    const readonly = await AgentContext.open(root, { instanceBinary, task: "inspect" });
     assert.deepEqual(readonly.capabilities, ["ctx_compose", "ctx_glob", "ctx_read", "ctx_search", "ctx_symbol", "ctx_tree"]);
     const read = await readonly.read("README.md");
     assert.equal(read.text, "ctx_read:ok");
@@ -309,11 +330,17 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
     assert.equal(readonly.metrics.toolCalls, 1);
     await assert.rejects(readonly.createFile("x.txt", "x"), AgentPermissionError);
     const readonlyEnv = JSON.parse(readFileSync(join(root, "spawn-env.readonly.json"), "utf8"));
-    assert.deepEqual(Object.keys(readonlyEnv).filter((name) => !platformEnv.includes(name)).sort(), ["LANG", "LC_ALL", "PYTHONHASHSEED", "TZ"]);
+    // Q13: the SDK asks the Engine to contain its session with one variable of its own
+    // (session starter on POSIX, kill-on-close job on Windows). A real Engine removes it
+    // before anything it starts could see it; this stand-in does not and therefore sees it.
+    const containmentEnv = ["LEAN_CTX_SESSION_CONTAINMENT"];
+    assert.deepEqual(Object.keys(readonlyEnv).filter((name) => !platformEnv.includes(name)).sort(), ["LANG", "LC_ALL", ...containmentEnv, "PYTHONHASHSEED", "TZ"]);
+    assert.equal(readonlyEnv.LEAN_CTX_SESSION_CONTAINMENT, "1");
+    assert.equal(readonly.sessionContainment, "unavailable");
     await readonly.close();
 
     const executing = await AgentContext.open(root, {
-      engineBinary,
+      instanceBinary,
       permissions: new AgentPermissions({ execute: true }),
       executionPolicy: { allowedExecutables: ["git"], allowedEnv: ["SAFE"] },
     });
@@ -321,7 +348,7 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
     const execEnv = JSON.parse(readFileSync(join(root, "spawn-env.exec.json"), "utf8"));
     assert.equal(execEnv.PATH, process.env.PATH);
     assert.equal(execEnv[sensitiveEnvName], undefined);
-    assert.deepEqual(Object.keys(execEnv).filter((name) => !platformEnv.includes(name) && !["LANG", "LC_ALL", "PYTHONHASHSEED", "TZ", "PATH", "TMPDIR", "TEMP", "TMP"].includes(name)), []);
+    assert.deepEqual(Object.keys(execEnv).filter((name) => !platformEnv.includes(name) && ![...containmentEnv, "LANG", "LC_ALL", "PYTHONHASHSEED", "TZ", "PATH", "TMPDIR", "TEMP", "TMP"].includes(name)), []);
     await assert.rejects(executing.run(["sh", "-c", "true"]), AgentPermissionError);
     symlinkSync(outside, join(root, "escape-link"), "dir");
     await assert.rejects(executing.run(["git", "status"], { cwd: "escape-link" }), AgentPermissionError);
@@ -336,14 +363,22 @@ test("Agent Tools negotiates policy, records metrics, and gates mutation", async
 });
 
 test("real Engine v1 lifecycle when an Engine binary is provided", {
-  skip: !process.env.LEANCTX_ENGINE_BIN,
+  skip: !INSTANCE_BIN,
 }, async () => {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
-  const engine = new SubprocessEngineClient(process.env.LEANCTX_ENGINE_BIN);
+  // The client takes options: a bare string would be ignored and the test
+  // would run whatever `lean-ctx` is on PATH instead of the named Engine.
+  const engine = new SubprocessInstanceClient({ instanceBinary: INSTANCE_BIN });
   const source = new ContextSource("README.md", { projectRoot: root });
   const session = new ContextSession("TypeScript real Engine proof", { projectRoot: root, engine });
   const view = await session.prepare(source);
   assert.ok(view);
+  // B16: a real Engine on POSIX starts the one-shot behind its session
+  // starter and says so on the first line. (On Windows the Engine answers
+  // from a job of its own, which a host job may forbid: not asserted.)
+  if (process.platform !== "win32") {
+    assert.equal(engine.lastSessionContainment, "engine-starter");
+  }
   const receipt = session.complete({ ok: true }, { outcome: HostOutcome.COMPLETED });
   receipt.requireVerified();
   const recovered = await session.recover(view ?? undefined);

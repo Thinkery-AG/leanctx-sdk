@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import {
-  EnginePlanningRequest,
-  EngineProtocolError,
-  EngineRejected,
-  EngineUnavailable,
-  EnterpriseEngineClient,
+  InstancePlanningRequest,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceUnavailable,
+  EnterpriseInstanceClient,
   PolicyAdmissionError,
   ValidationError,
 } from "../dist/index.js";
@@ -21,7 +21,7 @@ const epoch = "2026-01-01T00:00:00Z";
 const otherEpoch = "2026-02-02T00:00:00Z";
 const revision = 7;
 const credential = "credential-test";
-const request = new EnginePlanningRequest("enterprise-materialize-task", "invoice ledger", 64);
+const request = new InstancePlanningRequest("enterprise-materialize-task", "invoice ledger", 64);
 const content = "## leanctx-source-v1\nfile\nsource-file\ninvoice ledger body\n";
 
 function descriptor(id, permission) {
@@ -107,7 +107,7 @@ async function loopbackServer(handler) {
 }
 
 function client(url, tenant = tenantId) {
-  return new EnterpriseEngineClient(url, credential, tenant, {
+  return new EnterpriseInstanceClient(url, credential, tenant, {
     allowLoopbackHttp: true,
     timeout: 2,
   });
@@ -268,7 +268,7 @@ test("Enterprise materialization rejects tampered and foreign responses", async 
     await t.test(name, async () => {
       await withServer(respondWith(payload), async (url) => {
         await assert.rejects(materialize(url, overrides), (error) => {
-          assert.ok(error instanceof EngineProtocolError, name + " raised " + error.name);
+          assert.ok(error instanceof InstanceProtocolError, name + " raised " + error.name);
           assert.match(error.message, new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
           return true;
         });
@@ -291,7 +291,7 @@ test("Enterprise materialization rejects non-integral response numbers", async (
       const payload = response().replace(from, to);
       assert.notEqual(payload, response());
       await withServer(respondWith(payload), async (url) => {
-        await assert.rejects(materialize(url), EngineProtocolError);
+        await assert.rejects(materialize(url), InstanceProtocolError);
       });
     });
   }
@@ -322,11 +322,11 @@ test("Enterprise materialization rejects caller inputs before any HTTP call", as
 
 test("Enterprise materialization surfaces provider errors without a response body", async (t) => {
   const cases = [
-    ["server error", 500, EngineUnavailable],
+    ["server error", 500, InstanceUnavailable],
     ["policy rejection", 403, PolicyAdmissionError],
-    ["authentication rejection", 401, EngineRejected],
-    ["client rejection", 409, EngineRejected],
-    ["redirect", 302, EngineProtocolError],
+    ["authentication rejection", 401, InstanceRejected],
+    ["client rejection", 409, InstanceRejected],
+    ["redirect", 302, InstanceProtocolError],
   ];
   for (const [name, status, expected] of cases) {
     await t.test(name, async () => {

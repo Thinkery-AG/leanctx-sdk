@@ -13,17 +13,18 @@ import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
- * Preview: read-only access to the local Engine's Context Store.
+ * Preview: read-only access to the local LeanCTX instance's Context Store.
  *
  * <p>{@link #readPolicyEvidence} returns the scope's content-free
  * read-strategy evidence ({@code lean-ctx engine context-policy-evidence});
  * {@link #readTaskLineage} one task's decision lineage ({@code lean-ctx engine
  * context-lineage}) with every missing link named as a gap. Both reads are
- * confined to one tenant/project scope. Parsing mirrors the Engine's
+ * confined to one tenant/project scope. Parsing mirrors the LeanCTX instance's
  * validation: unknown fields or values and inconsistent counts are rejected,
  * and "unmeasured" never reads as a passing measurement. Contract
  * {@code leanctx-context-store-preview} 0.1 — may change in minor releases.
  */
+@SuppressWarnings("removal")
 public final class ContextStorePreview {
     public static final String CONTRACT = "leanctx-context-store-preview";
     public static final String VERSION = "0.1.0";
@@ -128,14 +129,14 @@ public final class ContextStorePreview {
         }
     }
 
-    /** The tenant/project scope of a read; without a project ID the Engine uses the project root. */
+    /** The tenant/project scope of a read; without a project ID the LeanCTX instance uses the project root. */
     public record Scope(Optional<String> projectId, Optional<String> tenantId) {
         public static Scope project(String projectId) {
             return new Scope(Optional.of(projectId), Optional.empty());
         }
     }
 
-    private static EngineProtocolError bad(String message) {
+    private static InstanceProtocolError bad(String message) {
         return new EngineProtocolError("context store: " + message);
     }
 
@@ -280,7 +281,7 @@ public final class ContextStorePreview {
         for (String name : RECORD_COUNTS) {
             counts.put(name, integer(value.get(name), label + "." + name, false));
         }
-        // Signal counts default to zero, like the Engine's own deserializer.
+        // Signal counts default to zero, like the LeanCTX instance's own deserializer.
         for (String name : SIGNAL_COUNTS) {
             counts.put(name, value.containsKey(name) ? integer(value.get(name), label + "." + name, false) : 0L);
         }
@@ -506,12 +507,12 @@ public final class ContextStorePreview {
         return Json.canonicalBytes(request);
     }
 
-    private static Object read(SubprocessEngineClient engine, String operation, String projectRoot,
+    private static Object read(SubprocessInstanceClient instance, String operation, String projectRoot,
                                byte[] payload, String body) {
         if (payload.length > MAX_STORE_REQUEST_BYTES) {
             throw new ValidationError("context store request exceeds its bound");
         }
-        byte[] raw = engine.runPayload(operation, projectRoot, payload);
+        byte[] raw = instance.runPayload(operation, projectRoot, payload);
         if (raw.length > MAX_STORE_RESPONSE_BYTES) {
             throw bad("response exceeds its bound");
         }
@@ -527,19 +528,19 @@ public final class ContextStorePreview {
     }
 
     /** The scope's read-strategy evidence. */
-    public static ContextPolicyEvidence readPolicyEvidence(SubprocessEngineClient engine, String projectRoot,
+    public static ContextPolicyEvidence readPolicyEvidence(SubprocessInstanceClient instance, String projectRoot,
                                                            Scope scope) {
-        return parsePolicyEvidence(read(engine, "context-policy-evidence", projectRoot,
+        return parsePolicyEvidence(read(instance, "context-policy-evidence", projectRoot,
                 request(scope, Optional.empty()), "evidence"));
     }
 
     /** One task's lineage within the scope. */
-    public static TaskLineage readTaskLineage(SubprocessEngineClient engine, String projectRoot, String taskId,
+    public static TaskLineage readTaskLineage(SubprocessInstanceClient instance, String projectRoot, String taskId,
                                               Scope scope) {
         if (taskId == null || taskId.isBlank()) {
             throw new ValidationError("taskId must be a non-empty string");
         }
-        return parseTaskLineage(read(engine, "context-lineage", projectRoot, request(scope, Optional.of(taskId)),
+        return parseTaskLineage(read(instance, "context-lineage", projectRoot, request(scope, Optional.of(taskId)),
                 "lineage"));
     }
 }

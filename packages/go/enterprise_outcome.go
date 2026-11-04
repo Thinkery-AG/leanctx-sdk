@@ -8,17 +8,17 @@ import (
 	"strings"
 )
 
-// EngineOutcomeRequest carries operator signals, not a caller signing identity.
-type EngineOutcomeRequest struct {
+// InstanceOutcomeRequest carries operator signals, not a caller signing identity.
+type InstanceOutcomeRequest struct {
 	TaskID                string
 	ReceiptDigest         string
 	ContextDecisionDigest string
 	Signals               []map[string]any
 }
 
-// EngineOutcomeResponse preserves the host's attestation projection. Selected
+// InstanceOutcomeResponse preserves the host's attestation projection. Selected
 // document joins are checked, but signer admission and evaluation remain remote.
-type EngineOutcomeResponse struct {
+type InstanceOutcomeResponse struct {
 	SchemaVersion         uint64
 	TenantID              string
 	ReceiptID             string
@@ -32,14 +32,14 @@ type EngineOutcomeResponse struct {
 }
 
 // ContextOutcome sends one authenticated attestation; it never retries a POST.
-func (c *EnterpriseEngineClient) ContextOutcome(request EngineOutcomeRequest) (*EngineOutcomeResponse, error) {
+func (c *EnterpriseInstanceClient) ContextOutcome(request InstanceOutcomeRequest) (*InstanceOutcomeResponse, error) {
 	return c.ContextOutcomeContext(context.Background(), request)
 }
 
 // ContextOutcomeContext is the cancellable form of ContextOutcome.
-func (c *EnterpriseEngineClient) ContextOutcomeContext(parent context.Context, request EngineOutcomeRequest) (*EngineOutcomeResponse, error) {
+func (c *EnterpriseInstanceClient) ContextOutcomeContext(parent context.Context, request InstanceOutcomeRequest) (*InstanceOutcomeResponse, error) {
 	if c == nil || c.transport == nil {
-		return nil, NewConfigurationError("EnterpriseEngineClient is not initialized")
+		return nil, NewConfigurationError("EnterpriseInstanceClient is not initialized")
 	}
 	payload, err := enterpriseOutcomeInput(request)
 	if err != nil {
@@ -53,7 +53,7 @@ func (c *EnterpriseEngineClient) ContextOutcomeContext(parent context.Context, r
 	return parseEnterpriseOutcome(raw, request, c.tenantID)
 }
 
-func enterpriseOutcomeInput(request EngineOutcomeRequest) ([]byte, error) {
+func enterpriseOutcomeInput(request InstanceOutcomeRequest) ([]byte, error) {
 	if _, err := enterpriseExecutionText(request.TaskID, "task_id", 256, false, false, false); err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func enterpriseOutcomeObject(value any, fields []string, label string) (map[stri
 	return object, nil
 }
 
-func parseEnterpriseOutcome(raw []byte, request EngineOutcomeRequest, tenantID string) (*EngineOutcomeResponse, error) {
+func parseEnterpriseOutcome(raw []byte, request InstanceOutcomeRequest, tenantID string) (*InstanceOutcomeResponse, error) {
 	if len(raw) > enterpriseMaxExecutionTotalBytes || !contextReadUnicodeEscapesValid(raw) {
 		return nil, enterpriseProtocol("outcome response exceeds bounds or contains invalid Unicode")
 	}
@@ -175,14 +175,14 @@ func parseEnterpriseOutcome(raw []byte, request EngineOutcomeRequest, tenantID s
 	if err := enterpriseOutcomeDocument(documentBytes, receiptID, acceptance, request); err != nil {
 		return nil, err
 	}
-	return &EngineOutcomeResponse{
+	return &InstanceOutcomeResponse{
 		SchemaVersion: 1, TenantID: tenantID, ReceiptID: receiptID, ReceiptDigest: digest,
 		OriginalReceiptDigest: request.ReceiptDigest, Acceptance: acceptance, AlreadyRecorded: recorded,
 		ReceiptDocumentJSON: document, ReceiptDocumentBytes: documentBytes, RawResponse: response,
 	}, nil
 }
 
-func enterpriseOutcomeDocument(raw []byte, receiptID, acceptance string, request EngineOutcomeRequest) error {
+func enterpriseOutcomeDocument(raw []byte, receiptID, acceptance string, request InstanceOutcomeRequest) error {
 	if !contextReadUnicodeEscapesValid(raw) {
 		return enterpriseProtocol("outcome document contains invalid Unicode")
 	}

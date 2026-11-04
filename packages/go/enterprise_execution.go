@@ -35,18 +35,18 @@ const (
 
 var enterpriseExecutionSemver = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
-// EngineSourceExecutionV2Request contains caller-owned task and local-native
+// InstanceSourceExecutionV2Request contains caller-owned task and local-native
 // plan data plus the already-bound source materialization request.
-type EngineSourceExecutionV2Request struct {
+type InstanceSourceExecutionV2Request struct {
 	Task            map[string]any
 	Plan            map[string]any
-	Materialization EngineSourceMaterializationRequest
+	Materialization InstanceSourceMaterializationRequest
 }
 
-// EngineSourceExecutionV2Response is a validated v2 execution projection.
+// InstanceSourceExecutionV2Response is a validated v2 execution projection.
 // ReceiptDocumentJSON and ReceiptDocumentBytes are an opaque exact UTF-8
 // carrier; the SDK does not verify a signer or claim acceptance.
-type EngineSourceExecutionV2Response struct {
+type InstanceSourceExecutionV2Response struct {
 	SchemaVersion        uint64
 	TenantID             string
 	GovernanceRevision   uint64
@@ -57,14 +57,14 @@ type EngineSourceExecutionV2Response struct {
 }
 
 // ContextExecuteV2 performs one bounded authenticated local-native execution.
-func (c *EnterpriseEngineClient) ContextExecuteV2(request EngineSourceExecutionV2Request) (*EngineSourceExecutionV2Response, error) {
+func (c *EnterpriseInstanceClient) ContextExecuteV2(request InstanceSourceExecutionV2Request) (*InstanceSourceExecutionV2Response, error) {
 	return c.ContextExecuteV2Context(context.Background(), request)
 }
 
 // ContextExecuteV2Context is the cancellable form of ContextExecuteV2.
-func (c *EnterpriseEngineClient) ContextExecuteV2Context(parent context.Context, request EngineSourceExecutionV2Request) (*EngineSourceExecutionV2Response, error) {
+func (c *EnterpriseInstanceClient) ContextExecuteV2Context(parent context.Context, request InstanceSourceExecutionV2Request) (*InstanceSourceExecutionV2Response, error) {
 	if c == nil || c.transport == nil {
-		return nil, NewConfigurationError("EnterpriseEngineClient is not initialized")
+		return nil, NewConfigurationError("EnterpriseInstanceClient is not initialized")
 	}
 	planning, sourceIDs, bindingDigest, err := request.Materialization.checked()
 	if err != nil {
@@ -90,14 +90,14 @@ func (c *EnterpriseEngineClient) ContextExecuteV2Context(parent context.Context,
 	}
 	payload, err := canonicalJSON(payloadValue)
 	if err != nil || len(payload) > enterpriseMaxExecutionRequestBytes {
-		return nil, NewValidationError("Enterprise Engine source execution request exceeds its byte bound")
+		return nil, NewValidationError("Enterprise instance source execution request exceeds its byte bound")
 	}
 	raw, err := c.transport.postJSONContext(
 		parent,
 		enterpriseContextExecuteV2Path,
 		payload,
 		enterpriseMaxExecutionTotalBytes,
-		"Enterprise Engine source execution v2",
+		"Enterprise instance source execution v2",
 		"source execution v2 request",
 	)
 	if err != nil {
@@ -115,7 +115,7 @@ func (c *EnterpriseEngineClient) ContextExecuteV2Context(parent context.Context,
 	)
 }
 
-func enterpriseExecutionInput(task, plan map[string]any, request EnginePlanningRequest, tenantID string) (map[string]any, map[string]any, error) {
+func enterpriseExecutionInput(task, plan map[string]any, request InstancePlanningRequest, tenantID string) (map[string]any, map[string]any, error) {
 	validatedTask, err := enterpriseExecutionTask(task, request, tenantID, false)
 	if err != nil {
 		return nil, nil, err
@@ -164,7 +164,7 @@ func enterpriseExecutionCanonicalObject(value map[string]any, field string) (map
 	return enterpriseObject(decoded, field)
 }
 
-func enterpriseExecutionTask(raw map[string]any, request EnginePlanningRequest, tenantID string, protocol bool) (map[string]any, error) {
+func enterpriseExecutionTask(raw map[string]any, request InstancePlanningRequest, tenantID string, protocol bool) (map[string]any, error) {
 	required := map[string]bool{
 		"schema_version": true, "task_id": true, "trace_id": true, "project_id": true,
 		"session_id": true, "agent_id": true, "complexity": true, "created_at": true,
@@ -415,27 +415,27 @@ func enterpriseExecutionPlan(raw map[string]any, taskID string, protocol, allowC
 	return result, nil
 }
 
-func (c *EnterpriseEngineClient) parseExecutionV2Response(
+func (c *EnterpriseInstanceClient) parseExecutionV2Response(
 	raw []byte,
-	request EnginePlanningRequest,
+	request InstancePlanningRequest,
 	sourceIDs []string,
 	task map[string]any,
 	plan map[string]any,
 	expectedGovernanceRevision uint64,
 	expectedBindingDigest string,
 	planningEvaluationTime *string,
-) (*EngineSourceExecutionV2Response, error) {
+) (*InstanceSourceExecutionV2Response, error) {
 	if len(raw) > enterpriseMaxExecutionTotalBytes {
-		return nil, enterpriseProtocol("Enterprise Engine source execution v2 response exceeds its byte bound")
+		return nil, enterpriseProtocol("Enterprise instance source execution v2 response exceeds its byte bound")
 	}
 	if !contextReadUnicodeEscapesValid(raw) {
-		return nil, enterpriseProtocol("Enterprise Engine source execution v2 response has an unpaired Unicode surrogate")
+		return nil, enterpriseProtocol("Enterprise instance source execution v2 response has an unpaired Unicode surrogate")
 	}
-	decoded, err := strictJSONLoads(raw, "Enterprise Engine source execution v2 response")
+	decoded, err := strictJSONLoads(raw, "Enterprise instance source execution v2 response")
 	if err != nil {
-		return nil, NewEngineProtocolError("Enterprise Engine source execution v2 response is not valid JSON")
+		return nil, NewInstanceProtocolError("Enterprise instance source execution v2 response is not valid JSON")
 	}
-	wrapper, err := enterpriseObject(decoded, "Enterprise Engine source execution v2 response")
+	wrapper, err := enterpriseObject(decoded, "Enterprise instance source execution v2 response")
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +509,7 @@ func (c *EnterpriseEngineClient) parseExecutionV2Response(
 	if err != nil || len(innerBytes) > enterpriseMaxExecutionResponseBytes {
 		return nil, enterpriseProtocol("Enterprise source execution v2 response exceeds its byte bound")
 	}
-	return &EngineSourceExecutionV2Response{
+	return &InstanceSourceExecutionV2Response{
 		SchemaVersion: schemaVersion, TenantID: tenantID, GovernanceRevision: governanceRevision,
 		Execution: parsedExecution, ReceiptDocumentJSON: string(receiptDocument),
 		ReceiptDocumentBytes: append([]byte(nil), receiptDocument...), RawResponse: wrapper,
@@ -518,7 +518,7 @@ func (c *EnterpriseEngineClient) parseExecutionV2Response(
 
 func enterpriseExecutionV1(
 	raw map[string]any,
-	request EnginePlanningRequest,
+	request InstancePlanningRequest,
 	sourceIDs []string,
 	task map[string]any,
 	plan map[string]any,
@@ -547,7 +547,7 @@ func enterpriseExecutionV1(
 		return nil, err
 	}
 	if interfaceVersion != EngineInterfaceVersion {
-		return nil, enterpriseProtocol("Enterprise source execution Engine interface is unsupported")
+		return nil, enterpriseProtocol("Enterprise source execution instance interface is unsupported")
 	}
 	if err := enterpriseExecutionLexicalV1(raw); err != nil {
 		return nil, err

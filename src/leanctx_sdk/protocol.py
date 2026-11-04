@@ -14,7 +14,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Tuple, Union
 
-from .errors import EngineExecutionError, ValidationError
+from .errors import InstanceExecutionError, ValidationError
 
 
 SCHEMA_VERSION = 1
@@ -56,7 +56,7 @@ class SessionState(str, Enum):
     CLOSED = "closed"
 
 
-class EngineStatus(str, Enum):
+class InstanceStatus(str, Enum):
     SUCCEEDED = "succeeded"
     DEGRADED = "degraded"
     REJECTED = "rejected"
@@ -500,8 +500,8 @@ class ContextView:
         validate_digest(self.source_digest, "source_digest")
         if self.recovery_ref is not None:
             validate_ref(self.recovery_ref, "recovery_ref")
-        if self.status not in {item.value for item in EngineStatus}:
-            raise ValidationError("invalid Engine observation status")
+        if self.status not in {item.value for item in InstanceStatus}:
+            raise ValidationError("invalid instance observation status")
         if len(self.measurements) > MAX_MEASUREMENTS:
             raise ValidationError("too many measurements")
         object.__setattr__(self, "measurements", tuple(self.measurements))
@@ -562,7 +562,7 @@ class ContextView:
 
     def require_text(self) -> str:
         if self.text is None:
-            raise EngineExecutionError("Engine view has no text", view=self)
+            raise InstanceExecutionError("Instance view has no text", view=self)
         return self.text
 
     def recovery_binding(self) -> Mapping[str, object]:
@@ -637,7 +637,7 @@ __all__ = [
     "ContextReceiptLink",
     "ContextSource",
     "ContextView",
-    "EngineStatus",
+    "InstanceStatus",
     "ENGINE_INTERFACE_VERSION",
     "FailureCode",
     "Freshness",
@@ -656,3 +656,15 @@ __all__ = [
     "validate_output_ref",
     "validate_ref",
 ]
+
+
+from . import _deprecation  # noqa: E402
+
+# Engine names are deprecated aliases of the same objects until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "EngineStatus",
+    },
+)

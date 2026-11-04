@@ -56,9 +56,9 @@ func TestContextStoreFixturesParseAndInvalidOnesAreRejected(t *testing.T) {
 		}
 		for _, name := range manifest.Documents[kind].Invalid {
 			err := parse(loadStoreFixture(t, kind, "invalid", name))
-			var protocol *EngineProtocolError
+			var protocol *InstanceProtocolError
 			if !errors.As(err, &protocol) {
-				t.Errorf("%s/%s: want EngineProtocolError, got %v", kind, name, err)
+				t.Errorf("%s/%s: want InstanceProtocolError, got %v", kind, name, err)
 			}
 		}
 	}
@@ -85,12 +85,12 @@ func TestContextStoreUnmeasuredNeverReadsAsMeasured(t *testing.T) {
 	}
 }
 
-func TestContextStoreLiveEngine(t *testing.T) {
-	binary := os.Getenv("LEANCTX_ENGINE_BINARY")
+func TestContextStoreLiveInstance(t *testing.T) {
+	binary := instanceEnv("LEANCTX_INSTANCE_BINARY", "LEANCTX_ENGINE_BINARY")
 	if binary == "" {
-		t.Skip("needs a real Engine")
+		t.Skip("needs a real instance")
 	}
-	client, err := NewSubprocessEngineClient(SubprocessEngineClientOptions{EngineBinary: binary})
+	client, err := NewSubprocessInstanceClient(SubprocessInstanceClientOptions{InstanceBinary: binary})
 	if err != nil {
 		t.Fatal(err)
 	}

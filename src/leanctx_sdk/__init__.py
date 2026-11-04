@@ -6,10 +6,11 @@ ContextPlan, and ContextReceipt. Experimental local-context APIs live under
 ``leanctx_sdk.preview`` and are outside the Stable compatibility guarantee.
 SDK 1.1 adds the separate Agent Tools contract for host-owned agent loops.
 The v4 integration adds planning and guarded context-read types documented in
-docs/ENGINE-PLANNING.md.
+docs/ENGINE-PLANNING.md. SDK 1.3 renames the Engine names to Instance names; the
+Engine names stay importable as deprecated aliases until SDK 2.0.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 from .agent import (
     AGENT_TOOLS_INTERFACE_VERSION,
@@ -25,25 +26,26 @@ from .agent import (
     SUPPORTED_AGENT_TOOLS_ENGINE_VERSION,
     ToolResult,
 )
-from .engine import EngineClient, EnginePlanningClient, SubprocessEngineClient
-from .enterprise_engine import (
-    EngineContextClient,
-    EngineContextReadResult,
-    EnterpriseEngineClient,
+from .instance import InstanceClient, InstancePlanningClient, SubprocessInstanceClient
+from .enterprise_instance import (
+    InstanceContextClient,
+    InstanceContextReadResult,
+    EnterpriseInstanceClient,
 )
-from .planning import EnginePlanningRequest, EngineSource
+from .planning import InstancePlanningRequest, InstanceSource
+from .presenter import PresenterCapability
 from .errors import (
     AgentPermissionError,
     ArtifactIntegrityError,
     CompatibilityError,
     ConfigurationError,
-    EngineError,
-    EngineCrashed,
-    EngineExecutionError,
-    EngineProtocolError,
-    EngineRejected,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceError,
+    InstanceCrashed,
+    InstanceExecutionError,
+    InstanceProtocolError,
+    InstanceRejected,
+    InstanceTimeout,
+    InstanceUnavailable,
     FrameworkCompatibilityError,
     FrameworkIntegrationError,
     PolicyAdmissionError,
@@ -51,7 +53,7 @@ from .errors import (
     SDKError,
     SessionStateError,
     SourceUnavailableError,
-    UnsupportedEngineError,
+    UnsupportedInstanceError,
     UnsupportedCapabilityError,
     ValidationError,
 )
@@ -65,7 +67,7 @@ from .protocol import (
     ContextReceiptLink,
     ContextSource,
     ContextView,
-    EngineStatus,
+    InstanceStatus,
     FailureCode,
     Freshness,
     HostOutcome,
@@ -98,21 +100,21 @@ __all__ = [
     "ContextSource",
     "ContextView",
     "ENGINE_INTERFACE_VERSION",
-    "EngineContextClient",
-    "EngineContextReadResult",
-    "EngineClient",
-    "EnginePlanningClient",
-    "EnginePlanningRequest",
-    "EngineSource",
-    "EnterpriseEngineClient",
-    "EngineCrashed",
-    "EngineError",
-    "EngineExecutionError",
-    "EngineProtocolError",
-    "EngineRejected",
-    "EngineStatus",
-    "EngineTimeout",
-    "EngineUnavailable",
+    "InstanceContextClient",
+    "InstanceContextReadResult",
+    "InstanceClient",
+    "InstancePlanningClient",
+    "InstancePlanningRequest",
+    "InstanceSource",
+    "EnterpriseInstanceClient",
+    "InstanceCrashed",
+    "InstanceError",
+    "InstanceExecutionError",
+    "InstanceProtocolError",
+    "InstanceRejected",
+    "InstanceStatus",
+    "InstanceTimeout",
+    "InstanceUnavailable",
     "ExecutionPolicy",
     "GitLabSource",
     "FailureCode",
@@ -122,6 +124,7 @@ __all__ = [
     "HostOutcome",
     "Integrity",
     "PolicyAdmissionError",
+    "PresenterCapability",
     "RecoveredSource",
     "ReadMode",
     "RecoveryUnavailableError",
@@ -131,10 +134,37 @@ __all__ = [
     "SessionStateError",
     "SourceUnavailableError",
     "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
-    "SubprocessEngineClient",
+    "SubprocessInstanceClient",
     "ToolResult",
     "TRANSPORT_VERSION",
-    "UnsupportedEngineError",
+    "UnsupportedInstanceError",
     "UnsupportedCapabilityError",
     "ValidationError",
 ]
+
+from . import _deprecation  # noqa: E402
+
+# Engine names are deprecated aliases of the same objects until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "EngineClient",
+        "EngineContextClient",
+        "EngineContextReadResult",
+        "EngineCrashed",
+        "EngineError",
+        "EngineExecutionError",
+        "EnginePlanningClient",
+        "EnginePlanningRequest",
+        "EngineProtocolError",
+        "EngineRejected",
+        "EngineSource",
+        "EngineStatus",
+        "EngineTimeout",
+        "EngineUnavailable",
+        "EnterpriseEngineClient",
+        "SubprocessEngineClient",
+        "UnsupportedEngineError",
+    },
+)

@@ -79,9 +79,9 @@ export class SessionStateError extends SDKError {
   static readonly guidance = "fix lifecycle ordering or create a new session";
 }
 
-export class EngineError extends SDKError {
+export class InstanceError extends SDKError {
   static readonly code: string = "engine_error";
-  static readonly guidance: string = "preserve Engine evidence and classify the concrete error";
+  static readonly guidance: string = "preserve instance evidence and classify the concrete error";
 
   constructor(message?: string, options?: ErrorOptions) {
     super(message);
@@ -89,17 +89,17 @@ export class EngineError extends SDKError {
   }
 }
 
-export class EngineUnavailable extends EngineError {
+export class InstanceUnavailable extends InstanceError {
   static readonly code = "engine_unavailable";
   static readonly guidance =
-    "restore the configured Engine binary or use explicit bounded fail-open";
+    "restore the configured instance binary or use explicit bounded fail-open";
   static readonly retryable = true;
   static readonly degradeAllowed = true;
   static readonly abortRequired = false;
   static readonly configurationFix = true;
 }
 
-export class EngineTimeout extends EngineError {
+export class InstanceTimeout extends InstanceError {
   static readonly code = "engine_timeout";
   static readonly guidance = "retry within host policy or use explicit bounded fail-open";
   static readonly retryable = true;
@@ -107,50 +107,50 @@ export class EngineTimeout extends EngineError {
   static readonly abortRequired = false;
 }
 
-export class EngineCrashed extends EngineError {
+export class InstanceCrashed extends InstanceError {
   static readonly code = "engine_crashed";
   static readonly guidance =
     "create a new AgentContext; mutation and execution calls are never retried";
 }
 
-export class AgentPermissionError extends EngineError {
+export class AgentPermissionError extends InstanceError {
   static readonly code = "agent_permission_denied";
   static readonly guidance =
     "create a new AgentContext with the required explicit permission";
   static readonly configurationFix = true;
 }
 
-export class UnsupportedCapabilityError extends EngineError {
+export class UnsupportedCapabilityError extends InstanceError {
   static readonly code = "unsupported_capability";
   static readonly guidance =
-    "install a compatible Engine or choose a negotiated capability";
+    "install a compatible instance or choose a negotiated capability";
   static readonly versionChange = true;
 }
 
-export class EngineProtocolError extends EngineError {
+export class InstanceProtocolError extends InstanceError {
   static readonly code: string = "engine_protocol_error";
   static readonly guidance: string =
     "fail closed and verify Engine interface, schema, and transport";
 }
 
-export class CompatibilityError extends EngineProtocolError {
+export class CompatibilityError extends InstanceProtocolError {
   static readonly code: string = "compatibility_error";
   static readonly guidance: string =
     "install a supported version from the compatibility matrix";
   static readonly versionChange = true;
 }
 
-export class UnsupportedEngineError extends CompatibilityError {
+export class UnsupportedInstanceError extends CompatibilityError {
   static readonly code = "unsupported_engine";
   static readonly guidance =
-    "install an Engine identity and capability supported by this SDK";
+    "install a LeanCTX instance identity and capability supported by this SDK";
 }
 
 export type FailureLike = { readonly retryableByHost?: boolean };
 
-export class EngineRejected extends EngineError {
+export class InstanceRejected extends InstanceError {
   static readonly code: string = "engine_rejected";
-  static readonly guidance: string = "fail closed and satisfy the reported Engine policy";
+  static readonly guidance: string = "fail closed and satisfy the reported instance policy";
   readonly failure?: FailureLike;
   readonly view?: unknown;
 
@@ -164,16 +164,16 @@ export class EngineRejected extends EngineError {
   }
 }
 
-export class PolicyAdmissionError extends EngineRejected {
+export class PolicyAdmissionError extends InstanceRejected {
   static readonly code = "policy_admission_rejected";
   static readonly guidance =
-    "abort or change the request to satisfy the reported Engine policy";
+    "abort or change the request to satisfy the reported instance policy";
   static readonly configurationFix = true;
 }
 
-export class EngineExecutionError extends EngineError {
+export class InstanceExecutionError extends InstanceError {
   static readonly code: string = "engine_execution_error";
-  static readonly guidance: string = "fail closed and retain the factual Engine failure evidence";
+  static readonly guidance: string = "fail closed and retain the factual instance failure evidence";
   readonly failure?: FailureLike;
   readonly view?: unknown;
 
@@ -187,13 +187,13 @@ export class EngineExecutionError extends EngineError {
   }
 }
 
-export class SourceUnavailableError extends EngineExecutionError {
+export class SourceUnavailableError extends InstanceExecutionError {
   static readonly code = "source_unavailable";
   static readonly guidance =
     "restore source access or select another source before retrying";
 }
 
-export class RecoveryUnavailableError extends EngineExecutionError {
+export class RecoveryUnavailableError extends InstanceExecutionError {
   static readonly code = "recovery_unavailable";
   static readonly guidance = "abort and restore the exact source and recovery binding";
 }
@@ -211,15 +211,60 @@ export class FrameworkCompatibilityError extends FrameworkIntegrationError {
   static readonly versionChange = true;
 }
 
-export class ArtifactIntegrityError extends EngineExecutionError {
+export class ArtifactIntegrityError extends InstanceExecutionError {
   static readonly code = "artifact_integrity_error";
   static readonly guidance =
     "abort and replace the artifact with a digest-verified copy";
 }
 
 // Explicit-suffix aliases ease migration from adapters that use that spelling.
-export const EngineUnavailableError = EngineUnavailable;
-export const EngineTimeoutError = EngineTimeout;
-export const EngineProtocolErrorError = EngineProtocolError;
-export const EngineRejectedError = EngineRejected;
-export const EngineExecutionErrorError = EngineExecutionError;
+export const InstanceUnavailableError = InstanceUnavailable;
+export const InstanceTimeoutError = InstanceTimeout;
+export const InstanceProtocolErrorError = InstanceProtocolError;
+export const InstanceRejectedError = InstanceRejected;
+export const InstanceExecutionErrorError = InstanceExecutionError;
+
+// Deprecated Engine names (removed in 2.0). Each is the same class object, so
+// `instanceof`, `catch` and static fields behave exactly as before.
+/** @deprecated since 1.3.0, use InstanceError */
+export const EngineError = InstanceError;
+/** @deprecated since 1.3.0, use InstanceError */
+export type EngineError = InstanceError;
+/** @deprecated since 1.3.0, use InstanceUnavailable */
+export const EngineUnavailable = InstanceUnavailable;
+/** @deprecated since 1.3.0, use InstanceUnavailable */
+export type EngineUnavailable = InstanceUnavailable;
+/** @deprecated since 1.3.0, use InstanceTimeout */
+export const EngineTimeout = InstanceTimeout;
+/** @deprecated since 1.3.0, use InstanceTimeout */
+export type EngineTimeout = InstanceTimeout;
+/** @deprecated since 1.3.0, use InstanceCrashed */
+export const EngineCrashed = InstanceCrashed;
+/** @deprecated since 1.3.0, use InstanceCrashed */
+export type EngineCrashed = InstanceCrashed;
+/** @deprecated since 1.3.0, use InstanceProtocolError */
+export const EngineProtocolError = InstanceProtocolError;
+/** @deprecated since 1.3.0, use InstanceProtocolError */
+export type EngineProtocolError = InstanceProtocolError;
+/** @deprecated since 1.3.0, use UnsupportedInstanceError */
+export const UnsupportedEngineError = UnsupportedInstanceError;
+/** @deprecated since 1.3.0, use UnsupportedInstanceError */
+export type UnsupportedEngineError = UnsupportedInstanceError;
+/** @deprecated since 1.3.0, use InstanceRejected */
+export const EngineRejected = InstanceRejected;
+/** @deprecated since 1.3.0, use InstanceRejected */
+export type EngineRejected = InstanceRejected;
+/** @deprecated since 1.3.0, use InstanceExecutionError */
+export const EngineExecutionError = InstanceExecutionError;
+/** @deprecated since 1.3.0, use InstanceExecutionError */
+export type EngineExecutionError = InstanceExecutionError;
+/** @deprecated since 1.3.0, use InstanceUnavailableError */
+export const EngineUnavailableError = InstanceUnavailable;
+/** @deprecated since 1.3.0, use InstanceTimeoutError */
+export const EngineTimeoutError = InstanceTimeout;
+/** @deprecated since 1.3.0, use InstanceProtocolErrorError */
+export const EngineProtocolErrorError = InstanceProtocolError;
+/** @deprecated since 1.3.0, use InstanceRejectedError */
+export const EngineRejectedError = InstanceRejected;
+/** @deprecated since 1.3.0, use InstanceExecutionErrorError */
+export const EngineExecutionErrorError = InstanceExecutionError;

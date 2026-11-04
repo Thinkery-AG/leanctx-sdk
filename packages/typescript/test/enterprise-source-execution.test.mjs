@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import {
-  EnginePlanningRequest,
-  EngineProtocolError,
-  EnterpriseEngineClient,
+  InstancePlanningRequest,
+  InstanceProtocolError,
+  EnterpriseInstanceClient,
   parseSourceExecutionV2Response,
 } from "../dist/index.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
@@ -14,7 +14,7 @@ const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const SOURCE_ID = "22222222-2222-4222-8222-222222222222";
 const TASK_ID = "enterprise-task";
 const EPOCH = "2026-09-20T12:34:56Z";
-const request = new EnginePlanningRequest(TASK_ID, "source query", 64);
+const request = new InstancePlanningRequest(TASK_ID, "source query", 64);
 const sourceContentDigest = sha256Digest("source body");
 
 const task = {
@@ -203,7 +203,7 @@ test("Enterprise contextExecuteV2 uses the authenticated transport and preserves
   const fixture = buildFixture();
   const server = await loopback(JSON.stringify(fixture.response));
   try {
-    const client = new EnterpriseEngineClient(server.baseUrl, "credential-test", TENANT_ID, { allowLoopbackHttp: true });
+    const client = new EnterpriseInstanceClient(server.baseUrl, "credential-test", TENANT_ID, { allowLoopbackHttp: true });
     const result = await client.contextExecuteV2(task, plan, request, [SOURCE_ID], 7, fixture.sourcePlan.binding_digest, { planningEvaluationTime: EPOCH });
     assert.equal(result.execution.receipt_document_json, fixture.receiptDocumentJson);
     assert.equal(server.requests.length, 1);
@@ -224,7 +224,7 @@ test("v2 parser rejects tenant, revision, epoch, output, invocation, and receipt
   const fixture = buildFixture();
   assert.throws(
     () => parseSourceExecutionV2Response("\ud800", request, [SOURCE_ID], task, plan, TENANT_ID, 7, fixture.sourcePlan.binding_digest, EPOCH),
-    EngineProtocolError,
+    InstanceProtocolError,
   );
   const cases = [
     ["tenant", { ...fixture.response, tenant_id: "33333333-3333-4333-8333-333333333333" }],
@@ -237,7 +237,7 @@ test("v2 parser rejects tenant, revision, epoch, output, invocation, and receipt
   for (const [label, candidate] of cases) {
     assert.throws(
       () => parseSourceExecutionV2Response(JSON.stringify(candidate), request, [SOURCE_ID], task, plan, TENANT_ID, 7, fixture.sourcePlan.binding_digest, EPOCH),
-      (error) => error instanceof EngineProtocolError,
+      (error) => error instanceof InstanceProtocolError,
       label,
     );
   }
@@ -269,6 +269,6 @@ test("v2 parser rejects a changed execution plan even when its lineage digest is
   };
   assert.throws(
     () => parseSourceExecutionV2Response(JSON.stringify(candidate), request, [SOURCE_ID], task, plan, TENANT_ID, 7, fixture.sourcePlan.binding_digest, EPOCH),
-    EngineProtocolError,
+    InstanceProtocolError,
   );
 });

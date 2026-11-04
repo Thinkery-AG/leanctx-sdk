@@ -1,25 +1,28 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Thinkery.LeanCtx;
 
-/// <summary>A bounded Engine context-planning request with no execution evidence.</summary>
-public sealed class EnginePlanningRequest
+/// <summary>A bounded LeanCTX instance context-planning request with no execution evidence.</summary>
+public class InstancePlanningRequest
 {
     internal const int MaxQueryBytes = 16 * 1024;
     internal const long MaxBudgetTokens = 1_048_576;
     internal const int MaxCandidateBound = 256;
     internal const int MaxRequestBytes = 64 * 1024;
 
-    public EnginePlanningRequest(
+    public InstancePlanningRequest(
         string taskId,
         string query,
         long budgetTokens,
         int maxCandidates = 64)
     {
-        TaskId = EnginePlanningWire.Text(taskId, "task_id", 256);
-        Query = EnginePlanningWire.Text(query, "query", MaxQueryBytes, controls: false);
+        TaskId = InstancePlanningWire.Text(taskId, "task_id", 256);
+        Query = InstancePlanningWire.Text(query, "query", MaxQueryBytes, controls: false);
         if (budgetTokens < 1 || budgetTokens > MaxBudgetTokens)
             throw new ValidationError("budget_tokens is outside its protocol bounds");
         if (maxCandidates < 1 || maxCandidates > MaxCandidateBound)
@@ -47,20 +50,21 @@ public sealed class EnginePlanningRequest
             ["max_candidates"] = (long)MaxCandidates,
         };
         if (WireJson.CanonicalBytes(value).Length > MaxRequestBytes)
-            throw new ValidationError("Engine context-plan request exceeds its byte bound");
+            throw new ValidationError("LeanCTX instance context-plan request exceeds its byte bound");
         return new ReadOnlyDictionary<string, object?>(value);
     }
 
     public IReadOnlyDictionary<string, object?> ToDict() => ToDictionary();
 }
 
-internal static class EnginePlanningWire
+internal static class InstancePlanningWire
 {
     internal const int MaxRequestBytes = 64 * 1024;
     internal const int MaxPlanResponseBytes = 1024 * 1024;
     internal const int MaxMaterializedContentBytes = 1024 * 1024;
     internal const int MaxMaterializationResponseBytes = MaxPlanResponseBytes + MaxMaterializedContentBytes;
     internal const int MaxSources = 64;
+    internal const int PresenterEnvelopeBytes = 512;
     private const int MaxItems = 256;
     private const int MaxIdentifierBytes = 256;
     private const int MaxReferenceBytes = 1024;
@@ -74,6 +78,8 @@ internal static class EnginePlanningWire
         "schema_version", "tenant_id", "governance_revision", "plan");
     private static readonly HashSet<string> MaterializationResponseKeys = SetOf(
         "schema_version", "tenant_id", "governance_revision", "materialization");
+    private static readonly HashSet<string> MaterializationV2Keys = SetOf(
+        "schema_version", "materialization", "presenter");
     private static readonly HashSet<string> ResultKeys = SetOf(
         "schema_version", "transport_version", "engine_interface_version", "plan");
     private static readonly HashSet<string> MaterializationKeys = SetOf(
@@ -130,18 +136,18 @@ internal static class EnginePlanningWire
 
     internal static IReadOnlyDictionary<string, object?> ParsePlanResponse(
         ReadOnlySpan<byte> raw,
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         IReadOnlyList<string> sourceIds,
         string configuredTenant)
     {
-        var response = ParseObject(raw, "Enterprise Engine response", MaxPlanResponseBytes);
-        Exact(response, ResponseKeys, "Enterprise Engine response");
+        var response = ParseObject(raw, "Enterprise instance response", MaxPlanResponseBytes);
+        Exact(response, ResponseKeys, "Enterprise instance response");
         var schemaVersion = ProtocolU64(response["schema_version"], "schema_version");
         if (schemaVersion != 1)
-            throw Protocol("Enterprise Engine response schema_version is unsupported");
+            throw Protocol("Enterprise instance response schema_version is unsupported");
         var tenantId = ProtocolUuid(response["tenant_id"], "tenant_id");
         if (tenantId != configuredTenant)
-            throw Protocol("Enterprise Engine response tenant binding does not match");
+            throw Protocol("Enterprise instance response tenant binding does not match");
         var governanceRevision = ProtocolU64(response["governance_revision"], "governance_revision");
         var plan = ParseSourcePlan(response["plan"], request, sourceIds);
         return new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -155,42 +161,219 @@ internal static class EnginePlanningWire
 
     internal static IReadOnlyDictionary<string, object?> ParseMaterializationResponse(
         ReadOnlySpan<byte> raw,
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         IReadOnlyList<string> sourceIds,
         string configuredTenant,
         ulong expectedGovernanceRevision,
         string expectedBindingDigest)
     {
         var response = ParseObject(
-            raw, "Enterprise Engine materialization response", MaxMaterializationResponseBytes);
-        Exact(response, MaterializationResponseKeys, "Enterprise Engine materialization response");
+            raw, "Enterprise instance materialization response", MaxMaterializationResponseBytes);
+        return ParseMaterializationObject(
+            response, request, sourceIds, configuredTenant, expectedGovernanceRevision, expectedBindingDigest);
+    }
+
+    /// <summary>
+    /// The v2 response: the unchanged v1 exchange inside a v2 envelope, plus the presenter
+    /// grant. <paramref name="issued"/> says whether this call asked for a new capability:
+    /// then exactly one is present, otherwise none.
+    /// </summary>
+    internal static InstanceSourceMaterializationV2 ParseMaterializationV2Response(
+        ReadOnlySpan<byte> raw,
+        InstancePlanningRequest request,
+        IReadOnlyList<string> sourceIds,
+        string configuredTenant,
+        ulong expectedGovernanceRevision,
+        string expectedBindingDigest,
+        bool issued)
+    {
+        const string label = "Enterprise instance materialization v2 response";
+        var response = ParseObject(raw, label, MaxMaterializationResponseBytes + PresenterEnvelopeBytes);
+        Exact(response, MaterializationResponseKeys, label);
+        var engine = Object(response["materialization"], "materialization");
+        Exact(engine, MaterializationV2Keys, label);
+        if (ProtocolU64(response["schema_version"], "schema_version") != 2 ||
+            ProtocolU64(engine["schema_version"], "schema_version") != 2)
+            throw Protocol($"{label} schema_version is unsupported");
+        var validated = ParseMaterializationObject(
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["schema_version"] = 1L,
+                ["tenant_id"] = response["tenant_id"],
+                ["governance_revision"] = response["governance_revision"],
+                ["materialization"] = engine["materialization"],
+            },
+            request, sourceIds, configuredTenant, expectedGovernanceRevision, expectedBindingDigest);
+        var materialization = Object(validated["materialization"], "materialization");
+
+        var grant = Object(engine["presenter"], "presenter");
+        if (grant.Keys.Any(key => key is not ("presenter_ref" or "expires_at_unix" or "capability")))
+            throw Protocol("presenter grant fields do not match the v2 contract");
+        if (!grant.TryGetValue("presenter_ref", out var referenceValue) ||
+            referenceValue is not string reference ||
+            !PresenterCapability.IsLowerHex(reference, "presenter:", 32))
+            throw Protocol("presenter_ref is malformed");
+        grant.TryGetValue("expires_at_unix", out var expiresValue);
+        var expiresAt = ProtocolU64(expiresValue, "presenter.expires_at_unix");
+        var present = grant.TryGetValue("capability", out var secretValue);
+        if (expiresAt == 0 || present != issued)
+            throw Protocol("presenter grant does not match the request");
+        PresenterCapability? capability = null;
+        if (issued)
+        {
+            if (secretValue is not string secret || !PresenterCapability.IsLowerHex(secret, "lcp1_", 64))
+                throw Protocol("presenter capability is malformed");
+            if (materialization["content"] is string content && content.Contains(secret, StringComparison.Ordinal))
+                throw Protocol("presenter capability appears in materialized content");
+            capability = new PresenterCapability(secret);
+        }
+        // A capability is not JSON: the grant is typed, the v1 exchange keeps its JSON form.
+        return new EngineSourceMaterializationV2(
+            (IReadOnlyDictionary<string, object?>)WireJson.DeepFreeze(validated)!,
+            new EnginePresenterGrant(reference, expiresAt, capability));
+    }
+
+    private static readonly HashSet<string> PresentedUseResponseKeys = SetOf(
+        "schema_version", "tenant_id", "governance_revision", "use");
+    private static readonly HashSet<string> RevocationResponseKeys = SetOf(
+        "schema_version", "tenant_id", "revocation");
+    private static readonly HashSet<string> RevocationKeys = SetOf(
+        "schema_version", "presenter_ref", "revoked");
+
+    /// <summary>
+    /// The validated answer to a presented use. An answer that does not fit what was asked,
+    /// that names other sources, or whose text holds the capability is a protocol error.
+    /// </summary>
+    internal static PresentedUseResult ParsePresentedUseResponse(
+        ReadOnlySpan<byte> raw,
+        string mode,
+        string value,
+        IReadOnlyList<string> sourceIds,
+        string configuredTenant,
+        ulong expectedGovernanceRevision,
+        PresenterCapability capability)
+    {
+        const string label = "Enterprise presented use response";
+        var response = ParseObject(raw, label, MaxMaterializationResponseBytes + PresenterEnvelopeBytes);
+        Exact(response, PresentedUseResponseKeys, label);
+        var answer = Object(response["use"], "use");
+        if (answer.Keys.Any(key => key is not ("schema_version" or "presenter_ref" or "usable"
+                or "reason" or "source_ids" or "recovery_id" or "content")))
+            throw Protocol($"{label} fields do not match the v1 contract");
+        answer.TryGetValue("schema_version", out var versionValue);
+        if (ProtocolU64(response["schema_version"], "schema_version") != 1 ||
+            ProtocolU64(versionValue, "use.schema_version") != 1 ||
+            ProtocolUuid(response["tenant_id"], "tenant_id") != configuredTenant ||
+            ProtocolU64(response["governance_revision"], "governance_revision") != expectedGovernanceRevision)
+            throw Protocol($"{label} does not match the request");
+        answer.TryGetValue("presenter_ref", out var referenceValue);
+        answer.TryGetValue("usable", out var usableValue);
+        answer.TryGetValue("source_ids", out var listedValue);
+        if (referenceValue is not string reference ||
+            !PresenterCapability.IsLowerHex(reference, "presenter:", 32) ||
+            usableValue is not bool usable)
+            throw Protocol($"{label} fields do not match the v1 contract");
+        var listed = Array(listedValue, "use.source_ids", MaxSources);
+        var hasReason = answer.TryGetValue("reason", out var reasonValue);
+        var hasRecoveryId = answer.TryGetValue("recovery_id", out var recoveryValue);
+        var hasContent = answer.TryGetValue("content", out var contentValue);
+        var reason = reasonValue as string;
+        var recoveryId = recoveryValue as string;
+        var content = contentValue as string;
+        var expanding = mode == "expand";
+        bool consistent;
+        if (usable)
+        {
+            consistent = !hasReason
+                && hasRecoveryId == (mode != "check")
+                && (!hasRecoveryId || (PresenterCapability.IsLowerHex(recoveryId, "", 64)
+                    && (!expanding || recoveryId == value)))
+                && hasContent == expanding
+                && (!hasContent || (content is not null
+                    && !content.Contains(capability.Reveal(), StringComparison.Ordinal)))
+                // Exactly the requested sources, each once: a repeated id would stand in
+                // for a requested source the answer does not name.
+                && listed.Count == sourceIds.Count
+                && listed.All(item => item is string)
+                && new HashSet<string>(listed.Cast<string>(), StringComparer.Ordinal)
+                    .SetEquals(sourceIds);
+        }
+        else
+        {
+            consistent = reason is not null && IsPresentedUseReason(reason)
+                && !hasRecoveryId && !hasContent && listed.Count == 0;
+        }
+        if (!consistent)
+            throw Protocol($"{label} does not match what was asked");
+        return new PresentedUseResult(
+            reference, usable, reason, listed.Select(item => (string)item!).ToArray(), recoveryId, content);
+    }
+
+    /// <summary>The validated answer to a presenter revocation.</summary>
+    internal static PresenterRevocation ParsePresenterRevocationResponse(
+        ReadOnlySpan<byte> raw, string configuredTenant)
+    {
+        const string label = "Enterprise presenter revocation response";
+        var response = ParseObject(raw, label, PresenterEnvelopeBytes);
+        Exact(response, RevocationResponseKeys, label);
+        var revocation = Object(response["revocation"], "revocation");
+        Exact(revocation, RevocationKeys, label);
+        if (ProtocolU64(response["schema_version"], "schema_version") != 1 ||
+            ProtocolU64(revocation["schema_version"], "revocation.schema_version") != 1 ||
+            ProtocolUuid(response["tenant_id"], "tenant_id") != configuredTenant ||
+            revocation["presenter_ref"] is not string reference ||
+            !PresenterCapability.IsLowerHex(reference, "presenter:", 32) ||
+            revocation["revoked"] is not bool revoked)
+            throw Protocol($"{label} fields do not match the v1 contract");
+        return new PresenterRevocation(reference, revoked);
+    }
+
+    /// <summary>The instance's fixed, content-free refusal codes: lineage.*, recovery.*.</summary>
+    private static bool IsPresentedUseReason(string reason)
+    {
+        var separator = reason.IndexOf('.', StringComparison.Ordinal);
+        if (separator < 0 || reason[..separator] is not ("lineage" or "recovery"))
+            return false;
+        var code = reason[(separator + 1)..];
+        return code.Length is >= 1 and <= 48 && code.All(character => character is (>= 'a' and <= 'z') or '_');
+    }
+
+    private static IReadOnlyDictionary<string, object?> ParseMaterializationObject(
+        IReadOnlyDictionary<string, object?> response,
+        InstancePlanningRequest request,
+        IReadOnlyList<string> sourceIds,
+        string configuredTenant,
+        ulong expectedGovernanceRevision,
+        string expectedBindingDigest)
+    {
+        Exact(response, MaterializationResponseKeys, "Enterprise instance materialization response");
         if (ProtocolU64(response["schema_version"], "schema_version") != 1)
-            throw Protocol("Enterprise Engine materialization response schema_version is unsupported");
+            throw Protocol("Enterprise instance materialization response schema_version is unsupported");
         var tenantId = ProtocolUuid(response["tenant_id"], "tenant_id");
         if (tenantId != configuredTenant)
-            throw Protocol("Enterprise Engine materialization response tenant binding does not match");
+            throw Protocol("Enterprise instance materialization response tenant binding does not match");
         var governanceRevision = ProtocolU64(response["governance_revision"], "governance_revision");
         if (governanceRevision != expectedGovernanceRevision)
-            throw Protocol("Enterprise Engine materialization governance revision does not match");
+            throw Protocol("Enterprise instance materialization governance revision does not match");
 
         var materializationRaw = Object(response["materialization"], "materialization");
-        Exact(materializationRaw, MaterializationKeys, "Enterprise Engine materialization");
-        Header(materializationRaw, "Enterprise Engine materialization");
+        Exact(materializationRaw, MaterializationKeys, "Enterprise instance materialization");
+        Header(materializationRaw, "Enterprise instance materialization");
         var plan = ParseSourcePlan(materializationRaw["plan"], request, sourceIds);
         if (!string.Equals((string)plan["binding_digest"]!, expectedBindingDigest, StringComparison.Ordinal))
-            throw Protocol("Enterprise Engine materialization binding digest does not match");
+            throw Protocol("Enterprise instance materialization binding digest does not match");
         var materializedDigest = ProtocolDigest(materializationRaw["materialized_digest"], "materialized_digest");
         var tokenCount = ProtocolU64(materializationRaw["materialized_token_count"], "materialized_token_count");
         var result = Object(plan["result"], "materialization plan result");
         var resultPlan = Object(result["plan"], "materialization plan projection");
         if (tokenCount > ProtocolU64(resultPlan["budget_tokens"], "plan.budget_tokens"))
-            throw Protocol("Enterprise Engine materialized token metric exceeds the plan budget");
+            throw Protocol("Enterprise instance materialized token metric exceeds the plan budget");
         var content = ProtocolText(
             materializationRaw["content"], "materialized content", MaxMaterializedContentBytes,
             controls: false, rejectNul: false, nonblank: false, allowEmpty: true);
         var contentBytes = Utf8Protocol(content, "materialized content");
         if (WireJson.Sha256Digest(contentBytes) != materializedDigest)
-            throw Protocol("Enterprise Engine materialized content digest does not match");
+            throw Protocol("Enterprise instance materialized content digest does not match");
 
         var normalizedMaterialization = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -214,7 +397,7 @@ internal static class EnginePlanningWire
     internal static IReadOnlyList<string> SourceIds(IReadOnlyList<string>? values)
     {
         if (values is null || values.Count > MaxSources)
-            throw new ValidationError("source_ids exceeds the Engine source bound");
+            throw new ValidationError("source_ids exceeds the LeanCTX instance source bound");
         var result = new List<string>(values.Count);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var value in values)
@@ -263,15 +446,15 @@ internal static class EnginePlanningWire
 
     private static IReadOnlyDictionary<string, object?> ParseSourcePlan(
         object? value,
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         IReadOnlyList<string> sourceIds)
     {
         var raw = Object(value, "source plan");
-        Exact(raw, SetOf("result", "source_bindings", "binding_digest"), "Enterprise Engine source-plan response");
+        Exact(raw, SetOf("result", "source_bindings", "binding_digest"), "Enterprise instance source-plan response");
         var result = ParseResult(raw["result"], request);
         var plan = Object(result["plan"], "source plan projection");
         if (plan.GetValueOrDefault("projection_digest") is not string)
-            throw Protocol("Enterprise Engine source-plan response requires projection_digest");
+            throw Protocol("Enterprise instance source-plan response requires projection_digest");
 
         var bindingsRaw = Array(raw["source_bindings"], "source_bindings", MaxItems);
         var bindings = new List<object?>(bindingsRaw.Count);
@@ -317,16 +500,16 @@ internal static class EnginePlanningWire
         };
     }
 
-    private static Dictionary<string, object?> ParseResult(object? value, EnginePlanningRequest request)
+    private static Dictionary<string, object?> ParseResult(object? value, InstancePlanningRequest request)
     {
         var raw = Object(value, "source-plan result");
-        Exact(raw, ResultKeys, "Engine source-plan result");
-        Header(raw, "Engine source-plan result");
+        Exact(raw, ResultKeys, "LeanCTX instance source-plan result");
+        Header(raw, "LeanCTX instance source-plan result");
         var plan = ParsePlan(raw["plan"]);
         if (!string.Equals((string)plan["task_id"]!, request.TaskId, StringComparison.Ordinal))
-            throw Protocol("Engine source-plan response task_id does not bind the request");
+            throw Protocol("LeanCTX instance source-plan response task_id does not bind the request");
         if (ProtocolU64(plan["budget_tokens"], "plan.budget_tokens") > (ulong)request.BudgetTokens)
-            throw Protocol("Engine source-plan response budget exceeds the request");
+            throw Protocol("LeanCTX instance source-plan response budget exceeds the request");
         return new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["schema_version"] = 1L,
@@ -613,16 +796,16 @@ internal static class EnginePlanningWire
             var selection = Object(selectionValue, "plan selection");
             if (!requested.Contains((string)selection["source_ref"]!) ||
                 !requested.Contains((string)selection["provider"]!))
-                throw Protocol("Enterprise Engine selection is outside requested sources");
+                throw Protocol("Enterprise instance selection is outside requested sources");
         }
         foreach (var bindingValue in bindings)
         {
             var binding = Object(bindingValue, "source binding");
             if (!requested.Contains((string)binding["object_ref"]!) ||
                 !requested.Contains((string)binding["source_id"]!))
-                throw Protocol("Enterprise Engine source binding is outside requested sources");
+                throw Protocol("Enterprise instance source binding is outside requested sources");
             if (!string.Equals((string)binding["permission"]!, "permitted", StringComparison.Ordinal))
-                throw Protocol("Enterprise Engine selected source is not permitted");
+                throw Protocol("Enterprise instance selected source is not permitted");
         }
     }
 

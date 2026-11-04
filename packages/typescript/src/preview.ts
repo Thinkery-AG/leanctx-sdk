@@ -10,13 +10,16 @@
  * minor releases.
  */
 
-import { EngineProtocolError, ValidationError } from "./errors.js";
-import type { SubprocessEngineClient } from "./engine.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
+import { createHash, createHmac } from "node:crypto";
+import type { SubprocessInstanceClient } from "./engine.js";
 import { strictJsonLoads } from "./protocol.js";
 
 export const GATEWAY_PREVIEW_CONTRACT = "leanctx-gateway-preview" as const;
 export const GATEWAY_PREVIEW_VERSION = "0.1.0" as const;
 export const EGRESS_SCHEMA_VERSION = 1 as const;
+export const EGRESS_PREPARE_SCHEMA_VERSION = 2 as const;
+export const MAX_EGRESS_ATTEMPTS = 32;
 export const MAX_EGRESS_REQUEST_BYTES = 8 * 1024 * 1024;
 export const MAX_EGRESS_RESPONSE_BYTES = 16 * 1024 * 1024;
 
@@ -46,6 +49,10 @@ const COVERAGE_KINDS = ["complete", "partial", "unsupported", "failed", "not_req
 const DETECTOR_STATUSES = ["completed", "failed", "timed_out", "skipped"] as const;
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+const KEY_ID = /^rk-[0-9a-f]{32}$/;
+const OBJECT_DIGEST_ALGORITHMS = ["hmac-sha256"] as const;
+const OBJECT_DOMAIN = Buffer.from("leanctx.receipt.object.v2\u0000", "utf8");
+const KEY_ID_DOMAIN = Buffer.from("leanctx.receipt.key-id.v2", "utf8");
 const REASON = /^[a-z][a-z0-9_.]{2,63}$/;
 
 export type Classification = (typeof CLASSIFICATIONS)[number];
@@ -88,7 +95,15 @@ export type ContextDecision = Readonly<{
   requiredTransformations: readonly (typeof TRANSFORMATIONS)[number][];
   deliversContent: boolean;
 }>;
+/** How a schema_version 2 receipt digests its decision objects: keyed under the installation key `keyId`. */
+export type ReceiptObjectDigest = Readonly<{ algorithm: (typeof OBJECT_DIGEST_ALGORITHMS)[number]; keyId: string }>;
+/**
+ * In schemaVersion 2 every `decisions[].object` is HMAC-SHA256 under the installation's receipt key
+ * (`objectDigest`); in schemaVersion 1 the plain SHA-256 of the object. `finalContext` is plain SHA-256 in both.
+ */
 export type ContextDecisionReceipt = Readonly<{
+  schemaVersion: 1 | 2;
+  objectDigest?: ReceiptObjectDigest;
   receiptId: string;
   mode: (typeof MODES)[number];
   principal: ContextPrincipal;
@@ -114,11 +129,34 @@ export type EgressAdmission = Readonly<{
   /** True when `body` may be sent; a refused request must not be. */
   maySend: boolean;
 }>;
+export type EgressPreparation = Readonly<{
+  decision: EgressAdmission;
+  /** Exact UTF-8 JSON text; transmit verbatim instead of serializing decision.body. */
+  preparedBody: string | null;
+  admissionReceiptDigest: string | null;
+  maySend: boolean;
+}>;
+export type EgressTransport = "http" | "websocket";
+export type EgressTransportResult = "response_observed" | "no_response_observed";
+export type EgressTransportFailure = "connect" | "timeout" | "cancelled" | "other";
+export type EgressHostReportRequest = Readonly<{
+  schema_version: 1;
+  admission_receipt_digest: string;
+  attempt: number;
+  transport: EgressTransport;
+  result: EgressTransportResult;
+  http_status?: number;
+  failure?: EgressTransportFailure;
+}>;
+export type EgressHostReportResponse = Readonly<{
+  observationDigest: string;
+  observation: Readonly<Record<string, unknown>>;
+}>;
 
 type Json = Record<string, unknown>;
 
-function bad(message: string): EngineProtocolError {
-  return new EngineProtocolError(`egress admission: ${message}`);
+function bad(message: string): InstanceProtocolError {
+  return new InstanceProtocolError(`egress admission: ${message}`);
 }
 
 function object(value: unknown, label: string): Json {
@@ -265,11 +303,38 @@ function counts<K extends string>(raw: unknown, names: readonly K[], label: stri
   return Object.fromEntries(names.map((name) => [name, int(value[name], `${label}.${name}`, maximum)])) as Record<K, number>;
 }
 
-/** Parse and validate a `ContextDecisionReceiptV1` document. */
+function receiptKey(key: Uint8Array): Uint8Array {
+  if (!(key instanceof Uint8Array) || key.length !== 32) throw new ValidationError("a receipt key is exactly 32 bytes");
+  return key;
+}
+
+/** The public id a schema_version 2 receipt names for the 32-byte `key`. */
+export function receiptKeyId(key: Uint8Array): string {
+  return `rk-${createHmac("sha256", receiptKey(key)).update(KEY_ID_DOMAIN).digest("hex").slice(0, 32)}`;
+}
+
+/** The schema_version 2 `object` for the plain `sha256:<hex>` a schema_version 1 receipt would name. */
+export function keyedObjectDigest(key: Uint8Array, plainObject: string): string {
+  if (typeof plainObject !== "string" || !DIGEST.test(plainObject)) throw new ValidationError("plainObject must be a sha256 digest");
+  const mac = createHmac("sha256", receiptKey(key)).update(OBJECT_DOMAIN).update(Buffer.from(plainObject, "ascii"));
+  return `sha256:${mac.digest("hex")}`;
+}
+
+function objectDigest(raw: unknown): ReceiptObjectDigest {
+  const value = object(raw, "receipt.object_digest");
+  keys(value, ["algorithm", "key_id"], [], "receipt.object_digest");
+  if (typeof value.key_id !== "string" || !KEY_ID.test(value.key_id)) throw bad("receipt.object_digest.key_id must be rk- and 32 hex digits");
+  return Object.freeze({ algorithm: oneOf(value.algorithm, OBJECT_DIGEST_ALGORITHMS, "receipt.object_digest.algorithm"), keyId: value.key_id });
+}
+
+/** Parse and validate a `ContextDecisionReceiptV1` document (receipt schema_version 1 or 2). */
 export function parseDecisionReceipt(raw: unknown): ContextDecisionReceipt {
   const value = object(raw, "receipt");
-  keys(value, ["schema_version", "receipt_id", "mode", "principal", "destination", "sources", "security", "tokens", "outcome", "duration_us"], ["task", "policy", "decisions", "final_context", "quality"], "receipt");
-  if (value.schema_version !== 1) throw bad("unsupported receipt schema_version");
+  keys(value, ["schema_version", "receipt_id", "mode", "principal", "destination", "sources", "security", "tokens", "outcome", "duration_us"], ["task", "policy", "decisions", "final_context", "quality", "object_digest"], "receipt");
+  if (value.schema_version !== 1 && value.schema_version !== 2) throw bad("unsupported receipt schema_version");
+  const schemaVersion: 1 | 2 = value.schema_version;
+  if ((schemaVersion === 2) !== ("object_digest" in value)) throw bad("exactly a schema_version 2 receipt names its object digest key");
+  const keyed = "object_digest" in value ? objectDigest(value.object_digest) : undefined;
   const rawDecisions = value.decisions ?? [];
   if (!Array.isArray(rawDecisions) || rawDecisions.length > MAX_DECISIONS) throw bad("receipt.decisions must be a bounded list");
   const decisions = rawDecisions.map(decision);
@@ -293,6 +358,8 @@ export function parseDecisionReceipt(raw: unknown): ContextDecisionReceipt {
   }
   const tokens = counts(value.tokens, ["original", "delivered"] as const, "receipt.tokens", Number.MAX_SAFE_INTEGER);
   return Object.freeze({
+    schemaVersion,
+    ...(keyed ? { objectDigest: keyed } : {}),
     receiptId: ref(value.receipt_id, "receipt.receipt_id"),
     mode: oneOf(value.mode, MODES, "receipt.mode"),
     principal: principal(value.principal),
@@ -341,13 +408,143 @@ export function parseEgressAdmission(raw: unknown): EgressAdmission {
   });
 }
 
+function jsonEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((item, index) => jsonEqual(item, right[index]));
+  }
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  const a = left as Json;
+  const b = right as Json;
+  const keysA = Object.keys(a);
+  return keysA.length === Object.keys(b).length && keysA.every((key) => key in b && jsonEqual(a[key], b[key]));
+}
+
+/** Parse EngineEgressPrepareResponseV2 while preserving its exact body text. */
+export function parseEgressPreparation(raw: unknown): EgressPreparation {
+  const value = object(raw, "preparation");
+  keys(value, ["schema_version", "decision"], ["prepared_body", "admission_receipt_digest"], "preparation");
+  if (value.schema_version !== EGRESS_PREPARE_SCHEMA_VERSION) throw bad("unsupported egress preparation schema_version");
+  const decision = parseEgressAdmission(value.decision);
+  const receipt = decision.receipt;
+  if (receipt !== null) {
+    if (decision.disposition === "refused") {
+      if (receipt.outcome === "delivered" || receipt.finalContext != null) {
+        throw bad("decision receipt outcome/final_context do not match disposition");
+      }
+    } else if (receipt.outcome !== "delivered" || receipt.finalContext == null) {
+      throw bad("decision receipt outcome/final_context do not match disposition");
+    }
+  }
+  const preparedBody = value.prepared_body ?? null;
+  if (decision.disposition === "refused") {
+    if (preparedBody !== null) throw bad("a refused preparation cannot carry prepared bytes");
+  } else {
+    if (typeof preparedBody !== "string") throw bad("a dispatchable preparation must carry exact bytes");
+    let parsedBody: unknown;
+    try { parsedBody = strictJsonLoads(Buffer.from(preparedBody, "utf8"), "prepared egress body"); }
+    catch { throw bad("prepared bytes are not strict JSON"); }
+    if (parsedBody === null || typeof parsedBody !== "object" || Array.isArray(parsedBody)
+      || !jsonEqual(parsedBody, decision.body)) throw bad("prepared bytes do not match the admitted decision body");
+    const finalContext = decision.receipt?.finalContext;
+    if (finalContext !== undefined) {
+      const digestValue = `sha256:${createHash("sha256").update(Buffer.from(preparedBody, "utf8")).digest("hex")}`;
+      if (digestValue !== finalContext) throw bad("prepared bytes do not match the decision receipt digest");
+    }
+  }
+  const admissionReceiptDigest = value.admission_receipt_digest === undefined || value.admission_receipt_digest === null
+    ? null : digest(value.admission_receipt_digest, "admission_receipt_digest");
+  if (admissionReceiptDigest !== null && decision.receipt === null) throw bad("egress admission digest requires its decision receipt");
+  return Object.freeze({ decision, preparedBody, admissionReceiptDigest,
+    maySend: decision.maySend && preparedBody !== null });
+}
+
 export type EgressRequest = Readonly<{ provider: string; upstreamBase: string; body: Readonly<Record<string, unknown>> }>;
+
+/** Prepare one request; callers transmit preparedBody verbatim only when maySend. */
+export async function prepareEgress(engine: SubprocessInstanceClient, projectRoot: string, request: EgressRequest): Promise<EgressPreparation> {
+  if (typeof request.provider !== "string" || request.provider.trim() === "") throw new ValidationError("provider must be a non-empty string");
+  if (typeof request.upstreamBase !== "string" || !/^https?:\/\//.test(request.upstreamBase)) throw new ValidationError("upstreamBase must be an http(s) URL");
+  if (request.body === null || typeof request.body !== "object" || Array.isArray(request.body)) throw new ValidationError("body must be a JSON object");
+  let payload: Buffer;
+  try {
+    payload = Buffer.from(JSON.stringify({ schema_version: EGRESS_SCHEMA_VERSION, provider: request.provider, upstream_base: request.upstreamBase, body: request.body }), "utf8");
+  } catch (error) { throw new ValidationError("body is not JSON data", { cause: error }); }
+  if (payload.byteLength > MAX_EGRESS_REQUEST_BYTES) throw new ValidationError("egress request exceeds its bound");
+  const raw = await engine.egressPrepare(projectRoot, payload, MAX_EGRESS_REQUEST_BYTES, 32 * 1024 * 1024);
+  let document: unknown;
+  try { document = strictJsonLoads(raw, "egress preparation"); }
+  catch (error) { throw bad(`response is not strict JSON (${String(error)})`); }
+  return parseEgressPreparation(document);
+}
+
+function buildHostReportRequest(input: Omit<EgressHostReportRequest, "schema_version">): EgressHostReportRequest {
+  const request: EgressHostReportRequest = { schema_version: 1,
+    admission_receipt_digest: digest(input.admission_receipt_digest, "admission_receipt_digest"),
+    attempt: int(input.attempt, "attempt", MAX_EGRESS_ATTEMPTS),
+    transport: oneOf(input.transport, ["http", "websocket"], "transport"),
+    result: oneOf(input.result, ["response_observed", "no_response_observed"], "result"),
+    ...(input.http_status === undefined ? {} : { http_status: int(input.http_status, "http_status", 599) }),
+    ...(input.failure === undefined ? {} : { failure: oneOf(input.failure, ["connect", "timeout", "cancelled", "other"] as const, "failure") }),
+  };
+  if (request.attempt === 0) throw new ValidationError("attempt must be in 1..32");
+  if (request.http_status !== undefined && request.http_status < 100) throw new ValidationError("http_status must be in 100..599");
+  if (request.result === "response_observed") {
+    if (request.failure !== undefined || (request.transport === "http" && request.http_status === undefined)) throw new ValidationError("response_observed requires no failure and an HTTP status for HTTP");
+  } else if (request.http_status !== undefined || request.failure === undefined) {
+    throw new ValidationError("no_response_observed requires a bounded failure and no HTTP status");
+  }
+  return request;
+}
+
+export function parseEgressHostReport(raw: unknown, request: EgressHostReportRequest): EgressHostReportResponse {
+  const value = object(raw, "report");
+  keys(value, ["schema_version", "observation_digest", "observation"], [], "report");
+  if (value.schema_version !== EGRESS_SCHEMA_VERSION) throw bad("unsupported egress report schema_version");
+  const observationDigest = digest(value.observation_digest, "observation_digest");
+  const observation = object(value.observation, "observation");
+  keys(observation, ["schema_version", "admission_receipt_digest", "attempt", "transport", "observer", "result"], ["http_status", "failure"], "observation");
+  if (observation.schema_version !== EGRESS_SCHEMA_VERSION) throw bad("unsupported observation schema_version");
+  if (observation.observer !== "host_reported") throw bad("host report response must be HostReported");
+  for (const key of ["admission_receipt_digest", "attempt", "transport", "result", "http_status", "failure"] as const) {
+    const actualPresent = key in observation;
+    const expectedPresent = key in request;
+    if (actualPresent !== expectedPresent || (expectedPresent && observation[key] !== request[key])) throw bad(`report observation does not match request field ${key}`);
+  }
+  digest(observation.admission_receipt_digest, "observation.admission_receipt_digest");
+  int(observation.attempt, "observation.attempt", MAX_EGRESS_ATTEMPTS);
+  oneOf(observation.transport, ["http", "websocket"], "observation.transport");
+  oneOf(observation.result, ["response_observed", "no_response_observed"], "observation.result");
+  if ("http_status" in observation) {
+    const status = int(observation.http_status, "observation.http_status", 599);
+    if (status < 100) throw bad("observation.http_status must be in 100..599");
+  }
+  if ("failure" in observation) oneOf(observation.failure, ["connect", "timeout", "cancelled", "other"], "observation.failure");
+  const canonicalObservation = { ...request, observer: "host_reported" };
+  const canonicalText = JSON.stringify(Object.fromEntries(Object.keys(canonicalObservation).sort().map((key) => [key, canonicalObservation[key as keyof typeof canonicalObservation]])));
+  const expectedDigest = `sha256:${createHash("sha256").update(Buffer.from(canonicalText, "utf8")).digest("hex")}`;
+  if (observationDigest !== expectedDigest) throw bad("observation_digest does not match the reported observation");
+  return Object.freeze({ observationDigest, observation: Object.freeze({ ...observation }) });
+}
+
+/** Report host-observed facts; this API cannot claim EngineObserved. */
+export async function reportEgress(engine: SubprocessInstanceClient, projectRoot: string, input: Omit<EgressHostReportRequest, "schema_version">): Promise<EgressHostReportResponse> {
+  const request = buildHostReportRequest(input);
+  const payload = Buffer.from(JSON.stringify(request), "utf8");
+  if (payload.byteLength > 4096) throw new ValidationError("egress report request exceeds its bound");
+  const raw = await engine.egressReport(projectRoot, payload, 4096, 32 * 1024 * 1024);
+  let document: unknown;
+  try { document = strictJsonLoads(raw, "egress report"); }
+  catch (error) { throw bad(`response is not strict JSON (${String(error)})`); }
+  return parseEgressHostReport(document, request);
+}
 
 /**
  * Admit one model request through the local Engine before sending it. Send
  * `admission.body`, never the original body, and only when `maySend`.
  */
-export async function admitEgress(engine: SubprocessEngineClient, projectRoot: string, request: EgressRequest): Promise<EgressAdmission> {
+export async function admitEgress(engine: SubprocessInstanceClient, projectRoot: string, request: EgressRequest): Promise<EgressAdmission> {
   if (typeof request.provider !== "string" || request.provider.trim() === "") throw new ValidationError("provider must be a non-empty string");
   if (typeof request.upstreamBase !== "string" || !/^https?:\/\//.test(request.upstreamBase)) throw new ValidationError("upstreamBase must be an http(s) URL");
   if (request.body === null || typeof request.body !== "object" || Array.isArray(request.body)) throw new ValidationError("body must be a JSON object");
@@ -369,5 +566,31 @@ export async function admitEgress(engine: SubprocessEngineClient, projectRoot: s
   return parseEgressAdmission(document);
 }
 
-// Context Store reads (task lineage, policy evidence): leanctx-context-store-preview.
-export * from "./context_store.js";
+// Material change: union public context-store names with the private surface.
+export {
+  CONTEXT_STORE_PREVIEW_CONTRACT,
+  CONTEXT_STORE_PREVIEW_VERSION,
+  MAX_STORE_REQUEST_BYTES,
+  MAX_STORE_RESPONSE_BYTES,
+  TASK_CLASSES,
+  LANGUAGES,
+  SIZES,
+  STRATEGIES,
+  parsePolicyEvidence,
+  parseTaskLineage,
+  readPolicyEvidence,
+  readTaskLineage,
+} from "./context_store.js";
+export type {
+  Workload,
+  QualityEvidence,
+  SecurityEvidence,
+  StrategyOutcomeRecord,
+  StrategyEvaluation,
+  ContextPolicyEvidence,
+  LineageStep,
+  DeliverySummary,
+  LineageDelivery,
+  TaskLineage,
+  ContextStoreScope,
+} from "./context_store.js";

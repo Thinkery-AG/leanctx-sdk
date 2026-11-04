@@ -9,16 +9,16 @@ from typing import Any, Mapping, Optional
 
 from test_enterprise_engine import _Reply, _server  # type: ignore[import-not-found]
 
-from leanctx_sdk.enterprise_engine import (
-    EngineContextClient,
-    EngineContextReadResult,
+from leanctx_sdk.enterprise_instance import (
+    InstanceContextClient,
+    InstanceContextReadResult,
 )
-from leanctx_sdk.errors import EngineProtocolError, ValidationError
+from leanctx_sdk.errors import InstanceProtocolError, ValidationError
 from leanctx_sdk.protocol import MAX_PATH_BYTES, MAX_RESPONSE_BYTES, sha256_digest
 
 
-def _client(server: Any, timeout: float = 30.0) -> EngineContextClient:
-    return EngineContextClient(
+def _client(server: Any, timeout: float = 30.0) -> InstanceContextClient:
+    return InstanceContextClient(
         f"http://127.0.0.1:{server.server_port}/",
         "credential-test",
         allow_loopback_http=True,
@@ -81,7 +81,7 @@ class EngineContextReadTests(unittest.TestCase):
         ) as server:
             result = _client(server).context_read("src/context.md")
 
-        self.assertIsInstance(result, EngineContextReadResult)
+        self.assertIsInstance(result, InstanceContextReadResult)
         self.assertEqual(result.text, "guarded context text\n")
         self.assertEqual(result.canonical_receipt["outcome"], "unknown")
         digest = result.canonical_receipt["receipt_digest"]
@@ -121,7 +121,7 @@ class EngineContextReadTests(unittest.TestCase):
                         {"Content-Type": "application/json"},
                     )
                 ) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_read("src/context.md")
 
     def test_result_shape_errors_fail_closed(self) -> None:
@@ -140,7 +140,7 @@ class EngineContextReadTests(unittest.TestCase):
                         {"Content-Type": "application/json"},
                     )
                 ) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_read("src/context.md")
 
     def test_request_and_wire_limits_are_bounded_before_untrusted_work(self) -> None:
@@ -163,7 +163,7 @@ class EngineContextReadTests(unittest.TestCase):
                 },
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_read("src/context.md")
 
 

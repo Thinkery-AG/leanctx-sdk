@@ -35,7 +35,7 @@ from leanctx_sdk.preview import (
 )
 from leanctx_sdk.checkpoint_package import (
     CheckpointPackageInspection,
-    LocalCheckpointPackageEngine,
+    LocalCheckpointPackageInstance,
     SnapshotV1MigrationProvenance,
     SnapshotV1Inspection,
     migrate_snapshot_v1,
@@ -152,7 +152,7 @@ def _planned_session(
     session_id=None,
     task_id=None,
     task="inspect",
-    engine=None,
+    instance=None,
 ):
     from tests.test_sdk import FakeEngine
 
@@ -166,7 +166,7 @@ def _planned_session(
         project_root=root,
         session_id=session_id,
         task_id=task_id,
-        engine=engine if engine is not None else FakeEngine(),
+        instance=instance if instance is not None else FakeEngine(),
     )
     session.plan(source)
     return session, source
@@ -730,7 +730,7 @@ class WorkspaceTests(unittest.TestCase):
                 path="source.txt",
                 session_id="session-evidence",
                 task_id="task-evidence",
-                engine=FakeEngine(),
+                instance=FakeEngine(),
             )
             session.prepare(source)
             evidence = session.complete()
@@ -928,7 +928,7 @@ class WorkspaceTests(unittest.TestCase):
 
             engine = FakeEngine()
             with patch(
-                "leanctx_sdk.session.SubprocessEngineClient",
+                "leanctx_sdk.session.SubprocessInstanceClient",
                 return_value=engine,
             ) as default_engine:
                 with self.assertRaises(WorkspaceValidationError):
@@ -1026,7 +1026,7 @@ class WorkspaceTests(unittest.TestCase):
                 Path(source_root) / "checkpoint.ctxpkg",
                 package_name="workspace-checkpoint",
                 package_version="1.0.0",
-                engine=engine,
+                instance=engine,
                 migration_provenance=migration,
             )
             self.assertTrue(sealed.signed)
@@ -1036,7 +1036,7 @@ class WorkspaceTests(unittest.TestCase):
                 seed_root,
                 "checkpoint.ctxpkg",
                 "seeded",
-                engine=engine,
+                instance=engine,
                 trusted_signer=True,
             )
             self.assertEqual(seeded.workspace_id, checkpoint.workspace_id)
@@ -1082,7 +1082,7 @@ class WorkspaceTests(unittest.TestCase):
                 seed_root,
                 "checkpoint.ctxpkg",
                 "seeded",
-                engine=engine,
+                instance=engine,
                 trusted_signer=True,
             )
 
@@ -1104,7 +1104,7 @@ class WorkspaceTests(unittest.TestCase):
                     target,
                     "signed.ctxpkg",
                     "seeded",
-                    engine=signed_engine,
+                    instance=signed_engine,
                 )
 
         with (
@@ -1120,13 +1120,13 @@ class WorkspaceTests(unittest.TestCase):
                     target,
                     "unsigned.ctxpkg",
                     "seeded",
-                    engine=unsigned_engine,
+                    instance=unsigned_engine,
                 )
             seeded = seed_workspace_from_package(
                 target,
                 "unsigned.ctxpkg",
                 "seeded",
-                engine=unsigned_engine,
+                instance=unsigned_engine,
                 allow_unsigned=True,
             )
             self.assertEqual(seeded.workspace_id, checkpoint.workspace_id)
@@ -1155,9 +1155,9 @@ class WorkspaceTests(unittest.TestCase):
             executable_link = Path(root) / "lean-ctx-link"
             executable_link.symlink_to(executable)
             with self.assertRaises(WorkspaceIncompatibleError):
-                LocalCheckpointPackageEngine(str(executable_link))
+                LocalCheckpointPackageInstance(str(executable_link))
 
-            engine = LocalCheckpointPackageEngine(str(executable))
+            engine = LocalCheckpointPackageInstance(str(executable))
             snapshot = Path(root) / "snapshot.ctxsnapshot.json"
             snapshot.write_text("{}", encoding="utf-8")
             snapshot_link = Path(root) / "snapshot-link.ctxsnapshot.json"
@@ -1205,13 +1205,13 @@ class WorkspaceTests(unittest.TestCase):
                 migrate_snapshot_v1(
                     workspace,
                     "snapshot.json",
-                    engine=engine,
+                    instance=engine,
                     limitations=(),
                 )
             result = migrate_snapshot_v1(
                 workspace,
                 "snapshot.json",
-                engine=engine,
+                instance=engine,
                 limitations=("SnapshotV1 has no Workspace policy",),
             )
             self.assertEqual(
@@ -1236,7 +1236,7 @@ class WorkspaceTests(unittest.TestCase):
             workspace = ContextWorkspace.create(source_root, "source")
             workspace.pin_package(_package_pin())
             package = Path(source_root) / "checkpoint.ctxpkg"
-            engine = LocalCheckpointPackageEngine(
+            engine = LocalCheckpointPackageInstance(
                 executable,
                 environment={"LEAN_CTX_DATA_DIR": engine_data},
             )
@@ -1246,7 +1246,7 @@ class WorkspaceTests(unittest.TestCase):
                 migrated = migrate_snapshot_v1(
                     workspace,
                     snapshot_path,
-                    engine=engine,
+                    instance=engine,
                     limitations=("SnapshotV1 has no Workspace policy or package lock",),
                 )
                 checkpoint = migrated.checkpoint
@@ -1259,7 +1259,7 @@ class WorkspaceTests(unittest.TestCase):
                 package,
                 package_name="checkpoint-proof",
                 package_version="1.0.0",
-                engine=engine,
+                instance=engine,
                 migration_provenance=migration,
             )
             self.assertTrue(inspection.signed)
@@ -1267,7 +1267,7 @@ class WorkspaceTests(unittest.TestCase):
                 target_root,
                 package,
                 "seeded",
-                engine=engine,
+                instance=engine,
                 trusted_signer=True,
             )
             self.assertEqual(seeded.checkpoint().state_digest, checkpoint.state_digest)

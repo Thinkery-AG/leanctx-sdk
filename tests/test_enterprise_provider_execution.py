@@ -8,8 +8,8 @@ import json
 from typing import Any, Mapping, cast
 import unittest
 
-from leanctx_sdk.enterprise_engine import EnterpriseEngineClient
-from leanctx_sdk.errors import EngineProtocolError, ValidationError
+from leanctx_sdk.enterprise_instance import EnterpriseInstanceClient
+from leanctx_sdk.errors import InstanceProtocolError, ValidationError
 from leanctx_sdk.protocol import sha256_digest
 
 from tests.test_enterprise_engine import (
@@ -146,7 +146,7 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
             "total_input_tokens": None,
             "output_tokens": None,
         }
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _call(
                 response=_response(
                     usage=unavailable,
@@ -155,13 +155,13 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
             )
 
     def test_output_digest_and_unknown_acceptance_are_strict(self) -> None:
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _call(
                 response=_response(
                     output={"content": "tampered", "sha256_digest": sha256_digest(b"provider output")}
                 ),
             )
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _call(
                 response=_response(acceptance="accepted")
             )
@@ -183,10 +183,10 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
 
     def test_transport_and_failure_retry_types_are_strict(self) -> None:
         for non_object in (b"null", b"[]"):
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _call(response=non_object)
         for transport_version in (True, 1.0):
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _call(response=_response(transport_version=transport_version))
         response = json.loads(_response().decode("utf-8"))
         response["status"] = "failed"
@@ -195,7 +195,7 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
             "code": "internal",
             "retryable_by_host": True,
         }
-        with self.assertRaises(EngineProtocolError):
+        with self.assertRaises(InstanceProtocolError):
             _call(response=json.dumps(response).encode("utf-8"))
 
     def test_context_plan_binding_and_budget_are_required_before_http(self) -> None:
@@ -233,7 +233,7 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
         local_plan["provider"] = "local-native"
         local_plan["model"] = "local-native"
         with self.assertRaises(ValidationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "http://127.0.0.1:1/",
                 "credential-test",
                 TENANT_ID,
@@ -250,7 +250,7 @@ class EnterpriseProviderExecutionTests(unittest.TestCase):
         retry_plan = deepcopy(dict(PLAN))
         retry_plan["max_retries"] = 1
         with self.assertRaises(ValidationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "http://127.0.0.1:1/",
                 "credential-test",
                 TENANT_ID,

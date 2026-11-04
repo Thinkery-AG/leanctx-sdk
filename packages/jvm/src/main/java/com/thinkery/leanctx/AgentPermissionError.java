@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
 /** The immutable AgentContext policy rejected a tool call. */
+@SuppressWarnings("removal")
 public class AgentPermissionError extends EngineError {
     public AgentPermissionError() {
         this(null);

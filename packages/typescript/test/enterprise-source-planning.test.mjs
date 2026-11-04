@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import {
-  EnginePlanningRequest,
-  EngineProtocolError,
-  EnterpriseEngineClient,
+  InstancePlanningRequest,
+  InstanceProtocolError,
+  EnterpriseInstanceClient,
   ValidationError,
 } from "../dist/index.js";
 import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
@@ -14,7 +14,7 @@ const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const otherTenantId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const sourceId = "11111111-1111-4111-8111-111111111111";
 const otherSourceId = "22222222-2222-4222-8222-222222222222";
-const request = new EnginePlanningRequest("enterprise-source-task", "invoice ledger", 64);
+const request = new InstancePlanningRequest("enterprise-source-task", "invoice ledger", 64);
 
 function descriptor(id = sourceId, permission = "permitted") {
   const content = "enterprise source body";
@@ -94,7 +94,7 @@ async function loopbackServer(handler) {
 }
 
 function client(url, tenant = tenantId) {
-  return new EnterpriseEngineClient(url, "credential-test", tenant, {
+  return new EnterpriseInstanceClient(url, "credential-test", tenant, {
     allowLoopbackHttp: true,
     timeout: 2,
   });
@@ -152,7 +152,7 @@ test("Enterprise source planning rejects tenant, source, and permission mismatch
       try {
         await assert.rejects(
           client(url).contextPlanSources(request, [sourceId]),
-          EngineProtocolError,
+          InstanceProtocolError,
         );
       } finally {
         await new Promise((resolve) => server.close(resolve));
@@ -167,7 +167,7 @@ test("Enterprise source planning rejects non-integral envelope revisions", async
   try {
     await assert.rejects(
       client(url).contextPlanSources(request, [sourceId]),
-      EngineProtocolError,
+      InstanceProtocolError,
     );
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -189,7 +189,7 @@ test("Enterprise source planning rejects non-integral nested plan fields", async
       try {
         await assert.rejects(
           client(url).contextPlanSources(request, [sourceId]),
-          EngineProtocolError,
+          InstanceProtocolError,
         );
       } finally {
         await new Promise((resolve) => server.close(resolve));
@@ -209,7 +209,7 @@ test("Enterprise source planning does not follow redirects", async () => {
   try {
     await assert.rejects(
       client(url).contextPlanSources(request, [sourceId]),
-      EngineProtocolError,
+      InstanceProtocolError,
     );
     assert.equal(calls, 1);
   } finally {

@@ -1,3 +1,6 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 using System.Collections;
 using System.Collections.ObjectModel;
 using System.Text;
@@ -7,14 +10,14 @@ namespace Thinkery.LeanCtx;
 /// <summary>Stable protocol and package constants.</summary>
 public static class Constants
 {
-    public const string __version__ = "1.2.0";
+    public const string __version__ = "1.3.0";
     public const int SCHEMA_VERSION = 1;
     public const int TRANSPORT_VERSION = 1;
     public const string ENGINE_INTERFACE_VERSION = "1.0.0";
     public const string AGENT_TOOLS_INTERFACE_VERSION = "1.0.0";
     public const int AGENT_TOOLS_SCHEMA_VERSION = 1;
     public const int AGENT_TOOLS_TRANSPORT_VERSION = 1;
-    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.4";
+    public const string SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.1";
 }
 
 public enum FailureCode
@@ -37,7 +40,7 @@ public enum SessionState
     Closed,
 }
 
-public enum EngineStatus
+public enum InstanceStatus
 {
     Succeeded,
     Degraded,
@@ -109,22 +112,22 @@ internal static class ProtocolText
             "unsupported_operation" or "internal";
     }
 
-    internal static string EngineStatusText(EngineStatus value) => value switch
+    internal static string InstanceStatusText(InstanceStatus value) => value switch
     {
-        Thinkery.LeanCtx.EngineStatus.Succeeded => "succeeded",
-        Thinkery.LeanCtx.EngineStatus.Degraded => "degraded",
-        Thinkery.LeanCtx.EngineStatus.Rejected => "rejected",
+        Thinkery.LeanCtx.InstanceStatus.Succeeded => "succeeded",
+        Thinkery.LeanCtx.InstanceStatus.Degraded => "degraded",
+        Thinkery.LeanCtx.InstanceStatus.Rejected => "rejected",
         _ => "failed",
     };
 
-    internal static bool TryEngineStatus(string value, out EngineStatus result)
+    internal static bool TryInstanceStatus(string value, out InstanceStatus result)
     {
         result = value switch
         {
-            "succeeded" => EngineStatus.Succeeded,
-            "degraded" => EngineStatus.Degraded,
-            "rejected" => EngineStatus.Rejected,
-            "failed" => EngineStatus.Failed,
+            "succeeded" => InstanceStatus.Succeeded,
+            "degraded" => InstanceStatus.Degraded,
+            "rejected" => InstanceStatus.Rejected,
+            "failed" => InstanceStatus.Failed,
             _ => default,
         };
         return value is "succeeded" or "degraded" or "rejected" or "failed";
@@ -543,7 +546,7 @@ public class ContextView : IWireValue
         string sourceRef,
         string sourceDigest,
         string? recoveryRef,
-        EngineStatus status,
+        InstanceStatus status,
         IReadOnlyList<ContextMeasurement>? measurements = null,
         ContextFailure? failure = null,
         ContextReceiptLink? receiptLink = null,
@@ -553,7 +556,7 @@ public class ContextView : IWireValue
         int transportVersion = Constants.TRANSPORT_VERSION,
         string engineInterfaceVersion = Constants.ENGINE_INTERFACE_VERSION)
         : this(source, text, outputRef, outputDigest, sourceRef, sourceDigest,
-            recoveryRef, ProtocolText.EngineStatusText(status), measurements, failure,
+            recoveryRef, ProtocolText.InstanceStatusText(status), measurements, failure,
             receiptLink, invocation, observation, schemaVersion, transportVersion,
             engineInterfaceVersion)
     { }
@@ -595,8 +598,8 @@ public class ContextView : IWireValue
         SourceRef = WireJson.ValidateRef(sourceRef, "source_ref");
         SourceDigest = WireJson.ValidateDigest(sourceDigest, "source_digest");
         RecoveryRef = recoveryRef is null ? null : WireJson.ValidateRef(recoveryRef, "recovery_ref");
-        if (!ProtocolText.TryEngineStatus(status, out var parsedStatus))
-            throw new ValidationError("invalid Engine observation status");
+        if (!ProtocolText.TryInstanceStatus(status, out var parsedStatus))
+            throw new ValidationError("invalid LeanCTX instance observation status");
         Status = parsedStatus;
         Measurements = new ReadOnlyCollection<ContextMeasurement>(
             (measurements ?? Array.Empty<ContextMeasurement>()).ToList());
@@ -627,7 +630,7 @@ public class ContextView : IWireValue
     public string SourceRef { get; }
     public string SourceDigest { get; }
     public string? RecoveryRef { get; }
-    public EngineStatus Status { get; }
+    public InstanceStatus Status { get; }
     public IReadOnlyList<ContextMeasurement> Measurements { get; }
     public ContextFailure? Failure { get; }
     public ContextReceiptLink? ReceiptLink { get; }
@@ -648,7 +651,7 @@ public class ContextView : IWireValue
     public string? EngineVersion => NestedString(Invocation, "engine", "engine_version");
     public string? CapabilityVersion => NestedString(Invocation, "operation", "capability_version");
 
-    public string RequireText() => Text ?? throw new EngineExecutionError("Engine view has no text", view: this);
+    public string RequireText() => Text ?? throw new EngineExecutionError("LeanCTX instance view has no text", view: this);
     public string require_text() => RequireText();
 
     public IReadOnlyDictionary<string, string> RecoveryBinding()
@@ -669,7 +672,7 @@ public class ContextView : IWireValue
     {
         try
         {
-            if (Status is not (EngineStatus.Succeeded or EngineStatus.Degraded) ||
+            if (Status is not (InstanceStatus.Succeeded or InstanceStatus.Degraded) ||
                 RecoveryRef is null || OutputRef is null || OutputDigest is null || Text is null)
                 return false;
             if (Invocation.GetValueOrDefault("source_refs") is not IEnumerable refs ||
@@ -703,7 +706,7 @@ public class ContextView : IWireValue
             ["source_ref"] = SourceRef,
             ["source_digest"] = SourceDigest,
             ["recovery_ref"] = RecoveryRef,
-            ["status"] = ProtocolText.EngineStatusText(Status),
+            ["status"] = ProtocolText.InstanceStatusText(Status),
             ["measurements"] = Measurements.Select(item => item.ToDictionary()).ToList(),
             ["failure"] = Failure?.ToDictionary(),
             ["receipt_link"] = ReceiptLink?.ToDictionary(),
@@ -801,7 +804,7 @@ public class ContextReceipt : IWireValue
         if (Degradations.Any(item => string.IsNullOrEmpty(item)))
             throw new ValidationError("degradations must be non-empty strings");
         if (parsedIntegrity == Integrity.Sealed && (view is null || !view.Verify()))
-            throw new ValidationError("sealed receipt requires verified Engine evidence");
+            throw new ValidationError("sealed receipt requires verified LeanCTX instance evidence");
         Usage = usage is null ? null : FreezeUsage(usage);
         HostExceptionType = hostExceptionType;
         HostResult = hostResult;
@@ -828,7 +831,7 @@ public class ContextReceipt : IWireValue
     public string outcome => ProtocolText.HostOutcomeText(Outcome);
     public string integrity_status => ProtocolText.IntegrityText(IntegrityStatus);
     public string? host_exception_type => HostExceptionType;
-    public string? Status => View is null ? null : ProtocolText.EngineStatusText(View.Status);
+    public string? Status => View is null ? null : ProtocolText.InstanceStatusText(View.Status);
     public ContextSource? Source => View?.Source;
     public IReadOnlyDictionary<string, object?>? Invocation => View?.Invocation;
     public IReadOnlyDictionary<string, object?>? Observation => View?.Observation;

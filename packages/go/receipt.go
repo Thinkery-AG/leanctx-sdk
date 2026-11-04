@@ -87,7 +87,7 @@ func NewContextReceipt(sessionID, taskID string, planID *string, view *ContextVi
 		}
 	}
 	if integrity == IntegritySealed && (view == nil || !view.Verify()) {
-		return nil, NewValidationError("sealed receipt requires verified Engine evidence")
+		return nil, NewValidationError("sealed receipt requires verified instance evidence")
 	}
 	planCopy := cloneStringPointer(planID)
 	return &ContextReceipt{SessionID: sessionID, TaskID: taskID, PlanID: planCopy, View: view, Outcome: outcome, IntegrityStatus: integrity, Degradations: degradations, Usage: usage, HostExceptionType: option.HostExceptionType, HostResult: option.HostResult, HostException: option.HostException, SchemaVersion: SchemaVersion}, nil
@@ -95,7 +95,7 @@ func NewContextReceipt(sessionID, taskID string, planID *string, view *ContextVi
 
 func (r ContextReceipt) Sealed() bool { return r.IntegrityStatus == IntegritySealed }
 
-func (r ContextReceipt) Status() *EngineStatus {
+func (r ContextReceipt) Status() *InstanceStatus {
 	if r.View == nil {
 		return nil
 	}

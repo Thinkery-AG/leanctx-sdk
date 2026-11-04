@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from ..agent import AgentContext
 from ..errors import (
-    EngineExecutionError,
+    InstanceExecutionError,
     FrameworkCompatibilityError,
     FrameworkIntegrationError,
 )
@@ -69,7 +69,7 @@ class OpenAIAgentsAdapter:
         if view is not None:
             try:
                 payload = view.require_text()
-            except EngineExecutionError:
+            except InstanceExecutionError:
                 payload = input if input is not None else self._session.task
         if payload is None:
             payload = self._session.task

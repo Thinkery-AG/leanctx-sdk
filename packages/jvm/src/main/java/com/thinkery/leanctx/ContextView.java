@@ -6,7 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Engine-shaped context view with explicit source and receipt bindings. */
+/** LeanCTX instance-shaped context view with explicit source and receipt bindings. */
+@SuppressWarnings("removal")
 public final class ContextView {
     private final ContextSource source;
     private final String text;
@@ -326,7 +327,7 @@ public final class ContextView {
 
     public String requireText() {
         if (text == null) {
-            throw new EngineExecutionError("Engine view has no text", null, this);
+            throw new EngineExecutionError("LeanCTX instance view has no text", null, this);
         }
         return text;
     }

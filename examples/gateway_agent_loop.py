@@ -3,10 +3,9 @@
 A minimal tool-using agent without MCP, UI or cloud. Each turn the whole
 conversation - including tool output the agent pulled in - goes through the
 local Engine's egress admission before the model sees it. Tool output that
-carries a credential is masked; tool output marked restricted is replaced by
-a withheld marker before a remote model sees it (the receipt counts it as a
-withheld object). A request the Engine refuses outright is not sent at all,
-and the agent stops instead of falling back to its own messages. Every turn
+carries a credential is masked. A request containing restricted tool output
+is refused before sending to a remote model; the receipt records withholding.
+The agent stops instead of falling back to its own messages. Every turn
 leaves a decision receipt; the summary measures what the model actually saw.
 
 The "model" is a deterministic local stand-in so the example runs offline.
@@ -24,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from leanctx_sdk import SubprocessEngineClient  # noqa: E402
+from leanctx_sdk import SubprocessInstanceClient  # noqa: E402
 from leanctx_sdk.preview import admit_egress  # noqa: E402
 
 ANTHROPIC = "https://api.anthropic.com"
@@ -40,7 +39,7 @@ def local_model(messages):
 
 
 def run(engine_binary):
-    engine = SubprocessEngineClient(engine_binary)
+    engine = SubprocessInstanceClient(engine_binary)
     root = Path(tempfile.mkdtemp(prefix="leanctx-app-b-"))
     credential = "AKIA" + "Q3EGRZ7DEMOX4KEY"
     files = {

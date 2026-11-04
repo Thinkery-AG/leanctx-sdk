@@ -48,13 +48,13 @@ func newEnterpriseOutcomeServer(t *testing.T, bodyFactory func([]byte) []byte) (
 	return server, capture
 }
 
-func newEnterpriseOutcomeClient(t *testing.T, server *httptest.Server) *EnterpriseEngineClient {
+func newEnterpriseOutcomeClient(t *testing.T, server *httptest.Server) *EnterpriseInstanceClient {
 	t.Helper()
-	client, err := NewEnterpriseEngineClient(
+	client, err := NewEnterpriseInstanceClient(
 		server.URL,
 		"credential-test",
 		enterpriseTestTenant,
-		EngineContextClientOptions{AllowLoopbackHTTP: true},
+		InstanceContextClientOptions{AllowLoopbackHTTP: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -62,8 +62,8 @@ func newEnterpriseOutcomeClient(t *testing.T, server *httptest.Server) *Enterpri
 	return client
 }
 
-func enterpriseOutcomeRequestFixture() EngineOutcomeRequest {
-	return EngineOutcomeRequest{
+func enterpriseOutcomeRequestFixture() InstanceOutcomeRequest {
+	return InstanceOutcomeRequest{
 		TaskID:                "enterprise-task",
 		ReceiptDigest:         enterpriseOutcomeReceiptDigest,
 		ContextDecisionDigest: enterpriseOutcomeDecisionDigest,
@@ -277,29 +277,29 @@ func TestEnterpriseContextOutcomeRejectsInvalidRequestsBeforeHTTP(t *testing.T) 
 	valid := enterpriseOutcomeRequestFixture()
 	cases := []struct {
 		name   string
-		mutate func(*EngineOutcomeRequest)
+		mutate func(*InstanceOutcomeRequest)
 	}{
-		{name: "empty task", mutate: func(request *EngineOutcomeRequest) { request.TaskID = "" }},
-		{name: "invalid receipt digest", mutate: func(request *EngineOutcomeRequest) { request.ReceiptDigest = "not-a-digest" }},
-		{name: "invalid decision digest", mutate: func(request *EngineOutcomeRequest) { request.ContextDecisionDigest = "not-a-digest" }},
-		{name: "unknown signal", mutate: func(request *EngineOutcomeRequest) {
+		{name: "empty task", mutate: func(request *InstanceOutcomeRequest) { request.TaskID = "" }},
+		{name: "invalid receipt digest", mutate: func(request *InstanceOutcomeRequest) { request.ReceiptDigest = "not-a-digest" }},
+		{name: "invalid decision digest", mutate: func(request *InstanceOutcomeRequest) { request.ContextDecisionDigest = "not-a-digest" }},
+		{name: "unknown signal", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = []map[string]any{{"signal_type": "agent_completion", "value": map[string]any{"boolean": true}}}
 		}},
-		{name: "boolean type", mutate: func(request *EngineOutcomeRequest) {
+		{name: "boolean type", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = []map[string]any{{"signal_type": "human_acceptance", "value": map[string]any{"boolean": uint64(1)}}}
 		}},
-		{name: "count lexical integer", mutate: func(request *EngineOutcomeRequest) {
+		{name: "count lexical integer", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = []map[string]any{{"signal_type": "tests_passing", "value": map[string]any{"count": json.Number("1.0")}}}
 		}},
-		{name: "count exceeds u32", mutate: func(request *EngineOutcomeRequest) {
+		{name: "count exceeds u32", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = []map[string]any{{"signal_type": "tests_passing", "value": map[string]any{"count": json.Number("4294967296")}}}
 		}},
-		{name: "signal fields", mutate: func(request *EngineOutcomeRequest) {
+		{name: "signal fields", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = []map[string]any{{"signal_type": "tests_passing", "value": map[string]any{"count": uint64(1), "extra": true}}}
 		}},
-		{name: "nil signals", mutate: func(request *EngineOutcomeRequest) { request.Signals = nil }},
-		{name: "empty signals", mutate: func(request *EngineOutcomeRequest) { request.Signals = []map[string]any{} }},
-		{name: "too many signals", mutate: func(request *EngineOutcomeRequest) {
+		{name: "nil signals", mutate: func(request *InstanceOutcomeRequest) { request.Signals = nil }},
+		{name: "empty signals", mutate: func(request *InstanceOutcomeRequest) { request.Signals = []map[string]any{} }},
+		{name: "too many signals", mutate: func(request *InstanceOutcomeRequest) {
 			request.Signals = make([]map[string]any, 17)
 			for index := range request.Signals {
 				request.Signals[index] = map[string]any{"signal_type": "correction", "value": "unknown"}
@@ -445,8 +445,8 @@ func TestEnterpriseContextOutcomeRejectsResponseBindingsAndCanonicalMutations(t 
 				return test.payload(t, value)
 			})
 			_, err := newEnterpriseOutcomeClient(t, server).ContextOutcome(enterpriseOutcomeRequestFixture())
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 			if capture.calls != 1 {
 				t.Fatalf("expected one bounded response parse, got %d calls", capture.calls)
@@ -484,8 +484,8 @@ func TestEnterpriseContextOutcomeRejectsLexicalResponseIntegers(t *testing.T) {
 			payload := enterpriseOutcomeResponse(t, value)
 			server, _ := newEnterpriseOutcomeServer(t, func(_ []byte) []byte { return payload })
 			_, err := newEnterpriseOutcomeClient(t, server).ContextOutcome(enterpriseOutcomeRequestFixture())
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 		})
 	}
