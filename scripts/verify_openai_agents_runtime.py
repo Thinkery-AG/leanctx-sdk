@@ -21,7 +21,7 @@ from leanctx_sdk import (
     AgentContext,
     ContextSession,
     ContextSource,
-    SubprocessEngineClient,
+    SubprocessInstanceClient,
 )
 from leanctx_sdk.integrations.openai_agents import OpenAIAgentsAdapter, openai_tools
 from openai.types.responses import ResponseOutputMessage, ResponseOutputText
@@ -69,7 +69,7 @@ def _session(engine: Path, root: Path) -> ContextSession:
     session = ContextSession(
         "provider-free Agents gate",
         project_root=str(root),
-        engine=SubprocessEngineClient(engine),
+        instance=SubprocessInstanceClient(engine),
     )
     session.plan(ContextSource("context.txt", project_root=str(root)))
     return session
@@ -117,7 +117,7 @@ def verify(engine: Path) -> dict[str, object]:
         with AgentContext(
             root,
             task="Find AGENT_TOOLS_RUNTIME_FACT",
-            engine_binary=engine,
+            instance_binary=engine,
         ) as context:
             tools = {tool.name: tool for tool in openai_tools(context)}
             required = {"leanctx_read", "leanctx_search", "leanctx_tree"}

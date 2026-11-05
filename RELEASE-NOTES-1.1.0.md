@@ -41,7 +41,7 @@ of the model and agent loop.
   are covered by required language-native build and test jobs.
 
 The five SDK 1.0 lifecycle primitives and Engine Interface v1 are unchanged.
-Agent Tools requires LeanCTX Engine 3.10.1 with interface `1.0.0`, schema `1`,
+Agent Tools requires LeanCTX | OSS 3.10.1 with interface `1.0.0`, schema `1`,
 and transport `1`.
 
 Engine 3.10.1 and its companion packages are published. Python SDK 1.1 can

@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /** Local loopback transport contract tests; these do not exercise an installed Engine or remote tenant. */
-class EnterpriseEngineClientTest {
+class EnterpriseInstanceClientTest {
     private static final String TENANT = "00000000-0000-0000-0000-000000000010";
     private static final String OTHER_TENANT = "00000000-0000-0000-0000-000000000099";
     private static final String SOURCE = "00000000-0000-0000-0000-000000000011";
@@ -36,7 +36,7 @@ class EnterpriseEngineClientTest {
 
     @Test
     void contextPlanAndMaterializationUseAuthenticatedBoundedContracts() throws Exception {
-        EnginePlanningRequest planning = planningRequest();
+        InstancePlanningRequest planning = planningRequest();
         Map<String, Object> sourcePlan = sourcePlan(planning, SOURCE, "permitted");
         String content = "prepared issue context\n";
         Map<String, Object> materialization = materializationResponse(
@@ -45,7 +45,7 @@ class EnterpriseEngineClientTest {
                 "/v1/engine/context-plan")
                 ? json(200, sourcePlanResponse(TENANT, BigInteger.valueOf(7), sourcePlan))
                 : json(200, materialization))) {
-            EnterpriseEngineClient client = client(server, Duration.ofSeconds(2));
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
             Map<String, Object> planned = client.contextPlan(planning, List.of(SOURCE));
             assertEquals(TENANT, planned.get("tenant_id"));
             assertEquals(BigInteger.valueOf(7), planned.get("governance_revision"));
@@ -81,7 +81,7 @@ class EnterpriseEngineClientTest {
     @Test
     void requestValidationRejectsInvalidSourceAndBindingValuesBeforeNetwork() throws Exception {
         try (LocalServer server = new LocalServer(ignored -> json(200, Map.of()))) {
-            EnterpriseEngineClient client = client(server, Duration.ofSeconds(2));
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
             assertThrows(ValidationError.class,
                     () -> client.contextPlan(planningRequest(), List.of(SOURCE, SOURCE)));
             assertThrows(ValidationError.class,
@@ -109,14 +109,14 @@ class EnterpriseEngineClientTest {
     @Test
     void queryBlankValidationMatchesPythonUnicodeWhitespace() {
         assertThrows(ValidationError.class,
-                () -> new EnginePlanningRequest("gitlab-issue-42", "\u00a0", 1));
+                () -> new InstancePlanningRequest("gitlab-issue-42", "\u00a0", 1));
         assertThrows(ValidationError.class,
-                () -> new EnginePlanningRequest("gitlab-issue-42", "\u0085", 1));
+                () -> new InstancePlanningRequest("gitlab-issue-42", "\u0085", 1));
     }
 
     @Test
     void acceptsTheMaximumNumberOfDistinctSourceIds() throws Exception {
-        EnginePlanningRequest request = planningRequest();
+        InstancePlanningRequest request = planningRequest();
         List<String> sourceIds = new ArrayList<>();
         sourceIds.add(SOURCE);
         for (int index = 0; index < 63; index++) {
@@ -126,7 +126,7 @@ class EnterpriseEngineClientTest {
         Map<String, Object> sourcePlan = sourcePlan(request, SOURCE, "permitted");
         try (LocalServer server = new LocalServer(ignored -> json(
                 200, sourcePlanResponse(TENANT, BigInteger.valueOf(7), sourcePlan)))) {
-            EnterpriseEngineClient client = client(server, Duration.ofSeconds(2));
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
             client.contextPlan(request, sourceIds);
             Map<String, Object> requestBody = object(Json.parse(
                     server.requests().getFirst().body(), "captured request"));
@@ -136,7 +136,7 @@ class EnterpriseEngineClientTest {
 
     @Test
     void acceptsProjectionDigestFormsForUnselectedSourceEntries() throws Exception {
-        EnginePlanningRequest request = planningRequest();
+        InstancePlanningRequest request = planningRequest();
         Map<String, Object> plan = sourcePlanWithUnselectedProjectionDigest(request);
         try (LocalServer server = new LocalServer(ignored -> json(
                 200, sourcePlanResponse(TENANT, BigInteger.valueOf(7), plan)))) {
@@ -151,18 +151,18 @@ class EnterpriseEngineClientTest {
 
     @Test
     void responseValidationChecksTenantTaskSourceGovernanceAndDigests() throws Exception {
-        EnginePlanningRequest request = planningRequest();
+        InstancePlanningRequest request = planningRequest();
         List<Map<String, Object>> invalidPlans = List.of(
                 sourcePlan(request, SOURCE, "denied"),
                 sourcePlan(request, OTHER_SOURCE, "permitted"),
-                sourcePlan(new EnginePlanningRequest("different-task", request.query(), 64), SOURCE, "permitted"),
+                sourcePlan(new InstancePlanningRequest("different-task", request.query(), 64), SOURCE, "permitted"),
                 corruptedProjectionDigest(sourcePlan(request, SOURCE, "permitted")),
                 corruptedBindingDigest(sourcePlan(request, SOURCE, "permitted")),
                 unsupportedEngineVersion(sourcePlan(request, SOURCE, "permitted")));
         for (Map<String, Object> plan : invalidPlans) {
             try (LocalServer server = new LocalServer(ignored -> json(
                     200, sourcePlanResponse(TENANT, BigInteger.valueOf(7), plan)))) {
-                assertThrows(EngineProtocolError.class,
+                assertThrows(InstanceProtocolError.class,
                         () -> client(server, Duration.ofSeconds(2)).contextPlan(request, List.of(SOURCE)));
             }
         }
@@ -170,26 +170,26 @@ class EnterpriseEngineClientTest {
         Map<String, Object> mismatchedBinding = sourcePlanWithMismatchedSelectedBinding(request);
         try (LocalServer server = new LocalServer(ignored -> json(
                 200, sourcePlanResponse(TENANT, BigInteger.valueOf(7), mismatchedBinding)))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2))
                             .contextPlan(request, List.of(SOURCE, OTHER_SOURCE)));
         }
         try (LocalServer server = new LocalServer(ignored -> json(
                 200, sourcePlanResponse(OTHER_TENANT, BigInteger.valueOf(7), validPlan)))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextPlan(request, List.of(SOURCE)));
         }
         try (LocalServer server = new LocalServer(ignored -> new Response(200,
                 ("{\"schema_version\":1.0,\"tenant_id\":\"" + TENANT
                         + "\",\"governance_revision\":7,\"plan\":{}}").getBytes(StandardCharsets.UTF_8),
                 Map.of()))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextPlan(request, List.of(SOURCE)));
         }
         try (LocalServer server = new LocalServer(ignored -> new Response(200,
                 ("{\"" + CREDENTIAL + "\":1,\"" + CREDENTIAL + "\":2}")
                         .getBytes(StandardCharsets.UTF_8), Map.of()))) {
-            EngineProtocolError error = assertThrows(EngineProtocolError.class,
+            InstanceProtocolError error = assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextPlan(request, List.of(SOURCE)));
             assertFalse(error.getMessage().contains(CREDENTIAL));
         }
@@ -199,26 +199,26 @@ class EnterpriseEngineClientTest {
         Map<String, Object> badGovernance = replaceTopLevel(goodMaterialization,
                 "governance_revision", BigInteger.valueOf(8));
         try (LocalServer server = new LocalServer(ignored -> json(200, badGovernance))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextMaterialize(request,
                             List.of(SOURCE), 7L, bindingDigest(validPlan)));
         }
         try (LocalServer server = new LocalServer(ignored -> json(200, goodMaterialization))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextMaterialize(request,
                             List.of(SOURCE), 7L, "sha256:" + "d".repeat(64)));
         }
         Map<String, Object> badMaterializedDigest = badMaterializationField(
                 goodMaterialization, "materialized_digest", "sha256:" + "b".repeat(64));
         try (LocalServer server = new LocalServer(ignored -> json(200, badMaterializedDigest))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextMaterialize(request,
                             List.of(SOURCE), 7L, bindingDigest(validPlan)));
         }
         Map<String, Object> overBudget = materializationResponse(
                 TENANT, BigInteger.valueOf(7), validPlan, "prepared", BigInteger.valueOf(65));
         try (LocalServer server = new LocalServer(ignored -> json(200, overBudget))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextMaterialize(request,
                             List.of(SOURCE), 7L, bindingDigest(validPlan)));
         }
@@ -226,7 +226,7 @@ class EnterpriseEngineClientTest {
 
     @Test
     void materializationSupportsUnsignedGovernanceAndNormalizedDigestBindings() throws Exception {
-        EnginePlanningRequest request = planningRequest();
+        InstancePlanningRequest request = planningRequest();
         Map<String, Object> sourcePlan = sourcePlanWithU64Statistics(request, SOURCE);
         String expectedBindingDigest = bindingDigest(sourcePlan);
         BigInteger aboveSafeInteger = BigInteger.valueOf(Json.MAX_SAFE_INTEGER).add(BigInteger.ONE);
@@ -273,7 +273,7 @@ class EnterpriseEngineClientTest {
                 + "\",\"governance_revision\":7,\"plan\":{\"x_nested\":" + nested + "}}";
         try (LocalServer server = new LocalServer(ignored -> new Response(
                 200, response.getBytes(StandardCharsets.UTF_8), Map.of()))) {
-            EngineProtocolError error = assertThrows(EngineProtocolError.class,
+            InstanceProtocolError error = assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2))
                             .contextPlan(planningRequest(), List.of(SOURCE)));
             assertTrue(error.getMessage().contains("nesting depth exceeds its bound"));
@@ -282,12 +282,12 @@ class EnterpriseEngineClientTest {
 
     @Test
     void materializedContentAndHttpResponsesAreBounded() throws Exception {
-        EnginePlanningRequest planning = planningRequest();
+        InstancePlanningRequest planning = planningRequest();
         Map<String, Object> plan = sourcePlan(planning, SOURCE, "permitted");
         try (LocalServer server = new LocalServer(ignored -> new Response(200,
                 "x".repeat(EnterprisePlanningProtocol.MAX_PLAN_RESPONSE_BYTES + 1)
                         .getBytes(StandardCharsets.UTF_8), Map.of()))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(5))
                             .contextPlan(planning, List.of(SOURCE)));
         }
@@ -296,14 +296,14 @@ class EnterpriseEngineClientTest {
                 "x".repeat(EnterprisePlanningProtocol.MAX_MATERIALIZED_CONTENT_BYTES + 1),
                 BigInteger.ONE);
         try (LocalServer server = new LocalServer(ignored -> json(200, tooMuchContent))) {
-            assertThrows(EngineProtocolError.class,
+            assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(4)).contextMaterialize(planning,
                             List.of(SOURCE), 7L, bindingDigest(plan)));
         }
         try (LocalServer server = new LocalServer(ignored -> new Response(200,
                 "x".repeat(EnterprisePlanningProtocol.MAX_MATERIALIZATION_RESPONSE_BYTES + 1)
                         .getBytes(StandardCharsets.UTF_8), Map.of()))) {
-            EngineProtocolError error = assertThrows(EngineProtocolError.class,
+            InstanceProtocolError error = assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(4)).contextMaterialize(planning,
                             List.of(SOURCE), 7L, bindingDigest(plan)));
             assertFalse(error.getMessage().contains(CREDENTIAL));
@@ -315,7 +315,7 @@ class EnterpriseEngineClientTest {
         try (LocalServer destination = new LocalServer(ignored -> json(200, Map.of()));
              LocalServer server = new LocalServer(ignored -> new Response(
                      302, new byte[0], Map.of("Location", destination.baseUrl() + "/redirect-target")))) {
-            EngineProtocolError error = assertThrows(EngineProtocolError.class,
+            InstanceProtocolError error = assertThrows(InstanceProtocolError.class,
                     () -> client(server, Duration.ofSeconds(2)).contextPlan(planningRequest(), List.of(SOURCE)));
             assertTrue(error.getMessage().contains("redirects are not followed"));
             assertEquals(1, server.callCount());
@@ -324,7 +324,7 @@ class EnterpriseEngineClientTest {
         for (int status : List.of(401, 403, 503)) {
             try (LocalServer server = new LocalServer(ignored -> json(status, Map.of("error", "local test")))) {
                 if (status == 401) {
-                    EngineRejected error = assertThrows(EngineRejected.class,
+                    InstanceRejected error = assertThrows(InstanceRejected.class,
                             () -> client(server, Duration.ofSeconds(2))
                                     .contextPlan(planningRequest(), List.of(SOURCE)));
                     assertFalse(error.getMessage().contains(CREDENTIAL));
@@ -334,7 +334,7 @@ class EnterpriseEngineClientTest {
                                     .contextPlan(planningRequest(), List.of(SOURCE)));
                     assertFalse(error.getMessage().contains(CREDENTIAL));
                 } else {
-                    EngineUnavailable error = assertThrows(EngineUnavailable.class,
+                    InstanceUnavailable error = assertThrows(InstanceUnavailable.class,
                             () -> client(server, Duration.ofSeconds(2))
                                     .contextPlan(planningRequest(), List.of(SOURCE)));
                     assertFalse(error.getMessage().contains(CREDENTIAL));
@@ -350,13 +350,13 @@ class EnterpriseEngineClientTest {
             return json(200, sourcePlanResponse(TENANT, BigInteger.valueOf(7),
                     sourcePlan(planningRequest(), SOURCE, "permitted")));
         })) {
-            assertThrows(EngineTimeout.class,
+            assertThrows(InstanceTimeout.class,
                     () -> client(server, Duration.ofMillis(120))
                             .contextPlan(planningRequest(), List.of(SOURCE)));
         }
         try (LocalServer server = new LocalServer(ignored -> new Response(
                 200, "x".repeat(8192).getBytes(StandardCharsets.UTF_8), Map.of(), 30))) {
-            assertThrows(EngineTimeout.class,
+            assertThrows(InstanceTimeout.class,
                     () -> client(server, Duration.ofMillis(120))
                             .contextPlan(planningRequest(), List.of(SOURCE)));
         }
@@ -364,20 +364,20 @@ class EnterpriseEngineClientTest {
 
     @Test
     void httpRequiresExplicitLiteralLoopbackOptInAndVersionsStayFixed() throws Exception {
-        assertThrows(ConfigurationError.class, () -> new EnterpriseEngineClient(
+        assertThrows(ConfigurationError.class, () -> new EnterpriseInstanceClient(
                 "http://127.0.0.1:1234", CREDENTIAL, TENANT));
-        assertThrows(ConfigurationError.class, () -> new EnterpriseEngineClient(
+        assertThrows(ConfigurationError.class, () -> new EnterpriseInstanceClient(
                 "http://example.test", CREDENTIAL, TENANT, Duration.ofSeconds(2), true));
-        assertThrows(ConfigurationError.class, () -> new EnterpriseEngineClient(
+        assertThrows(ConfigurationError.class, () -> new EnterpriseInstanceClient(
                 "http://localhost:1234", CREDENTIAL, TENANT, Duration.ofSeconds(2), true));
-        assertThrows(ConfigurationError.class, () -> new EnterpriseEngineClient(
+        assertThrows(ConfigurationError.class, () -> new EnterpriseInstanceClient(
                 "https://user@engine.example", CREDENTIAL, TENANT));
-        assertThrows(ConfigurationError.class, () -> new EnterpriseEngineClient(
+        assertThrows(ConfigurationError.class, () -> new EnterpriseInstanceClient(
                 "https://engine.example", CREDENTIAL, TENANT, Duration.ofMillis(99)));
         try (LocalServer server = new LocalServer(ignored -> json(
                 200, sourcePlanResponse(TENANT, BigInteger.valueOf(7),
                         sourcePlan(planningRequest(), SOURCE, "permitted"))))) {
-            EnterpriseEngineClient client = client(server, Duration.ofSeconds(2));
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
             assertEquals(TENANT, client.tenantId());
             Map<String, Object> result = client.contextPlan(planningRequest(), List.of(SOURCE));
             assertEquals(1, result.get("schema_version"));
@@ -388,16 +388,170 @@ class EnterpriseEngineClientTest {
         }
     }
 
-    private static EnginePlanningRequest planningRequest() {
-        return new EnginePlanningRequest("gitlab-issue-42", "inspect issue references", 64);
+    @Test
+    void materializationV2KeepsTheCapabilityOutOfBodiesAndRenderings() throws Exception {
+        InstancePlanningRequest planning = planningRequest();
+        Map<String, Object> sourcePlan = sourcePlan(planning, SOURCE, "permitted");
+        BigInteger revision = BigInteger.valueOf(7);
+        Map<String, Object> v1 = materializationResponse(
+                TENANT, revision, sourcePlan, "prepared issue context\n", BigInteger.valueOf(24));
+        // Assembled at run time: the source holds no capability-shaped text.
+        String secret = "lcp1_" + "ab".repeat(32);
+        String reference = "presenter:" + "0123456789abcdef".repeat(2);
+        AtomicInteger status = new AtomicInteger(200);
+        try (LocalServer server = new LocalServer(request -> {
+            if (status.get() != 200) {
+                return json(status.get(), Map.of());
+            }
+            Map<String, Object> grant = new LinkedHashMap<>();
+            grant.put("presenter_ref", reference);
+            grant.put("expires_at_unix", BigInteger.valueOf(1_900_000_000L));
+            if (!request.headers().containsKey(PresenterCapability.HEADER)) {
+                grant.put("capability", secret);
+            }
+            Map<String, Object> engine = new LinkedHashMap<>();
+            engine.put("schema_version", 2);
+            engine.put("materialization", v1.get("materialization"));
+            engine.put("presenter", grant);
+            Map<String, Object> response = new LinkedHashMap<>(v1);
+            response.put("schema_version", 2);
+            response.put("materialization", engine);
+            return json(200, response);
+        })) {
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
+            String digest = bindingDigest(sourcePlan);
+
+            Map<String, Object> issued = client.contextMaterializeV2(
+                    planning, List.of(SOURCE), revision, digest, null, 600);
+            Map<String, Object> grant = object(object(issued.get("materialization")).get("presenter"));
+            PresenterCapability capability = (PresenterCapability) grant.get("capability");
+            assertEquals(secret, capability.reveal());
+            assertEquals(reference, grant.get("presenter_ref"));
+            assertFalse((issued + " " + capability).contains(secret), "renderings are redacted");
+
+            Map<String, Object> renewed = client.contextMaterializeV2(
+                    planning, List.of(SOURCE), revision, digest, null, capability);
+            assertEquals(null, object(object(renewed.get("materialization")).get("presenter"))
+                    .get("capability"));
+
+            List<Request> requests = server.requests();
+            assertEquals(2, requests.size());
+            assertEquals("/v1/engine/context-materialize-v2", requests.get(0).path());
+            assertFalse(requests.get(0).headers().containsKey(PresenterCapability.HEADER));
+            assertEquals(secret, requests.get(1).headers().get(PresenterCapability.HEADER));
+            for (Request captured : requests) {
+                assertFalse(new String(captured.body(), StandardCharsets.UTF_8).contains(secret),
+                        "the capability is never a body member");
+            }
+            assertEquals("issue", object(object(Json.parse(requests.get(0).body(), "captured request"))
+                    .get("presenter")).get("mode"));
+            assertEquals(Map.of("mode", "renew"),
+                    object(Json.parse(requests.get(1).body(), "captured request")).get("presenter"));
+
+            assertThrows(ValidationError.class, () -> client.contextMaterializeV2(
+                    planning, List.of(SOURCE), revision, digest, null, 0));
+            assertThrows(ValidationError.class, () -> new PresenterCapability(reference));
+            // requests() drains: nothing was received since the two calls above.
+            assertEquals(0, server.requests().size(), "invalid input never reaches the network");
+
+            // A suite without the route, or an Engine without the operation.
+            for (int unsupported : new int[] {404, 501}) {
+                status.set(unsupported);
+                assertThrows(UnsupportedInstanceError.class, () -> client.contextMaterializeV2(
+                        planning, List.of(SOURCE), revision, digest, null, 600));
+            }
+        }
     }
 
-    private static EnterpriseEngineClient client(LocalServer server, Duration timeout) {
-        return server.register(new EnterpriseEngineClient(
+    @Test
+    void aHeldCapabilityIsUsedAndRevokedInTheHeaderOnly() throws Exception {
+        BigInteger revision = BigInteger.valueOf(7);
+        // Assembled at run time: the source holds no capability-shaped text.
+        String secret = "lcp1_" + "ab".repeat(32);
+        PresenterCapability capability = new PresenterCapability(secret);
+        String reference = "presenter:" + "0123456789abcdef".repeat(2);
+        String recoveryId = "5e".repeat(32);
+        AtomicInteger status = new AtomicInteger(200);
+        java.util.concurrent.atomic.AtomicReference<String> text =
+                new java.util.concurrent.atomic.AtomicReference<>("ledger");
+        java.util.concurrent.atomic.AtomicReference<List<String>> named =
+                new java.util.concurrent.atomic.AtomicReference<>(List.of(SOURCE));
+        try (LocalServer server = new LocalServer(request -> {
+            if (status.get() != 200) {
+                return json(status.get(), Map.of());
+            }
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("schema_version", 1);
+            response.put("tenant_id", TENANT);
+            if (request.path().equals("/v1/engine/presenter-revoke")) {
+                response.put("revocation", Map.of(
+                        "schema_version", 1, "presenter_ref", reference, "revoked", true));
+                return json(200, response);
+            }
+            response.put("governance_revision", revision);
+            response.put("use", Map.of(
+                    "schema_version", 1, "presenter_ref", reference, "usable", true,
+                    "source_ids", named.get(), "recovery_id", recoveryId,
+                    "content", text.get()));
+            return json(200, response);
+        })) {
+            EnterpriseInstanceClient client = client(server, Duration.ofSeconds(2));
+
+            Map<String, Object> expanded = object(client.presentedUse(
+                    capability, List.of(SOURCE), revision, "expand", recoveryId).get("use"));
+            assertEquals("ledger", expanded.get("content"));
+            assertEquals(List.of(SOURCE), expanded.get("source_ids"));
+            assertEquals(true, client.revokePresenter(capability).get("revoked"));
+
+            List<Request> requests = server.requests();
+            assertEquals(2, requests.size());
+            assertEquals("/v1/engine/presented-use", requests.get(0).path());
+            assertEquals("/v1/engine/presenter-revoke", requests.get(1).path());
+            for (Request captured : requests) {
+                assertEquals(secret, captured.headers().get(PresenterCapability.HEADER));
+                assertFalse(new String(captured.body(), StandardCharsets.UTF_8).contains(secret),
+                        "the capability is never a body member");
+            }
+            assertEquals(Map.of("mode", "expand", "recovery_id", recoveryId),
+                    object(Json.parse(requests.get(0).body(), "captured request")).get("use"));
+
+            assertThrows(ValidationError.class, () -> client.presentedUse(
+                    capability, List.of(SOURCE), revision, "expand", "../x"));
+            assertThrows(ValidationError.class, () -> client.presentedUse(
+                    capability, List.of(SOURCE), revision, "other", "ledger"));
+            assertEquals(0, server.requests().size(), "invalid input never reaches the network");
+
+            // Two sources asked, one named twice: a repeated id must not stand
+            // in for the source the answer leaves out.
+            String other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+            named.set(List.of(SOURCE, SOURCE));
+            assertThrows(InstanceProtocolError.class, () -> client.presentedUse(
+                    capability, List.of(SOURCE, other), revision, "expand", recoveryId));
+            named.set(List.of(SOURCE));
+
+            // The capability handed back inside the text, the one capability
+            // refusal, and a suite without the route.
+            text.set("ledger " + secret);
+            assertThrows(InstanceProtocolError.class, () -> client.presentedUse(
+                    capability, List.of(SOURCE), revision, "expand", recoveryId));
+            status.set(403);
+            assertThrows(PolicyAdmissionError.class, () -> client.presentedUse(
+                    capability, List.of(SOURCE), revision, "expand", recoveryId));
+            status.set(404);
+            assertThrows(UnsupportedInstanceError.class, () -> client.revokePresenter(capability));
+        }
+    }
+
+    private static InstancePlanningRequest planningRequest() {
+        return new InstancePlanningRequest("gitlab-issue-42", "inspect issue references", 64);
+    }
+
+    private static EnterpriseInstanceClient client(LocalServer server, Duration timeout) {
+        return server.register(new EnterpriseInstanceClient(
                 server.baseUrl(), CREDENTIAL, TENANT, timeout, true));
     }
 
-    private static Map<String, Object> sourcePlan(EnginePlanningRequest request,
+    private static Map<String, Object> sourcePlan(InstancePlanningRequest request,
                                                   String sourceId, String permission) {
         String contentDigest = "sha256:" + "c".repeat(64);
         Map<String, Object> selection = new LinkedHashMap<>();
@@ -441,7 +595,7 @@ class EnterpriseEngineClientTest {
     }
 
     private static Map<String, Object> sourcePlanWithU64Statistics(
-            EnginePlanningRequest request, String sourceId) {
+            InstancePlanningRequest request, String sourceId) {
         Map<String, Object> sourcePlan = sourcePlan(request, sourceId, "permitted");
         Map<String, Object> projection = object(object(sourcePlan.get("result")).get("plan"));
         BigInteger aboveSafeInteger = BigInteger.valueOf(Json.MAX_SAFE_INTEGER).add(BigInteger.ONE);
@@ -468,7 +622,7 @@ class EnterpriseEngineClientTest {
     }
 
     private static Map<String, Object> sourcePlanWithUnselectedProjectionDigest(
-            EnginePlanningRequest request) {
+            InstancePlanningRequest request) {
         Map<String, Object> copy = deepCopy(sourcePlan(request, SOURCE, "permitted"));
         Map<String, Object> plan = object(object(copy.get("result")).get("plan"));
         Map<String, Object> unselected = new LinkedHashMap<>();
@@ -489,7 +643,7 @@ class EnterpriseEngineClientTest {
     }
 
     private static Map<String, Object> sourcePlanWithMismatchedSelectedBinding(
-            EnginePlanningRequest request) {
+            InstancePlanningRequest request) {
         Map<String, Object> copy = deepCopy(sourcePlan(request, SOURCE, "permitted"));
         List<Object> bindings = new ArrayList<>((List<?>) copy.get("source_bindings"));
         object(bindings.get(0)).put("source_id", OTHER_SOURCE);
@@ -616,7 +770,7 @@ class EnterpriseEngineClientTest {
         private final Handler handler;
         private final AtomicInteger calls = new AtomicInteger();
         private final BlockingQueue<Request> received = new LinkedBlockingQueue<>();
-        private final List<EnterpriseEngineClient> clients = new CopyOnWriteArrayList<>();
+        private final List<EnterpriseInstanceClient> clients = new CopyOnWriteArrayList<>();
         private final Thread thread;
 
         private LocalServer(Handler handler) throws IOException {
@@ -635,7 +789,7 @@ class EnterpriseEngineClientTest {
             return calls.get();
         }
 
-        private EnterpriseEngineClient register(EnterpriseEngineClient client) {
+        private EnterpriseInstanceClient register(EnterpriseInstanceClient client) {
             clients.add(client);
             return client;
         }
@@ -669,7 +823,7 @@ class EnterpriseEngineClientTest {
         @Override
         public void close() throws Exception {
             listener.close();
-            clients.forEach(EnterpriseEngineClient::close);
+            clients.forEach(EnterpriseInstanceClient::close);
             thread.join(1500);
         }
 

@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  EnginePlanningRequest,
-  EngineProtocolError,
-  EngineSource,
-  EngineSourcePlanningClient,
+  InstancePlanningRequest,
+  InstanceProtocolError,
+  InstanceSource,
+  InstanceSourcePlanningClient,
   parseMaterialization,
-  SubprocessEngineClient,
+  SubprocessInstanceClient,
   ValidationError,
   parseSourcePlan,
 } from "../dist/index.js";
@@ -19,8 +19,8 @@ import { canonicalBytes, sha256Digest } from "../dist/protocol.js";
 const content = "invoice ledger source body";
 const sourceId = "source-file";
 const objectRef = "file";
-const request = new EnginePlanningRequest("source-task", "invoice ledger", 64);
-const source = new EngineSource({
+const request = new InstancePlanningRequest("source-task", "invoice ledger", 64);
+const source = new InstanceSource({
   object_ref: objectRef,
   source_id: sourceId,
   source_type: "filesystem",
@@ -34,7 +34,7 @@ const source = new EngineSource({
 }, content);
 
 function makeSource(ref, id, body) {
-  return new EngineSource({
+  return new InstanceSource({
     object_ref: ref,
     source_id: id,
     source_type: "filesystem",
@@ -162,7 +162,7 @@ function fakeEngine(root) {
 test("source planning and materialization reuse bounded stdin transport", async () => {
   const root = mkdtempSync(join(tmpdir(), "leanctx-ts-source-plan-"));
   try {
-    const client = new SubprocessEngineClient({ engineBinary: fakeEngine(root) });
+    const client = new SubprocessInstanceClient({ instanceBinary: fakeEngine(root) });
     const planned = await client.contextPlanSources(root, request, [source]);
     assert.equal(planned.binding_digest, sourcePlan().binding_digest);
     assert.equal(planned.result.plan.context_plan_evaluation_v1.evaluation_time, "2026-09-20T12:34:56Z");
@@ -192,7 +192,7 @@ test("source planning and materialization reuse bounded stdin transport", async 
         sha256Digest("wrong-binding"),
         "2026-09-20T12:34:56Z",
       ),
-      EngineProtocolError,
+      InstanceProtocolError,
     );
     await assert.rejects(
       client.contextMaterializeSources(
@@ -202,7 +202,145 @@ test("source planning and materialization reuse bounded stdin transport", async 
         planned.binding_digest,
         "2026-09-20T12:34:57Z",
       ),
-      EngineProtocolError,
+      InstanceProtocolError,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("v2 materialization keeps the presenter capability out of argv, JSON and the request", async () => {
+  const root = mkdtempSync(join(tmpdir(), "leanctx-ts-presenter-"));
+  try {
+    const secret = "lcp1_" + "7e".repeat(32);
+    const v1 = JSON.parse(responses().materialization);
+    const grant = { presenter_ref: "presenter:" + "ab".repeat(16), expires_at_unix: 1_800_000_000 };
+    const issued = JSON.stringify({ schema_version: 2, materialization: v1, presenter: { ...grant, capability: secret } });
+    const renewed = JSON.stringify({ schema_version: 2, materialization: v1, presenter: grant });
+    const seen = join(root, "seen.json");
+    const script = join(root, "engine");
+    writeFileSync(script, [
+      "#!" + process.execPath,
+      "const fs = require('node:fs');",
+      "const chunks = [];",
+      "process.stdin.on('data', (chunk) => chunks.push(Buffer.from(chunk)));",
+      "process.stdin.on('end', () => {",
+      "  const args = process.argv.slice(2);",
+      "  if (args[1] !== 'context-materialize-sources-v2') process.exit(2);",
+      "  const at = args.indexOf('--presenter-capability-file');",
+      "  const file = at < 0 ? null : args[at + 1];",
+      "  const shown = file === null ? null : { text: fs.readFileSync(file, 'utf8'), mode: fs.statSync(file).mode & 0o777 };",
+      "  fs.writeFileSync(" + JSON.stringify(seen) + ", JSON.stringify({ args, env: process.env, shown, body: Buffer.concat(chunks).toString('utf8') }));",
+      "  process.stdout.write(file === null ? " + JSON.stringify(issued) + " : " + JSON.stringify(renewed) + ");",
+      "});",
+      "",
+    ].join("\n"), { mode: 0o700 });
+    chmodSync(script, 0o700);
+    const client = new SubprocessInstanceClient({ instanceBinary: script });
+    const digest = sourcePlan().binding_digest;
+
+    const first = await client.contextMaterializeSourcesV2(root, request, [source], digest, { ttlSeconds: 600 }, "2026-09-20T12:34:56Z");
+    const capability = first.presenter.capability;
+    assert.equal(capability.reveal(), secret);
+    assert.equal(first.presenter.presenter_ref, grant.presenter_ref);
+    for (const rendered of [JSON.stringify(first), String(capability), JSON.stringify({ capability })]) {
+      assert.ok(!rendered.includes("7e".repeat(32)), rendered);
+    }
+    let captured = JSON.parse(readFileSync(seen, "utf8"));
+    assert.equal(captured.shown, null);
+    assert.deepEqual(JSON.parse(captured.body).presenter, { mode: "issue", ttl_seconds: 600 });
+
+    const second = await client.contextMaterializeSourcesV2(root, request, [source], digest, capability, "2026-09-20T12:34:56Z");
+    assert.equal(second.presenter.capability, null);
+    captured = JSON.parse(readFileSync(seen, "utf8"));
+    assert.deepEqual(captured.shown, { text: secret, mode: 0o600 });
+    assert.deepEqual(JSON.parse(captured.body).presenter, { mode: "renew" });
+    for (const outside of [captured.args.join(" "), JSON.stringify(captured.env), captured.body]) {
+      assert.ok(!outside.includes(secret), "the capability travels in the file only");
+    }
+    assert.throws(() => readFileSync(captured.args[captured.args.indexOf("--presenter-capability-file") + 1]), /ENOENT/);
+
+    // A grant that does not match the requested mode is a protocol error.
+    writeFileSync(script, readFileSync(script, "utf8").replace("stdout.write(file === null", "stdout.write(file !== null"));
+    await assert.rejects(
+      client.contextMaterializeSourcesV2(root, request, [source], digest, { ttlSeconds: 600 }, "2026-09-20T12:34:56Z"),
+      InstanceProtocolError,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a held capability is used and revoked through the capability file only", async () => {
+  // The package root: a host that kept the secret in its own store wraps it
+  // again through the public export, not through an internal module path.
+  const { PresenterCapability } = await import("../dist/index.js");
+  const root = mkdtempSync(join(tmpdir(), "leanctx-ts-presented-"));
+  try {
+    // Assembled at run time: the source holds no capability-shaped text.
+    const secret = "lcp1_" + "7e".repeat(32);
+    const capability = new PresenterCapability(secret);
+    const presenterRef = "presenter:" + "ab".repeat(16);
+    const recoveryId = "5e".repeat(32);
+    const expanded = { schema_version: 1, presenter_ref: presenterRef, usable: true, source_ids: [sourceId], recovery_id: recoveryId, content: "ledger" };
+    const revoked = { schema_version: 1, presenter_ref: presenterRef, revoked: true };
+    const seen = join(root, "seen.json");
+    const script = join(root, "engine");
+    writeFileSync(script, [
+      "#!" + process.execPath,
+      "const fs = require('node:fs');",
+      "const chunks = [];",
+      "process.stdin.on('data', (chunk) => chunks.push(Buffer.from(chunk)));",
+      "process.stdin.on('end', () => {",
+      "  const args = process.argv.slice(2);",
+      "  const file = args[args.indexOf('--presenter-capability-file') + 1];",
+      "  const shown = { text: fs.readFileSync(file, 'utf8'), mode: fs.statSync(file).mode & 0o777 };",
+      "  const body = Buffer.concat(chunks).toString('utf8');",
+      "  fs.writeFileSync(" + JSON.stringify(seen) + ", JSON.stringify({ args, env: process.env, shown, body }));",
+      "  if (body.includes('refuse-me')) { process.stderr.write('engine: presenter_capability_refused\\n'); process.exit(2); }",
+      "  process.stdout.write(args[1] === 'context-presenter-revoke' ? " + JSON.stringify(JSON.stringify(revoked))
+        + " : " + JSON.stringify(JSON.stringify(expanded)) + ");",
+      "});",
+      "",
+    ].join("\n"), { mode: 0o700 });
+    chmodSync(script, 0o700);
+    const client = new SubprocessInstanceClient({ instanceBinary: script });
+
+    const answer = await client.presentedUse(root, capability, { mode: "expand", recovery_id: recoveryId });
+    assert.equal(answer.content, "ledger");
+    assert.deepEqual(answer.source_ids, [sourceId]);
+    let captured = JSON.parse(readFileSync(seen, "utf8"));
+    assert.equal(captured.args[1], "context-presented-use");
+    assert.deepEqual(JSON.parse(captured.body), { schema_version: 1, use: { mode: "expand", recovery_id: recoveryId } });
+
+    assert.equal((await client.revokePresenter(root, capability)).revoked, true);
+    captured = JSON.parse(readFileSync(seen, "utf8"));
+    assert.equal(captured.args[1], "context-presenter-revoke");
+    assert.deepEqual(captured.shown, { text: secret, mode: 0o600 });
+    for (const outside of [captured.args.join(" "), JSON.stringify(captured.env), captured.body]) {
+      assert.ok(!outside.includes(secret), "the capability travels in the file only");
+    }
+    assert.throws(() => readFileSync(captured.args[captured.args.indexOf("--presenter-capability-file") + 1]), /ENOENT/);
+
+    // An answer to another question, the Engine's one refusal, and input
+    // that never reaches the Engine.
+    await assert.rejects(client.presentedUse(root, capability, { mode: "check", content: "ledger" }), InstanceProtocolError);
+    await assert.rejects(
+      client.presentedUse(root, capability, { mode: "check", content: "refuse-me" }),
+      /presenter_capability_refused/,
+    );
+    await assert.rejects(client.presentedUse(root, capability, { mode: "expand", recovery_id: "../x" }), ValidationError);
+
+    // A repeated id must not stand in for a source the answer leaves out, and an
+    // answer for other sources than the authorized ones is not an answer to the request.
+    const { parsePresentedUse } = await import("../dist/planning.js");
+    assert.throws(
+      () => parsePresentedUse({ ...expanded, source_ids: [sourceId, sourceId] }, { mode: "expand", recovery_id: recoveryId }, capability),
+      ValidationError,
+    );
+    await assert.rejects(
+      client.presentedUse(root, capability, { mode: "expand", recovery_id: recoveryId }, [sourceId, "source-other"]),
+      InstanceProtocolError,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -304,8 +442,8 @@ test("source input validation fails before process launch", async () => {
     const binary = join(root, "never-started");
     writeFileSync(binary, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     chmodSync(binary, 0o700);
-    const client = new EngineSourcePlanningClient(
-      new SubprocessEngineClient({ engineBinary: binary }),
+    const client = new InstanceSourcePlanningClient(
+      new SubprocessInstanceClient({ instanceBinary: binary }),
     );
     await assert.rejects(
       client.contextPlanSources(root, request, [source, source]),
@@ -338,7 +476,7 @@ test("source descriptors snapshot caller-owned objects", () => {
     source_type: "filesystem",
     content_digest: source.descriptor.content_digest,
   };
-  const detached = new EngineSource(descriptorInput, content);
+  const detached = new InstanceSource(descriptorInput, content);
   descriptorInput.object_ref = "mutated";
   const wire = detached.toDict();
   wire.descriptor.object_ref = "mutated-wire";
@@ -358,12 +496,12 @@ test("source response tampering fails closed", async () => {
       "",
     ].join("\n"), { mode: 0o700 });
     chmodSync(script, 0o700);
-    const client = new EngineSourcePlanningClient(
-      new SubprocessEngineClient({ engineBinary: script }),
+    const client = new InstanceSourcePlanningClient(
+      new SubprocessInstanceClient({ instanceBinary: script }),
     );
     await assert.rejects(
       client.contextPlanSources(root, request, [source]),
-      EngineProtocolError,
+      InstanceProtocolError,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

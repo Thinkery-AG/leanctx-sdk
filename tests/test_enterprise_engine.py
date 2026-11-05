@@ -14,23 +14,23 @@ import unittest
 from unittest import mock
 import uuid
 
-from leanctx_sdk.enterprise_engine import EnterpriseEngineClient
+from leanctx_sdk.enterprise_instance import EnterpriseInstanceClient
 from leanctx_sdk.errors import (
     ConfigurationError,
-    EngineProtocolError,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceProtocolError,
+    InstanceTimeout,
+    InstanceUnavailable,
     PolicyAdmissionError,
     ValidationError,
 )
-from leanctx_sdk.planning import EnginePlanningRequest
+from leanctx_sdk.planning import InstancePlanningRequest
 from leanctx_sdk.protocol import canonical_bytes, sha256_digest
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 SOURCE_ID = "22222222-2222-2222-2222-222222222222"
 OTHER_SOURCE_ID = "33333333-3333-3333-3333-333333333333"
-REQUEST = EnginePlanningRequest("enterprise-task", "invoice ledger", 64)
+REQUEST = InstancePlanningRequest("enterprise-task", "invoice ledger", 64)
 
 
 class _Reply:
@@ -192,8 +192,8 @@ def _plan_response(
     ).encode("utf-8")
 
 
-def _client(server: _Server, timeout: float = 30.0) -> EnterpriseEngineClient:
-    return EnterpriseEngineClient(
+def _client(server: _Server, timeout: float = 30.0) -> EnterpriseInstanceClient:
+    return EnterpriseInstanceClient(
         f"http://127.0.0.1:{server.server_port}/",
         "credential-test",
         TENANT_ID,
@@ -224,7 +224,7 @@ class EnterpriseEngineTests(unittest.TestCase):
             )
             client = _client(server)
             with mock.patch.object(client, "_new_connection", return_value=connection):
-                with self.assertRaises(EngineUnavailable):
+                with self.assertRaises(InstanceUnavailable):
                     client.context_plan(REQUEST, [SOURCE_ID])
             self.assertEqual(connection.connects, 1)
             self.assertEqual(server.calls, 0)
@@ -235,7 +235,7 @@ class EnterpriseEngineTests(unittest.TestCase):
             lambda _handler, _body: _Reply(200, header_chunks=chunks)
         ) as server:
             started = time.monotonic()
-            with self.assertRaises(EngineTimeout):
+            with self.assertRaises(InstanceTimeout):
                 _client(server, timeout=0.2).context_plan(REQUEST, [SOURCE_ID])
             self.assertLess(time.monotonic() - started, 1.5)
 
@@ -268,7 +268,7 @@ class EnterpriseEngineTests(unittest.TestCase):
             return _Reply(200, {"Content-Type": "application/json"}, _plan_response())
 
         with _server(reply) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_plan(REQUEST, [SOURCE_ID])
             self.assertEqual(server.calls, 1)
 
@@ -280,7 +280,7 @@ class EnterpriseEngineTests(unittest.TestCase):
                 _plan_response(tenant_id=OTHER_SOURCE_ID),
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_plan(REQUEST, [SOURCE_ID])
 
         with _server(
@@ -290,7 +290,7 @@ class EnterpriseEngineTests(unittest.TestCase):
                 _plan_response(source_id=OTHER_SOURCE_ID),
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_plan(REQUEST, [SOURCE_ID])
 
     def test_selected_non_permitted_source_fails_closed(self) -> None:
@@ -301,7 +301,7 @@ class EnterpriseEngineTests(unittest.TestCase):
                 _plan_response(permission="denied"),
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_plan(REQUEST, [SOURCE_ID])
 
     def test_remote_policy_denial_uses_canonical_error(self) -> None:
@@ -316,7 +316,7 @@ class EnterpriseEngineTests(unittest.TestCase):
                 200, {"Content-Type": "application/json"}, oversized
             )
         ) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_plan(REQUEST, [SOURCE_ID])
 
         def trickle(_handler: _Handler, _body: bytes) -> _Reply:
@@ -331,41 +331,41 @@ class EnterpriseEngineTests(unittest.TestCase):
 
         with _server(trickle) as server:
             started = time.monotonic()
-            with self.assertRaises(EngineTimeout):
+            with self.assertRaises(InstanceTimeout):
                 _client(server, timeout=0.2).context_plan(REQUEST, [SOURCE_ID])
             self.assertLess(time.monotonic() - started, 1.5)
             self.assertEqual(server.calls, 1)
 
     def test_constructor_and_request_bounds_fail_before_network(self) -> None:
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient("http://localhost:443", "credential-test", TENANT_ID)
+            EnterpriseInstanceClient("http://localhost:443", "credential-test", TENANT_ID)
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "http://localhost:443",
                 "credential-test",
                 TENANT_ID,
                 allow_loopback_http=True,
             )
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "https://user:pass@example.test", "credential-test", TENANT_ID
             )
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "https://example.test/path", "credential-test", TENANT_ID
             )
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient("https://example.test", "bad credential", TENANT_ID)
+            EnterpriseInstanceClient("https://example.test", "bad credential", TENANT_ID)
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "https://example.test", "credential-test", TENANT_ID, timeout=10**10000
             )
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "https://example.test\ud800", "credential-test", TENANT_ID
             )
         with self.assertRaises(ConfigurationError):
-            EnterpriseEngineClient(
+            EnterpriseInstanceClient(
                 "https://example.test", "credential-test", str(uuid.UUID(int=0))
             )
 

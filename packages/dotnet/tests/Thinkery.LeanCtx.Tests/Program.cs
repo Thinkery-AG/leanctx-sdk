@@ -15,19 +15,30 @@ internal static class Program
         Run("product-golden-hashes", ProductGoldenHashes);
         Run("validation-and-path-jail", ValidationAndPathJail);
         Run("engine-parser-negatives", EngineParserNegatives);
+        Run("engine-process-error-codes", EngineProcessErrorCodes);
         Run("agent-permission-negative", AgentPermissionNegative);
         Run("agent-gitlab-source", AgentGitLabSource);
         Run("agent-reconnect-task", AgentReconnectTask);
         Run("agent-protocol-negative", AgentProtocolNegative);
         Run("agent-timeout-negative", AgentTimeoutNegative);
+        Run("agent-terminal-conditions", AgentTerminalConditionsTests.Run);
+        Run("session-containment", SessionContainmentTests.Run);
         Run("engine-v1-fixture", EngineV1Fixture);
         Run("engine-v1-optional", EngineV1Optional);
         Run("enterprise-http-transport-contract", EnterpriseHttpContractTests.Run);
         Run("gateway-preview", GatewayPreviewTests.Run);
         Run("context-store-preview", ContextStorePreviewTests.Run);
+        Run("deprecated-engine-names", DeprecatedNamesTests.Run);
         if (failures != 0)
             throw new Exception($"{failures} test group(s) failed");
         Console.WriteLine("all .NET SDK tests passed");
+    }
+
+    /// <summary>Test harness variable; the pre-1.3 name is read when the new one is unset.</summary>
+    internal static string? TestEnvironment(string name, string deprecatedName)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrEmpty(value) ? Environment.GetEnvironmentVariable(deprecatedName) : value;
     }
 
     private static void Run(string name, Action action)
@@ -46,10 +57,10 @@ internal static class Program
 
     private static void ConstantsTest()
     {
-        Equal("1.2.0", Constants.__version__);
+        Equal("1.3.0", Constants.__version__);
         Equal("1.0.0", Constants.ENGINE_INTERFACE_VERSION);
         Equal("1.0.0", Constants.AGENT_TOOLS_INTERFACE_VERSION);
-        Equal("3.11.4", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
+        Equal("3.12.2", Constants.SUPPORTED_AGENT_TOOLS_ENGINE_VERSION);
         Equal(1, Constants.SCHEMA_VERSION);
         Equal(1, Constants.TRANSPORT_VERSION);
     }
@@ -94,7 +105,7 @@ internal static class Program
             ("failure", null),
             ("receipt_link", receiptLink));
         var view = new ContextView(source, text, "output:" + outputDigest[7..], outputDigest,
-            sourceRef, sourceDigest, inputRef, EngineStatus.Succeeded, measurements, null,
+            sourceRef, sourceDigest, inputRef, InstanceStatus.Succeeded, measurements, null,
             receiptLink, invocation, observation);
         var receipt = new ContextReceipt("session-fixed", "task-fixed", plan.PlanId, view,
             HostOutcome.Completed, Integrity.Sealed, usage: Dict(("requests", 1L)));
@@ -121,10 +132,13 @@ internal static class Program
     {
         Throws<ValidationError>(() => new ContextSource("../escape.txt", "/PROJECT"));
         Throws<ValidationError>(() => new ContextSource("fixture\0.txt", "/PROJECT"));
-        Throws<ConfigurationError>(() => new SubprocessEngineClient(timeout: 0.09));
+        Throws<ConfigurationError>(() => new SubprocessInstanceClient(timeout: 0.09));
         Throws<ValidationError>(() => new ContextMeasurement("Input", "token", "measured", 1));
         Throws<ValidationError>(() => new ContextReceiptLink(1, "receipt", "bad", "sha256:" + new string('a', 64), "i"));
         Throws<ValidationError>(() => new ExecutionPolicy(allowedEnv: new[] { "PATH" }));
+        foreach (var name in new[] { "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "ld_library_path", "dYlD_LiBrArY_PaTh" })
+            Throws<ValidationError>(() => new ExecutionPolicy(allowedEnv: new[] { name }));
+        Equal("LANG", new ExecutionPolicy(allowedEnv: new[] { "LANG" }).AllowedEnv[0]);
         Throws<ConfigurationError>(() => new AgentContext("/missing-leanctx-root"));
         using var root = new TemporaryDirectory();
         using var outside = new TemporaryDirectory();
@@ -138,9 +152,9 @@ internal static class Program
     private static void EngineParserNegatives()
     {
         var malformed = Encoding.UTF8.GetBytes("{\"schema_version\":1,\"schema_version\":1}");
-        Throws<EngineProtocolError>(() => SubprocessEngineClient.ParseForTest(malformed));
+        Throws<InstanceProtocolError>(() => SubprocessInstanceClient.ParseForTest(malformed));
         var unknown = "{\"engine_interface_version\":\"1.0.0\",\"invocation\":null,\"observation\":null,\"recovery\":{},\"schema_version\":1,\"transport_version\":1,\"view\":{},\"extra\":1}";
-        Throws<EngineProtocolError>(() => SubprocessEngineClient.ParseForTest(Encoding.UTF8.GetBytes(unknown)));
+        Throws<InstanceProtocolError>(() => SubprocessInstanceClient.ParseForTest(Encoding.UTF8.GetBytes(unknown)));
     }
 
     private static void AgentPermissionNegative()
@@ -221,11 +235,11 @@ internal static class Program
     {
         using var root = new TemporaryDirectory();
         var fake = FakeAgent(root.Path, "bad-hello");
-        Throws<EngineProtocolError>(() => AgentContext.Open(root.Path, engineBinary: fake));
+        Throws<InstanceProtocolError>(() => AgentContext.Open(root.Path, engineBinary: fake));
         if (Directory.EnumerateDirectories(root.Path, ".leanctx-agent-*", SearchOption.TopDirectoryOnly).Any())
             throw new Exception("startup failure left policy state");
         var oversized = FakeAgent(root.Path, "oversized");
-        Throws<EngineProtocolError>(() => AgentContext.Open(root.Path, engineBinary: oversized));
+        Throws<InstanceProtocolError>(() => AgentContext.Open(root.Path, engineBinary: oversized));
     }
 
     private static void AgentTimeoutNegative()
@@ -234,8 +248,8 @@ internal static class Program
         var fake = FakeAgent(root.Path, "hang");
         // This deadline also covers process startup; allow normal launch latency.
         using var context = AgentContext.Open(root.Path, engineBinary: fake, timeout: 2);
-        Throws<EngineTimeout>(() => context.Read("README.md"));
-        Throws<EngineCrashed>(() => context.Read("README.md"));
+        Throws<InstanceTimeout>(() => context.Read("README.md"));
+        Throws<InstanceCrashed>(() => context.Read("README.md"));
     }
 
     private static void EngineV1Fixture()
@@ -250,10 +264,10 @@ internal static class Program
         File.WriteAllText(sourcePath, "engine fixture\n");
         var fake = FakeEngine(root.Path);
         var source = new ContextSource("source.txt", root.Path);
-        var client = new SubprocessEngineClient(fake, timeout: 5);
+        var client = new SubprocessInstanceClient(fake, timeout: 5);
         var view = client.ContextView(new ContextPlan("s", "t", "inspect", source));
         True(view.Verify());
-        Throws<EngineProtocolError>(() => client.Recover(
+        Throws<InstanceProtocolError>(() => client.Recover(
             root.Path, "../source.txt", view.RecoveryRef!, view.SourceRef, view.SourceDigest));
         var recovered = client.Recover(root.Path, "source.txt", view.RecoveryRef!, view.SourceRef, view.SourceDigest);
         Equal("engine fixture\n", recovered.Text);
@@ -261,19 +275,53 @@ internal static class Program
 
     private static void EngineV1Optional()
     {
-        var binary = Environment.GetEnvironmentVariable("LEANCTX_ENGINE_BIN");
+        var binary = Program.TestEnvironment("LEANCTX_INSTANCE_BIN", "LEANCTX_ENGINE_BIN");
         if (string.IsNullOrEmpty(binary) || !File.Exists(binary))
         {
-            Console.WriteLine("SKIP engine-v1-optional (LEANCTX_ENGINE_BIN unavailable)");
+            Console.WriteLine("SKIP engine-v1-optional (LEANCTX_INSTANCE_BIN unavailable)");
             return;
         }
         using var root = new TemporaryDirectory();
         File.WriteAllText(Path.Combine(root.Path, "source.txt"), "real engine fixture\n");
         var source = new ContextSource("source.txt", root.Path);
-        var client = new SubprocessEngineClient(binary, timeout: 30);
+        var client = new SubprocessInstanceClient(binary, timeout: 30);
         var view = client.ContextView(new ContextPlan("real-engine", "real-task", "inspect", source));
-        True(view.Status is EngineStatus.Succeeded or EngineStatus.Degraded);
+        True(view.Status is InstanceStatus.Succeeded or InstanceStatus.Degraded);
         True(view.Verify());
+        // B16: a real Engine on POSIX starts the one-shot behind its session
+        // starter and says so on the first line. (On Windows the Engine answers
+        // from a job of its own, which a host job may forbid: not asserted.)
+        if (!OperatingSystem.IsWindows())
+            Equal(SessionContainment.InstanceStarter, client.LastSessionContainment);
+    }
+
+    private static void EngineProcessErrorCodes()
+    {
+        using var root = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(root.Path, "source.txt"), "source\n");
+        var plan = new ContextPlan("error-session", "error-task", "inspect",
+            new ContextSource("source.txt", root.Path));
+        foreach (var (diagnostic, expected, policy) in new[]
+        {
+            ("engine: policy_rejected\n", "LeanCTX instance rejected request: policy_rejected", true),
+            ("private diagnostic /secret/path\nengine: egress_observation_unavailable\n",
+                "LeanCTX instance process failed: egress_observation_unavailable", false),
+            ("engine: egress_observation_unavailable /secret/path\n",
+                "LeanCTX instance process failed: nonzero_exit_2", false),
+            ("private diagnostic /secret/path\n", "LeanCTX instance process failed: nonzero_exit_2", false),
+        })
+        {
+            var path = Path.Combine(root.Path, "error-engine.py");
+            File.WriteAllText(path, "#!/usr/bin/python3\nimport sys\nsys.stderr.write(" +
+                JsonSerializer.Serialize(diagnostic) + ")\nsys.exit(2)\n", new UTF8Encoding(false));
+            SetExecutable(path);
+            Exception? failure = null;
+            try { new SubprocessInstanceClient(path).ContextView(plan); }
+            catch (InstanceError error) { failure = error; }
+            True(failure is not null);
+            True(policy ? failure is PolicyAdmissionError : failure is InstanceExecutionError);
+            Equal(expected, failure!.Message);
+        }
     }
 
     private static string FakeAgent(string root, string behavior)
@@ -294,7 +342,7 @@ IFS= read -r line
 #!/bin/sh
 IFS= read -r line
 id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.11.4","schema_version":1,"transport_version":1}}\n' "$id"
+printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":[],"engine_version":"3.12.2","schema_version":1,"transport_version":1}}\n' "$id"
 while :; do sleep 10; done
 """;
         }
@@ -303,7 +351,7 @@ while :; do sleep 10; done
             script = """
 #!/bin/sh
 IFS= read -r line
-printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.4","schema_version":1,"transport_version":1}}\n'
+printf '{"id":"1","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.12.2","schema_version":1,"transport_version":1}}\n'
 IFS= read -r line
 while :; do sleep 10; done
 """;
@@ -323,7 +371,7 @@ printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.4","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_provider","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.12.2","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac
@@ -345,7 +393,7 @@ printf '%s\n' "$policy_json" > .observed-policy.json
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   case "$line" in
-    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.11.4","schema_version":1,"transport_version":1}}\n' "$id" ;;
+    *'"op":"hello"'*) printf '{"id":"%s","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":["ctx_compose","ctx_glob","ctx_read","ctx_search","ctx_symbol","ctx_tree"],"engine_version":"3.12.2","schema_version":1,"transport_version":1}}\n' "$id" ;;
     *'"op":"close"'*) printf '{"id":"%s","ok":true,"result":{}}\n' "$id"; exit 0 ;;
     *) printf '{"id":"%s","ok":true,"result":{"text":"ctx_read:ok","content_blocks":[],"original_tokens":10,"output_tokens":4,"saved_tokens":6,"mode":null,"changed":false,"shell":null}}\n' "$id" ;;
   esac

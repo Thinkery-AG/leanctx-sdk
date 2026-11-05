@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 """Strict SDK validation for the Enterprise source-execution envelope.
 
-This module validates the shared Engine DTO joins at the authenticated SDK
+This module validates the shared instance DTO joins at the authenticated SDK
 boundary.  It does not execute a planner, authenticate sources, verify a
 signer, or turn the canonical receipt projection into an acceptance claim.
 """
@@ -11,11 +11,11 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, NoReturn, Sequence, Tuple, cast
 
-from .engine import _parse_observation, _parse_view
-from .errors import EngineProtocolError, ValidationError
+from .instance import _parse_observation, _parse_view
+from .errors import InstanceProtocolError, ValidationError
 from .planning import (
     ENGINE_INTERFACE_VERSION,
-    EnginePlanningRequest,
+    InstancePlanningRequest,
     _is_control,
     parse_source_plan,
 )
@@ -137,7 +137,7 @@ _EXECUTION_KEYS = {
 
 def _fail(message: str, *, protocol: bool) -> NoReturn:
     if protocol:
-        raise EngineProtocolError(message)
+        raise InstanceProtocolError(message)
     raise ValidationError(message)
 
 
@@ -215,7 +215,7 @@ def _validate_string_list(value: Any, field: str, *, protocol: bool) -> list[str
 
 def _validate_task(
     value: Any,
-    request: EnginePlanningRequest,
+    request: InstancePlanningRequest,
     tenant_id: str,
     *,
     protocol: bool,
@@ -376,45 +376,45 @@ def _validate_source_scope(plan: Mapping[str, Any], source_ids: Tuple[str, ...])
     result_plan = cast(Mapping[str, Any], result["plan"])
     for selection in cast(Sequence[Mapping[str, Any]], result_plan["selections"]):
         if selection["source_ref"] not in requested or selection["provider"] not in requested:
-            raise EngineProtocolError("source execution selection is outside requested sources")
+            raise InstanceProtocolError("source execution selection is outside requested sources")
     for binding in cast(Sequence[Mapping[str, Any]], plan["source_bindings"]):
         if binding["object_ref"] not in requested or binding["source_id"] not in requested:
-            raise EngineProtocolError("source execution binding is outside requested sources")
+            raise InstanceProtocolError("source execution binding is outside requested sources")
         if binding["permission"] != "permitted":
-            raise EngineProtocolError("source execution selected source is not permitted")
+            raise InstanceProtocolError("source execution selected source is not permitted")
 
 
 def _digest_suffix(value: str, prefix: str, field: str) -> str:
     if not value.startswith(prefix):
-        raise EngineProtocolError(f"{field} has an unsupported reference prefix")
+        raise InstanceProtocolError(f"{field} has an unsupported reference prefix")
     try:
         return validate_digest("sha256:" + value[len(prefix) :], field)
     except ValidationError as exc:
-        raise EngineProtocolError(f"{field} is not digest-bound") from exc
+        raise InstanceProtocolError(f"{field} is not digest-bound") from exc
 
 
 def _parse_invocation(value: Any) -> Mapping[str, object]:
     raw = _mapping(value, "execution.invocation", protocol=True)
     expected = {"schema_version", "invocation_id", "engine", "operation", "input_ref", "input_digest", "source_refs", "policy_admission"}
     if set(raw) != expected:
-        raise EngineProtocolError("execution.invocation fields do not match the v1 contract")
+        raise InstanceProtocolError("execution.invocation fields do not match the v1 contract")
     _exact_version(raw["schema_version"], "execution.invocation.schema_version", protocol=True)
     invocation_id = _text(raw["invocation_id"], "execution.invocation.invocation_id", protocol=True)
     engine = _mapping(raw["engine"], "execution.invocation.engine", protocol=True)
     if set(engine) != {"engine_id", "engine_version"}:
-        raise EngineProtocolError("execution.invocation.engine fields are invalid")
+        raise InstanceProtocolError("execution.invocation.engine fields are invalid")
     engine_id = _text(engine["engine_id"], "execution.invocation.engine.engine_id", protocol=True)
     engine_version = _text(engine["engine_version"], "execution.invocation.engine.engine_version", protocol=True)
     if not _SEMVER_RE.fullmatch(engine_version):
-        raise EngineProtocolError("execution.invocation.engine.engine_version is invalid")
+        raise InstanceProtocolError("execution.invocation.engine.engine_version is invalid")
     operation = _mapping(raw["operation"], "execution.invocation.operation", protocol=True)
     if set(operation) != {"capability_id", "capability_version"}:
-        raise EngineProtocolError("execution.invocation.operation fields are invalid")
+        raise InstanceProtocolError("execution.invocation.operation fields are invalid")
     if operation["capability_id"] != _CAPABILITY or operation["capability_version"] != _CAPABILITY_VERSION:
-        raise EngineProtocolError("execution.invocation is not bound to local-native capability")
+        raise InstanceProtocolError("execution.invocation is not bound to local-native capability")
     policy = _mapping(raw["policy_admission"], "execution.invocation.policy_admission", protocol=True)
     if set(policy) != {"policy_ref", "decision"} or policy["decision"] != "admitted":
-        raise EngineProtocolError("execution.invocation is not policy-admitted")
+        raise InstanceProtocolError("execution.invocation is not policy-admitted")
     policy_ref = _text(policy["policy_ref"], "execution.invocation.policy_admission.policy_ref", protocol=True, printable=True)
     try:
         input_ref = validate_ref(raw["input_ref"], "execution.invocation.input_ref")
@@ -422,18 +422,18 @@ def _parse_invocation(value: Any) -> Mapping[str, object]:
             raw["input_digest"], "execution.invocation.input_digest"
         )
     except ValidationError as exc:
-        raise EngineProtocolError("execution invocation input binding is invalid") from exc
+        raise InstanceProtocolError("execution invocation input binding is invalid") from exc
     source_refs = raw["source_refs"]
     if not isinstance(source_refs, list) or not 0 < len(source_refs) <= MAX_REFS:
-        raise EngineProtocolError("execution.invocation.source_refs exceeds its bound")
+        raise InstanceProtocolError("execution.invocation.source_refs exceeds its bound")
     try:
         normalized_refs = [
             validate_ref(item, "execution.invocation.source_refs") for item in source_refs
         ]
     except ValidationError as exc:
-        raise EngineProtocolError("execution invocation source refs are invalid") from exc
+        raise InstanceProtocolError("execution invocation source refs are invalid") from exc
     if len(set(normalized_refs)) != len(normalized_refs) or input_ref not in normalized_refs:
-        raise EngineProtocolError("execution.invocation source refs are not unique or omit input_ref")
+        raise InstanceProtocolError("execution.invocation source refs are not unique or omit input_ref")
     return {
         "schema_version": _SCHEMA_VERSION,
         "invocation_id": invocation_id,
@@ -454,39 +454,39 @@ def _validate_lineage(
 ) -> None:
     refs = cast(Sequence[str], invocation["source_refs"])
     if len(refs) != 4:
-        raise EngineProtocolError("execution invocation must contain four lineage references")
+        raise InstanceProtocolError("execution invocation must contain four lineage references")
     input_ref = cast(str, invocation["input_ref"])
     input_digest = cast(str, invocation["input_digest"])
     if _digest_suffix(input_ref, _INPUT_REF_PREFIX, "execution.invocation.input_ref") != input_digest:
-        raise EngineProtocolError("execution input_ref does not bind input_digest")
+        raise InstanceProtocolError("execution input_ref does not bind input_digest")
     kinds = {"input": 0, "evidence": 0, "task": 0, "plan": 0}
     for ref in refs:
         if ref.startswith(_INPUT_REF_PREFIX):
             kinds["input"] += 1
             if _digest_suffix(ref, _INPUT_REF_PREFIX, "execution.invocation.source_refs") != input_digest:
-                raise EngineProtocolError("execution input lineage does not bind input_digest")
+                raise InstanceProtocolError("execution input lineage does not bind input_digest")
         elif ref.startswith(_SOURCE_PLAN_EVIDENCE_PREFIX):
             kinds["evidence"] += 1
             if _digest_suffix(ref, _SOURCE_PLAN_EVIDENCE_PREFIX, "execution.invocation.source_refs") != source_plan_digest:
-                raise EngineProtocolError("execution source-plan evidence is not digest-bound")
+                raise InstanceProtocolError("execution source-plan evidence is not digest-bound")
         elif ref.startswith(_TASK_REF_PREFIX):
             kinds["task"] += 1
             if _digest_suffix(ref, _TASK_REF_PREFIX, "execution.invocation.source_refs") != task_digest:
-                raise EngineProtocolError("execution task evidence is not digest-bound")
+                raise InstanceProtocolError("execution task evidence is not digest-bound")
         elif ref.startswith(_PLAN_REF_PREFIX):
             kinds["plan"] += 1
             if _digest_suffix(ref, _PLAN_REF_PREFIX, "execution.invocation.source_refs") != execution_plan_digest:
-                raise EngineProtocolError("execution plan evidence is not digest-bound")
+                raise InstanceProtocolError("execution plan evidence is not digest-bound")
         else:
-            raise EngineProtocolError("execution invocation contains unknown lineage reference")
+            raise InstanceProtocolError("execution invocation contains unknown lineage reference")
     if kinds != {"input": 1, "evidence": 1, "task": 1, "plan": 1}:
-        raise EngineProtocolError("execution invocation lineage is incomplete")
+        raise InstanceProtocolError("execution invocation lineage is incomplete")
 
 
 def _parse_receipt(value: Any) -> Mapping[str, object]:
     raw = _mapping(value, "execution.canonical_receipt", protocol=True)
     if set(raw) != {"receipt_id", "receipt_ref", "receipt_digest", "outcome"}:
-        raise EngineProtocolError("execution canonical receipt fields are invalid")
+        raise InstanceProtocolError("execution canonical receipt fields are invalid")
     receipt_id = _text(raw["receipt_id"], "execution.canonical_receipt.receipt_id", protocol=True, printable=True)
     try:
         receipt_digest = validate_digest(
@@ -496,11 +496,11 @@ def _parse_receipt(value: Any) -> Mapping[str, object]:
             raw["receipt_ref"], "execution.canonical_receipt.receipt_ref"
         )
     except ValidationError as exc:
-        raise EngineProtocolError("execution canonical receipt identity is invalid") from exc
+        raise InstanceProtocolError("execution canonical receipt identity is invalid") from exc
     if receipt_ref != "id:" + receipt_digest:
-        raise EngineProtocolError("execution canonical receipt reference is not digest-bound")
+        raise InstanceProtocolError("execution canonical receipt reference is not digest-bound")
     if raw["outcome"] != "unknown":
-        raise EngineProtocolError("execution canonical receipt outcome must remain unknown")
+        raise InstanceProtocolError("execution canonical receipt outcome must remain unknown")
     return {
         "receipt_id": receipt_id,
         "receipt_ref": receipt_ref,
@@ -512,12 +512,12 @@ def _parse_receipt(value: Any) -> Mapping[str, object]:
 def validate_execution_request(
     task: Any,
     plan: Any,
-    request: EnginePlanningRequest,
+    request: InstancePlanningRequest,
     tenant_id: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Validate and canonicalize caller-owned task/plan input."""
-    if not isinstance(request, EnginePlanningRequest):
-        raise ValidationError("context_execute requires EnginePlanningRequest")
+    if not isinstance(request, InstancePlanningRequest):
+        raise ValidationError("context_execute requires InstancePlanningRequest")
     normalized_task = _validate_task(task, request, tenant_id, protocol=False)
     normalized_plan = _validate_plan(
         plan,
@@ -537,7 +537,7 @@ def validate_execution_request(
 
 def parse_source_execution_response(
     raw: bytes,
-    request: EnginePlanningRequest,
+    request: InstancePlanningRequest,
     source_ids: Tuple[str, ...],
     task: Mapping[str, Any],
     plan: Mapping[str, Any],
@@ -548,33 +548,33 @@ def parse_source_execution_response(
 ) -> Mapping[str, object]:
     """Parse and cross-bind an Enterprise source execution response."""
     try:
-        value = strict_json_loads(raw, label="Enterprise Engine source execution response")
+        value = strict_json_loads(raw, label="Enterprise instance source execution response")
     except ValidationError as exc:
-        raise EngineProtocolError("Enterprise Engine source execution response is not valid JSON") from exc
+        raise InstanceProtocolError("Enterprise instance source execution response is not valid JSON") from exc
     if set(value) != {"schema_version", "tenant_id", "governance_revision", "execution"}:
-        raise EngineProtocolError("Enterprise source execution response wrapper is invalid")
+        raise InstanceProtocolError("Enterprise source execution response wrapper is invalid")
     _exact_version(value["schema_version"], "response.schema_version", protocol=True)
     if value["tenant_id"] != tenant_id:
-        raise EngineProtocolError("Enterprise source execution response tenant binding does not match")
+        raise InstanceProtocolError("Enterprise source execution response tenant binding does not match")
     revision = _integer(value["governance_revision"], "response.governance_revision", protocol=True)
     if revision != expected_governance_revision:
-        raise EngineProtocolError("Enterprise source execution governance revision does not match")
+        raise InstanceProtocolError("Enterprise source execution governance revision does not match")
     execution_raw = _mapping(value["execution"], "execution", protocol=True)
     if set(execution_raw) != _EXECUTION_KEYS:
-        raise EngineProtocolError("Enterprise source execution fields do not match the v1 contract")
+        raise InstanceProtocolError("Enterprise source execution fields do not match the v1 contract")
     _exact_version(execution_raw["schema_version"], "execution.schema_version", protocol=True)
     _exact_version(execution_raw["transport_version"], "execution.transport_version", protocol=True)
     if execution_raw["engine_interface_version"] != ENGINE_INTERFACE_VERSION:
-        raise EngineProtocolError("Enterprise source execution Engine interface is unsupported")
+        raise InstanceProtocolError("Enterprise source execution Engine interface is unsupported")
     source_plan_raw = execution_raw["source_plan"]
     try:
         source_plan = parse_source_plan(canonical_bytes(source_plan_raw), request)
     except ValidationError as exc:
-        raise EngineProtocolError("Enterprise source execution source plan is invalid") from exc
+        raise InstanceProtocolError("Enterprise source execution source plan is invalid") from exc
     _validate_source_scope(cast(Mapping[str, Any], source_plan), source_ids)
     binding_digest = validate_digest(expected_binding_digest, "expected_binding_digest")
     if source_plan["binding_digest"] != binding_digest:
-        raise EngineProtocolError("Enterprise source execution binding digest does not match")
+        raise InstanceProtocolError("Enterprise source execution binding digest does not match")
     execution_plan_raw = execution_raw["execution_plan"]
     execution_plan = _validate_plan(
         execution_plan_raw,
@@ -585,26 +585,26 @@ def parse_source_execution_response(
     source_result = cast(Mapping[str, Any], source_plan["result"])
     source_result_plan = cast(Mapping[str, Any], source_result["plan"])
     if execution_plan.get("context_plan_id") != source_result_plan["context_plan_id"]:
-        raise EngineProtocolError("Enterprise source execution plan does not bind source plan")
+        raise InstanceProtocolError("Enterprise source execution plan does not bind source plan")
     if execution_plan["context_budget_tokens"] != source_result_plan["budget_tokens"]:
-        raise EngineProtocolError("Enterprise source execution budget does not bind source plan")
+        raise InstanceProtocolError("Enterprise source execution budget does not bind source plan")
     if execution_plan["provider"] != _LOCAL_NATIVE or execution_plan["model"] != _LOCAL_NATIVE or execution_plan["capability_ids"] != [_CAPABILITY]:
-        raise EngineProtocolError("Enterprise source execution plan is not local-native")
+        raise InstanceProtocolError("Enterprise source execution plan is not local-native")
     execution_bindings = execution_plan.get("capability_bindings")
     if execution_bindings != [
         {"capability_id": _CAPABILITY, "version": _CAPABILITY_VERSION}
     ]:
-        raise EngineProtocolError("Enterprise source execution capability binding is invalid")
+        raise InstanceProtocolError("Enterprise source execution capability binding is invalid")
     expected_plan = dict(plan)
     expected_plan["context_plan_id"] = execution_plan["context_plan_id"]
     decision_ref = "context_autopilot_decision_ref"
     if decision_ref not in expected_plan:
         decision_value = execution_plan.get(decision_ref)
         if not isinstance(decision_value, str) or not decision_value:
-            raise EngineProtocolError("Enterprise source execution decision reference is missing")
+            raise InstanceProtocolError("Enterprise source execution decision reference is missing")
         expected_plan[decision_ref] = decision_value
     if expected_plan != execution_plan:
-        raise EngineProtocolError("Enterprise source execution changed the declared plan")
+        raise InstanceProtocolError("Enterprise source execution changed the declared plan")
     if planning_evaluation_time is not None:
         marker = source_result_plan.get("context_plan_evaluation_v1")
         actual_epoch = (
@@ -613,12 +613,12 @@ def parse_source_execution_response(
             else None
         )
         if actual_epoch != planning_evaluation_time:
-            raise EngineProtocolError("Enterprise source execution changed the evaluation time")
+            raise InstanceProtocolError("Enterprise source execution changed the evaluation time")
     view = _parse_view(execution_raw["view"])
     if not view["output_digest"] or not view["output_ref"]:
-        raise EngineProtocolError("Enterprise source execution view is missing output binding")
+        raise InstanceProtocolError("Enterprise source execution view is missing output binding")
     if len(cast(str, view["text"]).encode("utf-8")) > _MAX_EXECUTION_VIEW_BYTES:
-        raise EngineProtocolError("Enterprise source execution view exceeds its byte bound")
+        raise InstanceProtocolError("Enterprise source execution view exceeds its byte bound")
     invocation = _parse_invocation(execution_raw["invocation"])
     invocation_value = cast(Mapping[str, Any], invocation)
     observation = _parse_observation(
@@ -626,15 +626,15 @@ def parse_source_execution_response(
     )
     observation_value = cast(Mapping[str, Any], observation)
     if cast(Mapping[str, Any], invocation_value["policy_admission"])["decision"] != "admitted":
-        raise EngineProtocolError("Enterprise source execution invocation is not admitted")
+        raise InstanceProtocolError("Enterprise source execution invocation is not admitted")
     if observation_value["status"] != "succeeded":
-        raise EngineProtocolError("Enterprise source execution observation did not succeed")
+        raise InstanceProtocolError("Enterprise source execution observation did not succeed")
     if tuple(cast(Sequence[Any], observation_value["source_lineage"])) != tuple(
         cast(Sequence[Any], invocation_value["source_refs"])
     ):
-        raise EngineProtocolError("Enterprise source execution lineage does not bind invocation")
+        raise InstanceProtocolError("Enterprise source execution lineage does not bind invocation")
     if observation_value["output_ref"] != view["output_ref"] or observation_value["output_digest"] != view["output_digest"]:
-        raise EngineProtocolError("Enterprise source execution view does not bind observation")
+        raise InstanceProtocolError("Enterprise source execution view does not bind observation")
     source_plan_digest = sha256_digest(canonical_bytes(source_plan_raw))
     execution_plan_digest = sha256_digest(canonical_bytes(execution_plan_raw))
     task_digest = sha256_digest(canonical_bytes(task))
@@ -662,7 +662,7 @@ def parse_source_execution_response(
 
 def parse_source_execution_v2_response(
     raw: bytes,
-    request: EnginePlanningRequest,
+    request: InstancePlanningRequest,
     source_ids: Tuple[str, ...],
     task: Mapping[str, Any],
     plan: Mapping[str, Any],
@@ -681,19 +681,19 @@ def parse_source_execution_v2_response(
         _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES
         + _MAX_ENGINE_SOURCE_EXECUTION_V2_WRAPPER_BYTES
     ):
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 response exceeds its byte bound"
         )
     try:
         value = strict_json_loads(
-            raw, label="Enterprise Engine source execution v2 response"
+            raw, label="Enterprise instance source execution v2 response"
         )
     except ValidationError as exc:
-        raise EngineProtocolError(
-            "Enterprise Engine source execution v2 response is not valid JSON"
+        raise InstanceProtocolError(
+            "Enterprise instance source execution v2 response is not valid JSON"
         ) from exc
     if set(value) != {"schema_version", "tenant_id", "governance_revision", "execution"}:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 response wrapper is invalid"
         )
     if (
@@ -701,11 +701,11 @@ def parse_source_execution_v2_response(
         or not isinstance(value["schema_version"], int)
         or value["schema_version"] != _V2_SCHEMA_VERSION
     ):
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 response schema_version is unsupported"
         )
     if value["tenant_id"] != tenant_id:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 tenant binding does not match"
         )
     revision = _integer(
@@ -714,12 +714,12 @@ def parse_source_execution_v2_response(
         protocol=True,
     )
     if revision != expected_governance_revision:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 governance revision does not match"
         )
     execution_v2 = _mapping(value["execution"], "execution", protocol=True)
     if set(execution_v2) != {"schema_version", "execution", "receipt_document_json"}:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 fields do not match the v2 contract"
         )
     if (
@@ -727,22 +727,22 @@ def parse_source_execution_v2_response(
         or not isinstance(execution_v2["schema_version"], int)
         or execution_v2["schema_version"] != _V2_SCHEMA_VERSION
     ):
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 execution schema_version is unsupported"
         )
     receipt_document_json = execution_v2["receipt_document_json"]
     if not isinstance(receipt_document_json, str):
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 receipt_document_json must be a string"
         )
     try:
         receipt_document_bytes = receipt_document_json.encode("utf-8", "strict")
     except UnicodeEncodeError as exc:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 receipt document is not valid UTF-8"
         ) from exc
     if len(receipt_document_bytes) > _MAX_ENGINE_SOURCE_RECEIPT_DOCUMENT_BYTES:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 receipt document exceeds its byte bound"
         )
     nested_execution = _mapping(
@@ -755,7 +755,7 @@ def parse_source_execution_v2_response(
     }
     try:
         if len(canonical_bytes(inner_v2)) > _MAX_ENGINE_SOURCE_EXECUTION_V2_RESPONSE_BYTES:
-            raise EngineProtocolError(
+            raise InstanceProtocolError(
                 "Enterprise source execution v2 response exceeds its byte bound"
             )
         v1_wrapper = canonical_bytes(
@@ -767,7 +767,7 @@ def parse_source_execution_v2_response(
             }
         )
     except ValidationError as exc:
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 response contains non-canonical JSON data"
         ) from exc
     parsed_v1 = parse_source_execution_response(
@@ -786,7 +786,7 @@ def parse_source_execution_v2_response(
         Mapping[str, object], parsed_execution["canonical_receipt"]
     )
     if canonical_receipt["receipt_digest"] != sha256_digest(receipt_document_bytes):
-        raise EngineProtocolError(
+        raise InstanceProtocolError(
             "Enterprise source execution v2 receipt document digest does not match"
         )
     return {
@@ -870,7 +870,7 @@ def validate_outcome_request(
         "signals": normalized_signals,
     }
     if len(canonical_bytes(request)) > _MAX_ENGINE_OUTCOME_REQUEST_BYTES:
-        raise ValidationError("Engine outcome request exceeds its byte bound")
+        raise ValidationError("Instance outcome request exceeds its byte bound")
     return request
 
 
@@ -891,11 +891,11 @@ def _validate_outcome_receipt_joins(
     try:
         document = strict_json_loads(
             receipt_document_bytes,
-            label="Enterprise Engine outcome receipt document",
+            label="Enterprise instance outcome receipt document",
         )
     except (ValidationError, RecursionError) as exc:
-        raise EngineProtocolError(
-            "Enterprise Engine outcome receipt document is not valid JSON"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome receipt document is not valid JSON"
         ) from exc
     document = _mapping(
         document,
@@ -904,45 +904,45 @@ def _validate_outcome_receipt_joins(
     )
     if set(document) != {"schema_version", "receipt_id", "lineage", "chain", "status",
                          "values", "outcome", "evidence_refs", "issued_at", "signer", "signature"}:
-        raise EngineProtocolError("Enterprise Engine outcome receipt envelope is incomplete")
+        raise InstanceProtocolError("Enterprise instance outcome receipt envelope is incomplete")
     _exact_version(document["schema_version"], "receipt.schema_version", protocol=True)
     try:
         if canonical_bytes(document) != receipt_document_bytes:
-            raise EngineProtocolError("Enterprise Engine outcome receipt bytes are not canonical")
+            raise InstanceProtocolError("Enterprise instance outcome receipt bytes are not canonical")
         identity = {key: value for key, value in document.items()
                     if key not in {"receipt_id", "signature"}}
         if sha256_digest(canonical_bytes(identity)) != receipt_id:
-            raise EngineProtocolError("Enterprise Engine outcome receipt identity differs")
+            raise InstanceProtocolError("Enterprise instance outcome receipt identity differs")
     except (ValidationError, RecursionError) as exc:
-        raise EngineProtocolError("Enterprise Engine outcome receipt identity is invalid") from exc
+        raise InstanceProtocolError("Enterprise instance outcome receipt identity is invalid") from exc
     if document.get("receipt_id") != receipt_id:
-        raise EngineProtocolError(
-            "Enterprise Engine outcome receipt id does not match the response"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome receipt id does not match the response"
         )
     outcome = document.get("outcome")
     if not isinstance(outcome, Mapping) or outcome.get("state") != acceptance:
-        raise EngineProtocolError(
-            "Enterprise Engine outcome state does not match the response"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome state does not match the response"
         )
     chain = document.get("chain")
     if not isinstance(chain, Mapping):
-        raise EngineProtocolError("Enterprise Engine outcome receipt chain is invalid")
+        raise InstanceProtocolError("Enterprise instance outcome receipt chain is invalid")
     previous_receipt_id = chain.get("previous_receipt_id")
     if not isinstance(previous_receipt_id, str):
-        raise EngineProtocolError("Enterprise Engine outcome receipt predecessor is missing")
+        raise InstanceProtocolError("Enterprise instance outcome receipt predecessor is missing")
     try:
         validate_digest(previous_receipt_id, "receipt.chain.previous_receipt_id")
     except ValidationError as exc:
-        raise EngineProtocolError("Enterprise Engine outcome receipt predecessor is invalid") from exc
+        raise InstanceProtocolError("Enterprise instance outcome receipt predecessor is invalid") from exc
     lineage = document.get("lineage")
     if not isinstance(lineage, Mapping) or lineage.get("task_id") != task_id:
-        raise EngineProtocolError(
-            "Enterprise Engine outcome receipt task binding does not match"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome receipt task binding does not match"
         )
     evidence_refs = document.get("evidence_refs")
     if not isinstance(evidence_refs, list):
-        raise EngineProtocolError(
-            "Enterprise Engine outcome receipt evidence references are invalid"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome receipt evidence references are invalid"
         )
     runtime_refs = [
         reference
@@ -950,8 +950,8 @@ def _validate_outcome_receipt_joins(
         if isinstance(reference, Mapping) and reference.get("kind") == "runtime"
     ]
     if not runtime_refs:
-        raise EngineProtocolError(
-            "Enterprise Engine outcome receipt has no runtime evidence"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome receipt has no runtime evidence"
         )
     expected_uri = _SOURCE_PLAN_EVIDENCE_PREFIX + context_decision_digest[7:]
     if any(
@@ -959,8 +959,8 @@ def _validate_outcome_receipt_joins(
         or reference.get("uri") != expected_uri
         for reference in runtime_refs
     ):
-        raise EngineProtocolError(
-            "Enterprise Engine outcome runtime evidence does not match"
+        raise InstanceProtocolError(
+            "Enterprise instance outcome runtime evidence does not match"
         )
 
 
@@ -974,16 +974,16 @@ def parse_engine_outcome_response(
 ) -> Mapping[str, object]:
     """Validate the Enterprise outcome envelope without signer trust claims."""
     if len(raw) > _MAX_ENGINE_OUTCOME_RESPONSE_BYTES:
-        raise EngineProtocolError("Enterprise Engine outcome response exceeds its byte bound")
+        raise InstanceProtocolError("Enterprise instance outcome response exceeds its byte bound")
     try:
-        value = strict_json_loads(raw, label="Enterprise Engine outcome response")
+        value = strict_json_loads(raw, label="Enterprise instance outcome response")
     except (ValidationError, RecursionError) as exc:
-        raise EngineProtocolError("Enterprise Engine outcome response is not valid JSON") from exc
+        raise InstanceProtocolError("Enterprise instance outcome response is not valid JSON") from exc
     if set(value) != {"schema_version", "tenant_id", "outcome"}:
-        raise EngineProtocolError("Enterprise Engine outcome response wrapper is invalid")
+        raise InstanceProtocolError("Enterprise instance outcome response wrapper is invalid")
     _exact_version(value["schema_version"], "response.schema_version", protocol=True)
     if value["tenant_id"] != tenant_id:
-        raise EngineProtocolError("Enterprise Engine outcome tenant binding does not match")
+        raise InstanceProtocolError("Enterprise instance outcome tenant binding does not match")
     outcome = _mapping(value["outcome"], "outcome", protocol=True)
     expected_keys = {
         "schema_version",
@@ -995,7 +995,7 @@ def parse_engine_outcome_response(
         "receipt_document_json",
     }
     if set(outcome) != expected_keys:
-        raise EngineProtocolError("Enterprise Engine outcome fields do not match the v1 contract")
+        raise InstanceProtocolError("Enterprise instance outcome fields do not match the v1 contract")
     _exact_version(outcome["schema_version"], "outcome.schema_version", protocol=True)
     try:
         normalized_task_id = _text(
@@ -1019,14 +1019,14 @@ def parse_engine_outcome_response(
             "outcome.original_receipt_digest",
         )
     except ValidationError as exc:
-        raise EngineProtocolError("Enterprise Engine outcome digest or task binding is invalid") from exc
+        raise InstanceProtocolError("Enterprise instance outcome digest or task binding is invalid") from exc
     if original_digest != normalized_receipt_digest:
-        raise EngineProtocolError("Enterprise Engine outcome original receipt does not match")
+        raise InstanceProtocolError("Enterprise instance outcome original receipt does not match")
     acceptance = outcome["acceptance"]
     if not isinstance(acceptance, str) or acceptance not in {"accepted", "rejected"}:
-        raise EngineProtocolError("Enterprise Engine outcome acceptance is unsupported")
+        raise InstanceProtocolError("Enterprise instance outcome acceptance is unsupported")
     if not isinstance(outcome["already_recorded"], bool):
-        raise EngineProtocolError("Enterprise Engine outcome already_recorded must be a boolean")
+        raise InstanceProtocolError("Enterprise instance outcome already_recorded must be a boolean")
     receipt_document_json = _text(
         outcome["receipt_document_json"],
         "outcome.receipt_document_json",
@@ -1038,7 +1038,7 @@ def parse_engine_outcome_response(
     )
     receipt_document_bytes = receipt_document_json.encode("utf-8", "strict")
     if sha256_digest(receipt_document_bytes) != successor_digest:
-        raise EngineProtocolError("Enterprise Engine outcome receipt document digest does not match")
+        raise InstanceProtocolError("Enterprise instance outcome receipt document digest does not match")
     _validate_outcome_receipt_joins(
         receipt_document_bytes,
         receipt_id=receipt_id,

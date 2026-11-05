@@ -1,8 +1,60 @@
 # Changelog
 
+## 1.3.0
+
+Instance names; Engine names deprecated until 2.0; engine interface contract
+unchanged. See `RELEASE-NOTES-1.3.0.md`.
+
+- Python: `Instance*` names are primary; `Engine*` names, `engine_binary=`,
+  `engine=`, the `leanctx_sdk.engine`/`enterprise_engine` modules and the
+  `LEANCTX_ENGINE_*` variables keep working with a `DeprecationWarning`.
+- All six packages pair with LeanCTX | OSS **3.12.2** (published 2026-11-05).
+  The pair evidence was recorded against the release archives.
+- The release-candidate pipeline, the release-evidence script and the
+  release-gate tests bind the signed, published LeanCTX | OSS v3.12.2: its tag
+  commit `ffe6e95c34babc2d42a6a1cd60833c352e928b52`, its `SHA256SUMS`, and the
+  archive and binary digests for Linux x86_64 and macOS arm64. See
+  `COMPATIBILITY.md`.
+
+### Fixed
+
+- .NET: closing an agent context no longer fails with "descendants could not
+  be inspected" when an Engine child exits while its children are being read.
+  For such a task, Linux procfs answers ESRCH, an `IOException` rather than
+  `FileNotFoundException`. A process that is gone, a zombie or dead is now
+  treated as having no children.
+- Rust: `utf8_iter` and `utf16_iter` are pinned to their last Rust 1.77
+  releases (1.0.4 and 1.0.5). `cargo package` resolves without the lockfile,
+  and 1.1.0 of both requires Rust 1.83, so the 1.77 MSRV leg broke. The gateway
+  preview also satisfies the 1.77 clippy lints `format_collect` and
+  `needless_borrows_for_generic_args`, with identical output.
+
+### Security
+
+- The certified OpenAI Agents 0.8.4 wheelhouse is re-certified with
+  **certifi 2026.10.18** (was 2026.7.22, PYSEC-2026-4320) and **mcp 1.30.0**
+  (was 1.29.1, CVE-2026-59951, CVE-2026-116684, CVE-2026-116685 and
+  CVE-2026-116686).
+  - Both are the official PyPI `py3-none-any` wheels, and mcp 1.30.0 declares
+    the same dependencies as 1.29.1. The closure therefore stays at 41
+    artifacts, and `openai-agents` 0.8.4 still admits it (`mcp<2,>=1.19.0`).
+  - The new artifacts digest is
+    `42bb55a09b16a50016a09000ca335f19d7e1d18c8b9a5ba8ae2274fa16998626`.
+  - `pip-audit` finds no known vulnerability in the closure. `validate_wheelhouse`
+    and `dependency_wheel_audit` pass for all 41 wheels (2384 entries), so the
+    audit policy is unchanged.
+  - The release-audit tooling pins certifi 2026.10.18 as well.
+- The release tooling and the Rust lockfile no longer carry advised versions:
+  `filelock` 4.2.1 (was 3.32.4) and `msgpack` 1.2.3 (was 1.2.1) in the audit
+  tooling, `setuptools` 84.1.0 (was 83.0.0) in the build tooling, and
+  `rustls` 0.23.46 (was 0.23.45, still within the Rust 1.77 MSRV) in
+  `packages/rust/Cargo.lock`. Every requirement keeps all of its PyPI file
+  hashes, both files install with `--require-hashes` on Python 3.11, and
+  `pip-audit` finds no known vulnerability in either.
+
 ## Unreleased (1.2.0)
 
-SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.4** and
+SDK 1.2.0 pairs all six language packages with LeanCTX Engine **3.11.0** and
 adds the v4 preview surfaces below. Interface, schema and transport versions
 and the stable public-surface contract are unchanged. The published 1.1.x
 packages keep their release identity.
@@ -44,16 +96,14 @@ packages keep their release identity.
 ### Changed
 
 - Every language package, the `[agent]` companion-Engine extras and the Agent
-  Tools contract target **LeanCTX Engine 3.11.4**, a bugfix release (the
-  Agent Tools protocol is unchanged). `main` previously targeted 3.11.3, 3.11.2,
-  3.11.1 and before that
-  3.10.5; before that, only the Python constant had moved
+  Tools contract target **LeanCTX Engine 3.11.0** (not yet published). `main`
+  previously targeted 3.10.5; before that, only the Python constant had moved
   past 3.10.1 (#18–#21), so a Python `[agent]` install from `main` pulled an
   Engine its own SDK rejected. All six languages agree again.
-- The release-candidate pipeline and release-evidence scripts bind the signed
-  Engine v3.11.4 (commit `3afe2bbffe0834ec58517ffd493e5a51c5c1ca57`), with
-  archive and binary digests taken from the release download and cross-checked
-  against its `SHA256SUMS`. Previously they bound v3.11.3.
+- The release-candidate pipeline and release-evidence scripts still bind the
+  published Engine v3.10.5 (commit `102330a77c36061483f60d914aeb14d3551b6e24`).
+  They move to v3.11.0 with digests taken from the signed release download once
+  that Engine is tagged.
 
 - The Rust package's minimum supported Rust version is now **1.77** (was
   1.76). `thiserror` 2.0.21 (released 2026-09-23) requires Rust 1.77, so

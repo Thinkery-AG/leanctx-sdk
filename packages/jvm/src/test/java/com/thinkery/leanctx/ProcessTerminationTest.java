@@ -22,9 +22,9 @@ class ProcessTerminationTest {
 
     @Test
     void oneShotTimeoutReapsCapturedChildAndRemovesRequest() throws Exception {
-        SubprocessEngineClient client = new SubprocessEngineClient(fixture(), 2.0);
+        SubprocessInstanceClient client = new SubprocessInstanceClient(fixture(), 2.0);
         try {
-            assertThrows(EngineTimeout.class, () -> client.contextView(plan()));
+            assertThrows(InstanceTimeout.class, () -> client.contextView(plan()));
             assertReaped();
             assertNoRequest();
         } finally {
@@ -34,7 +34,7 @@ class ProcessTerminationTest {
 
     @Test
     void interruptedOneShotReapsChildAndRestoresInterruptFlag() throws Exception {
-        SubprocessEngineClient client = new SubprocessEngineClient(fixture(), 10.0);
+        SubprocessInstanceClient client = new SubprocessInstanceClient(fixture(), 10.0);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicBoolean interrupted = new AtomicBoolean();
         Thread caller = new Thread(() -> {
@@ -52,7 +52,7 @@ class ProcessTerminationTest {
             caller.interrupt();
             caller.join(5000);
             assertFalse(caller.isAlive(), "interrupted call finishes bounded cleanup");
-            assertInstanceOf(EngineTimeout.class, failure.get());
+            assertInstanceOf(InstanceTimeout.class, failure.get());
             assertTrue(interrupted.get(), "caller interrupt flag is preserved");
             assertReaped();
             assertNoRequest();
@@ -80,12 +80,45 @@ class ProcessTerminationTest {
             @Override public ProcessHandle toHandle() { return actual.toHandle(); }
         };
         try {
-            EngineExecutionError error = assertThrows(EngineExecutionError.class,
+            InstanceExecutionError error = assertThrows(InstanceExecutionError.class,
                     () -> ProcessTreeTermination.terminate(unreaped));
-            assertEquals("Engine process could not be reaped", error.getMessage());
+            assertEquals("LeanCTX instance process could not be reaped", error.getMessage());
         } finally {
             actual.destroyForcibly();
             assertTrue(actual.waitFor(2, TimeUnit.SECONDS));
+        }
+    }
+
+    /**
+     * A process that inherited the Engine's pipes and is no longer its
+     * descendant keeps the readers blocked after the Engine was terminated.
+     * The call must still return its typed timeout within a bound instead of
+     * waiting for that process. The orphan is this test's own and is ended here.
+     */
+    @Test
+    void oneShotTimeoutDoesNotWaitForAnOrphanThatHoldsThePipes() throws Exception {
+        Path script = root.resolve("engine-with-orphan");
+        Files.writeString(script, "#!/bin/sh\n"
+                + "( /bin/sleep 20 & printf '%s' \"$!\" > orphan.pid.tmp; mv orphan.pid.tmp orphan.pid )\n"
+                + "printf 'ready' > ready\n"
+                + "/bin/sleep 20\n");
+        assertTrue(script.toFile().setExecutable(true));
+        SubprocessInstanceClient client = new SubprocessInstanceClient(script, 1.0);
+        long orphan = -1;
+        try {
+            long started = System.nanoTime();
+            assertThrows(InstanceTimeout.class, () -> client.contextView(plan()));
+            long elapsed = System.nanoTime() - started;
+            assertTrue(elapsed < TimeUnit.SECONDS.toNanos(8),
+                    "the call waited for a process that only holds the pipes: " + elapsed / 1_000_000 + " ms");
+            orphan = Long.parseLong(Files.readString(root.resolve("orphan.pid")).trim());
+            assertTrue(ProcessHandle.of(orphan).map(ProcessHandle::isAlive).orElse(false),
+                    "the fixture's orphan was expected to outlive the Engine");
+            assertNoRequest();
+        } finally {
+            if (orphan > 0) {
+                ProcessHandle.of(orphan).ifPresent(ProcessHandle::destroyForcibly);
+            }
         }
     }
 

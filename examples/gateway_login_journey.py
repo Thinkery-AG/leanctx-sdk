@@ -27,11 +27,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from leanctx_sdk import SubprocessEngineClient  # noqa: E402
+from leanctx_sdk import SubprocessInstanceClient  # noqa: E402
 from leanctx_sdk.planning import (  # noqa: E402
     MAX_ENGINE_CONTEXT_PLAN_TOKENS,
-    EnginePlanningRequest,
-    EngineSource,
+    InstancePlanningRequest,
+    InstanceSource,
 )
 from leanctx_sdk.preview import admit_egress  # noqa: E402
 
@@ -109,7 +109,7 @@ def sources():
 
 
 def _source(ref, kind, content, permission):
-    return EngineSource(
+    return InstanceSource(
         {
             "object_ref": ref,
             "source_id": "src-" + hashlib.sha256(ref.encode()).hexdigest()[:16],
@@ -131,11 +131,11 @@ def kilo(tokens):
 
 
 def run(engine_binary):
-    engine = SubprocessEngineClient(engine_binary, timeout=60)
+    engine = SubprocessInstanceClient(engine_binary, timeout=60)
     root = tempfile.mkdtemp(prefix="leanctx-journey-")
     candidates, relevant = sources()
     plan = engine.context_plan_sources(
-        root, EnginePlanningRequest("login-incident", TASK, BUDGET_TOKENS), candidates
+        root, InstancePlanningRequest("login-incident", TASK, BUDGET_TOKENS), candidates
     )["result"]["plan"]
     planned = {s["source_ref"]: s for s in plan["selections"]}
     by_ref = {c.descriptor["object_ref"]: c for c in candidates}
@@ -146,7 +146,7 @@ def run(engine_binary):
     # relevance floor keeps them all. Nothing here is estimated by the app.
     measured = engine.context_plan_sources(
         root,
-        EnginePlanningRequest("login-measure", "qzxmeasure", MAX_ENGINE_CONTEXT_PLAN_TOKENS),
+        InstancePlanningRequest("login-measure", "qzxmeasure", MAX_ENGINE_CONTEXT_PLAN_TOKENS),
         candidates,
     )["result"]["plan"]["selections"]
     considered_tokens = sum(s["token_count"] for s in measured)

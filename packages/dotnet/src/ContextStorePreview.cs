@@ -1,3 +1,6 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 using System.Collections.ObjectModel;
 using System.Text;
@@ -91,14 +94,14 @@ public sealed record TaskLineage(
     public bool IsComplete => Gaps.Count == 0;
 }
 
-/// <summary>The tenant/project scope of a read; without a project ID the Engine uses the project root.</summary>
+/// <summary>The tenant/project scope of a read; without a project ID the LeanCTX instance uses the project root.</summary>
 public sealed record ContextStoreScope(string? ProjectId = null, string? TenantId = null);
 
 /// <summary>
-/// Preview: read-only access to the local Engine's Context Store. ReadPolicyEvidenceAsync returns the
+/// Preview: read-only access to the local instance's Context Store. ReadPolicyEvidenceAsync returns the
 /// scope's content-free read-strategy evidence (lean-ctx engine context-policy-evidence);
 /// ReadTaskLineageAsync one task's decision lineage (lean-ctx engine context-lineage) with every missing
-/// link named as a gap. Parsing mirrors the Engine's validation: unknown fields or values and inconsistent
+/// link named as a gap. Parsing mirrors the instance's validation: unknown fields or values and inconsistent
 /// counts are rejected, and "unmeasured" never reads as a passing measurement. Contract
 /// leanctx-context-store-preview 0.1 — may change in minor releases.
 /// </summary>
@@ -292,7 +295,7 @@ public static class ContextStorePreview
         var value = Fields(raw, label);
         Keys(value, RecordCounts.Concat(new[] { "workload", "strategy", "quality", "security" }).ToArray(), SignalCounts, label);
         long Count(string key) => Integer(value[key], label + "." + key);
-        // Signal counts default to zero, like the Engine's own deserializer.
+        // Signal counts default to zero, like the instance's own deserializer.
         long Signal(string key) => value.TryGetValue(key, out var count) ? Integer(count, label + "." + key) : 0;
         var record = new StrategyOutcomeRecord(
             ParseWorkload(value["workload"], label + ".workload"),
@@ -529,7 +532,7 @@ public static class ContextStorePreview
     }
 
     private static async Task<JsonElement> ReadAsync(
-        SubprocessEngineClient engine,
+        SubprocessInstanceClient engine,
         string operation,
         string projectRoot,
         byte[] payload,
@@ -537,10 +540,10 @@ public static class ContextStorePreview
         CancellationToken cancellationToken)
     {
         if (engine is null)
-            throw new ValidationError("engine is required");
+            throw new ValidationError("instance is required");
         if (payload.Length > MaxStoreRequestBytes)
             throw new ValidationError("context store request exceeds its bound");
-        var root = SubprocessEngineClient.ValidatedRoot(projectRoot);
+        var root = SubprocessInstanceClient.ValidatedRoot(projectRoot);
         var raw = await engine.RunPayloadAsync(operation, root, payload, cancellationToken).ConfigureAwait(false);
         if (raw.Length > MaxStoreResponseBytes)
             throw Bad("response exceeds its bound");
@@ -558,7 +561,7 @@ public static class ContextStorePreview
 
     /// <summary>The scope's read-strategy evidence.</summary>
     public static async Task<ContextPolicyEvidence> ReadPolicyEvidenceAsync(
-        SubprocessEngineClient engine,
+        SubprocessInstanceClient engine,
         string projectRoot,
         ContextStoreScope? scope = null,
         CancellationToken cancellationToken = default)
@@ -570,7 +573,7 @@ public static class ContextStorePreview
 
     /// <summary>One task's lineage within the scope.</summary>
     public static async Task<TaskLineage> ReadTaskLineageAsync(
-        SubprocessEngineClient engine,
+        SubprocessInstanceClient engine,
         string projectRoot,
         string taskId,
         ContextStoreScope? scope = null,

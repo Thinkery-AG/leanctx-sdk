@@ -36,19 +36,20 @@
     "every non-allow decision has at least one reason code",
     "coverage never inspects more than the object holds; complete inspects every byte, partial not",
     "a failed or timed-out detector cannot claim complete coverage",
-    "signals carry counts only, never the matched value"
+    "signals carry counts only, never the matched value",
+    "a receipt is schema_version 1 or 2; exactly a schema_version 2 receipt carries object_digest {algorithm: hmac-sha256, key_id: rk-<32 hex>} and names its decision objects by HMAC-SHA256 under that installation key"
   ],
   "callers_must": [
     "send admission.body, never the original body",
     "send only when may_send (disposition != refused)"
   ],
   "surface": {
-    "python": "leanctx_sdk.preview.admit_egress / parse_egress_admission / parse_decision_receipt",
-    "typescript": "@thinkery/leanctx-sdk/preview: admitEgress / parseEgressAdmission / parseDecisionReceipt",
-    "go": "SubprocessEngineClient.AdmitEgress / ParseEgressAdmission / ParseDecisionReceipt",
-    "rust": "SubprocessEngineClient::admit_egress; leanctx_sdk::preview::{parse_egress_admission, parse_decision_receipt}",
-    "jvm": "com.thinkery.leanctx.GatewayPreview.admitEgress / parseEgressAdmission / parseDecisionReceipt",
-    "dotnet": "Thinkery.LeanCtx.Preview.GatewayPreview.AdmitEgressAsync / ParseEgressAdmission / ParseDecisionReceipt"
+    "python": "leanctx_sdk.preview.admit_egress / parse_egress_admission / parse_decision_receipt / receipt_key_id / keyed_object_digest",
+    "typescript": "@thinkery/leanctx-sdk/preview: admitEgress / parseEgressAdmission / parseDecisionReceipt / receiptKeyId / keyedObjectDigest",
+    "go": "SubprocessEngineClient.AdmitEgress / ParseEgressAdmission / ParseDecisionReceipt / ReceiptKeyID / KeyedObjectDigest",
+    "rust": "SubprocessEngineClient::admit_egress; leanctx_sdk::preview::{parse_egress_admission, parse_decision_receipt, receipt_key_id, keyed_object_digest}",
+    "jvm": "com.thinkery.leanctx.GatewayPreview.admitEgress / parseEgressAdmission / parseDecisionReceipt / receiptKeyId / keyedObjectDigest",
+    "dotnet": "Thinkery.LeanCtx.Preview.GatewayPreview.AdmitEgressAsync / ParseEgressAdmission / ParseDecisionReceipt / ReceiptKeyId / KeyedObjectDigest"
   },
   "conformance": {
     "fixtures": "fixtures/gateway-preview-v1 (valid: real Engine output; invalid: one violated invariant each)",

@@ -99,11 +99,11 @@ timeout again before starting the native process.
 
 ## Failure behavior
 
-- incompatible handshake or malformed result → `EngineProtocolError`
+- incompatible handshake or malformed result → `InstanceProtocolError`
 - missing capability → `UnsupportedCapabilityError`
 - denied write/execute operation → `AgentPermissionError`
-- process exit → `EngineCrashed`; no mutation is retried
-- deadline exceeded → `EngineTimeout` and the process is terminated
+- process exit → `InstanceCrashed`; no mutation is retried
+- deadline exceeded → `InstanceTimeout` and the process is terminated
 
 Create a new context after a crash or timeout. Cache state is intentionally
 process-local; `reconnect()` is explicit and does not claim to recover that
@@ -113,12 +113,12 @@ cache. Async task cancellation terminates the process before propagating
 ## Reproduce the Agent Tools evidence
 
 For the public SDK 1.1.0 release, use an Engine 3.10.1 binary; current `main`
-sources target Engine 3.11.4. Both commands below are provider-free and make no
+sources target Engine 3.12.2. Both commands below are provider-free and make no
 network calls:
 
 ```bash
 PYTHONPATH=src:. python scripts/verify_agent_context_e2e.py \
-  --engine /path/to/lean-ctx --expected-engine-version 3.11.4
+  --engine /path/to/lean-ctx --expected-engine-version 3.12.2
 PYTHONPATH=src:. python -m benchmarks.agent_tools.retrieval_benchmark \
   --engine /path/to/lean-ctx
 ```

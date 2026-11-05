@@ -103,7 +103,7 @@ class ContextReceipt:
         if self.integrity_status == Integrity.SEALED.value:
             if self.view is None or not self.view.verify():
                 raise ValidationError(
-                    "sealed receipt requires verified Engine evidence"
+                    "sealed receipt requires verified instance evidence"
                 )
 
     @property

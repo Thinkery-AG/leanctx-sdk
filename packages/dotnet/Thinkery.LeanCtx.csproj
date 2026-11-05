@@ -4,7 +4,7 @@
     <AssemblyName>Thinkery.LeanCtx</AssemblyName>
     <RootNamespace>Thinkery.LeanCtx</RootNamespace>
     <PackageId>Thinkery.LeanCtx</PackageId>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Authors>Thinkery AG</Authors>
     <Company>Thinkery AG</Company>
     <Description>SDK for embedding LeanCTX context control in .NET applications.</Description>
@@ -15,7 +15,7 @@
     <RepositoryUrl>https://github.com/Thinkery-AG/leanctx-sdk</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Thinkery-AG/leanctx-sdk</PackageProjectUrl>
-    <PackageReleaseNotes>LeanCTX SDK 1.2.0. Requires LeanCTX Engine 3.11.4 for Agent Tools.</PackageReleaseNotes>
+    <PackageReleaseNotes>LeanCTX SDK 1.3.0. Instance names (InstanceClient, SubprocessInstanceClient, EnterpriseInstanceClient, InstanceUnavailable, ...) replace the Engine names; the Engine names and LEANCTX_ENGINE_BIN stay as deprecated aliases until 2.0; the engine interface contract is unchanged. Requires LeanCTX | OSS 3.12.2 for Agent Tools.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>

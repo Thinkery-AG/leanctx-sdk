@@ -11,7 +11,7 @@
 | `.github/workflows/**`, `requirements/**` | `CLEAN_REIMPLEMENT` | release policy and exact tool locks |
 | examples and public documentation | `CLEAN_REIMPLEMENT` | public Product contract |
 
-No SDK implementation is copied or line-adapted from LeanCTX Engine. The
+No SDK implementation is copied or line-adapted from LeanCTX | OSS. The
 clean-reimplementation boundary covers Stable and Preview additions. Engine is
 consumed only through its public CLI wire boundary. Release CI downloads and
 signature/hash-verifies the pinned public Engine release archives; it does not

@@ -1,6 +1,6 @@
 package com.thinkery.leanctx;
 
-/** Whether Engine evidence is fully bound and verified. */
+/** Whether LeanCTX instance evidence is fully bound and verified. */
 public enum Integrity implements HasValue {
     SEALED("sealed"),
     UNSEALED("unsealed");

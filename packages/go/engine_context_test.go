@@ -85,12 +85,12 @@ func newContextReadServer(t *testing.T, status int, payload []byte, delay time.D
 	return server, capture
 }
 
-func newLoopbackContextClient(t *testing.T, server *httptest.Server, timeout time.Duration) *EngineContextClient {
+func newLoopbackContextClient(t *testing.T, server *httptest.Server, timeout time.Duration) *InstanceContextClient {
 	t.Helper()
-	client, err := NewEngineContextClient(
+	client, err := NewInstanceContextClient(
 		server.URL,
 		"credential-test",
-		EngineContextClientOptions{Timeout: timeout, AllowLoopbackHTTP: true},
+		InstanceContextClientOptions{Timeout: timeout, AllowLoopbackHTTP: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func newLoopbackContextClient(t *testing.T, server *httptest.Server, timeout tim
 	return client
 }
 
-func TestEngineContextReadFixtureRoundTrip(t *testing.T) {
+func TestInstanceContextReadFixtureRoundTrip(t *testing.T) {
 	fixture := guardedContextFixture(t)
 	payload, responseFixture := guardedContextResponse(t, nil)
 	server, capture := newContextReadServer(t, http.StatusOK, payload, 0)
@@ -134,7 +134,7 @@ func TestEngineContextReadFixtureRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEngineContextReadRejectsFixtureReceiptOverrides(t *testing.T) {
+func TestInstanceContextReadRejectsFixtureReceiptOverrides(t *testing.T) {
 	fixture := guardedContextFixture(t)
 	overrides, ok := fixture["invalid_receipt_overrides"].([]any)
 	if !ok {
@@ -150,7 +150,7 @@ func TestEngineContextReadRejectsFixtureReceiptOverrides(t *testing.T) {
 			server, _ := newContextReadServer(t, http.StatusOK, payload, 0)
 			client := newLoopbackContextClient(t, server, 30*time.Second)
 			_, err := client.ContextRead("src/context.rs")
-			var protocol *EngineProtocolError
+			var protocol *InstanceProtocolError
 			if !errors.As(err, &protocol) {
 				t.Fatalf("receipt override accepted with error %T: %v", err, err)
 			}
@@ -158,7 +158,7 @@ func TestEngineContextReadRejectsFixtureReceiptOverrides(t *testing.T) {
 	}
 }
 
-func TestEngineContextReadPreservesUnknownFieldsAndEnforcesLimits(t *testing.T) {
+func TestInstanceContextReadPreservesUnknownFieldsAndEnforcesLimits(t *testing.T) {
 	payload, responseFixture := guardedContextResponse(t, nil)
 	server, _ := newContextReadServer(t, http.StatusOK, payload, 0)
 	client := newLoopbackContextClient(t, server, 30*time.Second)
@@ -187,7 +187,7 @@ func TestEngineContextReadPreservesUnknownFieldsAndEnforcesLimits(t *testing.T) 
 	t.Cleanup(oversizedServer.Close)
 	oversizedClient := newLoopbackContextClient(t, oversizedServer, 30*time.Second)
 	_, err = oversizedClient.ContextRead("src/context.rs")
-	var protocol *EngineProtocolError
+	var protocol *InstanceProtocolError
 	if !errors.As(err, &protocol) {
 		t.Fatalf("oversized response error = %T: %v", err, err)
 	}
@@ -208,7 +208,7 @@ func TestEngineContextReadPreservesUnknownFieldsAndEnforcesLimits(t *testing.T) 
 	}
 }
 
-func TestEngineContextReadRejectsUnsafeConfigurationAndPath(t *testing.T) {
+func TestInstanceContextReadRejectsUnsafeConfigurationAndPath(t *testing.T) {
 	invalidURLs := []struct {
 		value string
 		allow bool
@@ -224,7 +224,7 @@ func TestEngineContextReadRejectsUnsafeConfigurationAndPath(t *testing.T) {
 		{"https://:443", false},
 	}
 	for _, test := range invalidURLs {
-		_, err := NewEngineContextClient(test.value, "credential-test", EngineContextClientOptions{AllowLoopbackHTTP: test.allow})
+		_, err := NewInstanceContextClient(test.value, "credential-test", InstanceContextClientOptions{AllowLoopbackHTTP: test.allow})
 		var configuration *ConfigurationError
 		if !errors.As(err, &configuration) {
 			t.Fatalf("URL %q accepted with error %T: %v", test.value, err, err)
@@ -234,14 +234,14 @@ func TestEngineContextReadRejectsUnsafeConfigurationAndPath(t *testing.T) {
 		}
 	}
 	for _, credential := range []string{"", "credential\n", strings.Repeat("x", contextReadMaxCredential+1)} {
-		_, err := NewEngineContextClient("https://example.test", credential)
+		_, err := NewInstanceContextClient("https://example.test", credential)
 		var configuration *ConfigurationError
 		if !errors.As(err, &configuration) {
 			t.Fatalf("credential accepted with error %T: %v", err, err)
 		}
 	}
 	for _, timeout := range []time.Duration{99 * time.Millisecond, 121 * time.Second} {
-		_, err := NewEngineContextClient("https://example.test", "credential-test", EngineContextClientOptions{Timeout: timeout})
+		_, err := NewInstanceContextClient("https://example.test", "credential-test", InstanceContextClientOptions{Timeout: timeout})
 		var configuration *ConfigurationError
 		if !errors.As(err, &configuration) {
 			t.Fatalf("timeout accepted with error %T: %v", err, err)
@@ -266,18 +266,18 @@ func TestEngineContextReadRejectsUnsafeConfigurationAndPath(t *testing.T) {
 	}
 }
 
-func TestEngineContextReadMapsHTTPFailuresAndDeadline(t *testing.T) {
+func TestInstanceContextReadMapsHTTPFailuresAndDeadline(t *testing.T) {
 	payload, _ := guardedContextResponse(t, nil)
 	tests := []struct {
 		name   string
 		status int
 		check  func(error) bool
 	}{
-		{"redirect", http.StatusFound, func(err error) bool { var typed *EngineProtocolError; return errors.As(err, &typed) }},
-		{"unauthorized", http.StatusUnauthorized, func(err error) bool { var typed *EngineRejected; return errors.As(err, &typed) }},
+		{"redirect", http.StatusFound, func(err error) bool { var typed *InstanceProtocolError; return errors.As(err, &typed) }},
+		{"unauthorized", http.StatusUnauthorized, func(err error) bool { var typed *InstanceRejected; return errors.As(err, &typed) }},
 		{"forbidden", http.StatusForbidden, func(err error) bool { var typed *PolicyAdmissionError; return errors.As(err, &typed) }},
-		{"other-client-error", http.StatusNotFound, func(err error) bool { var typed *EngineRejected; return errors.As(err, &typed) }},
-		{"server-error", http.StatusBadGateway, func(err error) bool { var typed *EngineUnavailable; return errors.As(err, &typed) }},
+		{"other-client-error", http.StatusNotFound, func(err error) bool { var typed *InstanceRejected; return errors.As(err, &typed) }},
+		{"server-error", http.StatusBadGateway, func(err error) bool { var typed *InstanceUnavailable; return errors.As(err, &typed) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -295,41 +295,41 @@ func TestEngineContextReadMapsHTTPFailuresAndDeadline(t *testing.T) {
 
 	server, _ := newContextReadServer(t, http.StatusOK, payload, 200*time.Millisecond)
 	_, err := newLoopbackContextClient(t, server, 100*time.Millisecond).ContextRead("src/context.rs")
-	var timeout *EngineTimeout
+	var timeout *InstanceTimeout
 	if !errors.As(err, &timeout) {
 		t.Fatalf("deadline error = %T: %v", err, err)
 	}
 }
 
-func TestEngineContextReadUsesFixtureInvalidJSONAsProtocolError(t *testing.T) {
+func TestInstanceContextReadUsesFixtureInvalidJSONAsProtocolError(t *testing.T) {
 	server, _ := newContextReadServer(t, http.StatusOK, []byte(`{"result": {"content": []}`), 0)
 	_, err := newLoopbackContextClient(t, server, 30*time.Second).ContextRead("src/context.rs")
-	var protocol *EngineProtocolError
+	var protocol *InstanceProtocolError
 	if !errors.As(err, &protocol) {
 		t.Fatalf("malformed response error = %T: %v", err, err)
 	}
 }
 
-func TestEngineContextReadRejectsUnpairedSurrogates(t *testing.T) {
+func TestInstanceContextReadRejectsUnpairedSurrogates(t *testing.T) {
 	payload, _ := guardedContextResponse(t, nil)
 	for _, escaped := range []string{`\ud800`, `\udfff`, `\ud800\u0061`} {
 		invalid := strings.Replace(string(payload), "pub fn retained_context() {}", escaped, 1)
-		_, err := parseEngineContextReadResponse([]byte(invalid))
-		var protocol *EngineProtocolError
+		_, err := parseInstanceContextReadResponse([]byte(invalid))
+		var protocol *InstanceProtocolError
 		if !errors.As(err, &protocol) {
 			t.Fatalf("unpaired surrogate accepted: %T", err)
 		}
 	}
 	for _, escaped := range []string{`\ud83d\ude00`, `\\ud800`} {
 		valid := strings.Replace(string(payload), "pub fn retained_context() {}", escaped, 1)
-		if _, err := parseEngineContextReadResponse([]byte(valid)); err != nil {
+		if _, err := parseInstanceContextReadResponse([]byte(valid)); err != nil {
 			t.Fatalf("valid Unicode or escaped literal rejected: %v", err)
 		}
 	}
 }
 
-func TestEngineContextReadUninitializedClient(t *testing.T) {
-	for _, client := range []*EngineContextClient{nil, {}} {
+func TestInstanceContextReadUninitializedClient(t *testing.T) {
+	for _, client := range []*InstanceContextClient{nil, {}} {
 		_, err := client.ContextRead("src/context.rs")
 		var configuration *ConfigurationError
 		if !errors.As(err, &configuration) {

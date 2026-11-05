@@ -86,16 +86,16 @@ const EVIDENCE_KEYS: &[&str] = &[
 ];
 const PROVIDER_STATS_KEYS: &[&str] = &["candidates_offered", "candidates_selected", "tokens_used"];
 
-/// The canonical, non-executing Engine source-planning request.
+/// The canonical, non-executing instance source-planning request.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EnginePlanningRequest {
+pub struct InstancePlanningRequest {
     task_id: String,
     query: String,
     budget_tokens: u64,
     max_candidates: u64,
 }
 
-impl EnginePlanningRequest {
+impl InstancePlanningRequest {
     /// Creates a planning request with the protocol default of 64 candidates.
     pub fn new(
         task_id: impl AsRef<str>,
@@ -141,7 +141,7 @@ impl EnginePlanningRequest {
         };
         if canonical_bytes(&request.to_value())?.len() > MAX_REQUEST_BYTES {
             return Err(ValidationError::new(
-                "Engine context-plan request exceeds its byte bound",
+                "LeanCTX instance context-plan request exceeds its byte bound",
             ));
         }
         Ok(request)
@@ -188,7 +188,7 @@ pub(crate) fn normalize_source_ids<S: AsRef<str>>(
 ) -> Result<(Vec<String>, BTreeSet<String>), ValidationError> {
     if source_ids.len() > MAX_SOURCE_IDS {
         return Err(ValidationError::new(
-            "source_ids exceeds the Engine source bound",
+            "source_ids exceeds the instance source bound",
         ));
     }
     let mut normalized = Vec::with_capacity(source_ids.len());
@@ -231,20 +231,20 @@ pub(crate) fn canonical_uuid(value: &str, field: &str) -> Result<String, Validat
 
 pub(crate) fn parse_source_plan(
     value: &Value,
-    request: &EnginePlanningRequest,
+    request: &InstancePlanningRequest,
     requested_ids: &BTreeSet<String>,
 ) -> Result<Value, ValidationError> {
-    let source_plan = object(value, "Engine source-plan response")?;
+    let source_plan = object(value, "LeanCTX instance source-plan response")?;
     exact_keys(
         source_plan,
         &["result", "source_bindings", "binding_digest"],
-        "Engine source-plan response",
+        "LeanCTX instance source-plan response",
     )?;
 
     let result_raw = source_plan
         .get("result")
-        .ok_or_else(|| invalid("Engine source-plan result is missing"))?;
-    let result_object = object(result_raw, "Engine source-plan result")?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan result is missing"))?;
+    let result_object = object(result_raw, "LeanCTX instance source-plan result")?;
     exact_keys(
         result_object,
         &[
@@ -253,28 +253,28 @@ pub(crate) fn parse_source_plan(
             "engine_interface_version",
             "plan",
         ],
-        "Engine source-plan result",
+        "LeanCTX instance source-plan result",
     )?;
-    validate_header(result_object, "Engine source-plan result")?;
+    validate_header(result_object, "LeanCTX instance source-plan result")?;
 
     let plan_raw = result_object
         .get("plan")
-        .ok_or_else(|| invalid("Engine source-plan result is missing plan"))?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan result is missing plan"))?;
     let plan = parse_plan(plan_raw)?;
     let plan_object = object(&plan, "plan")?;
     if !plan_object.contains_key("projection_digest") {
         return Err(invalid(
-            "Engine source-plan response requires projection_digest",
+            "LeanCTX instance source-plan response requires projection_digest",
         ));
     }
     if string_field(&plan, "task_id", "plan.task_id")? != request.task_id {
         return Err(invalid(
-            "Engine context-plan response task_id does not bind the request",
+            "LeanCTX instance context-plan response task_id does not bind the request",
         ));
     }
     if unsigned_field(&plan, "budget_tokens", "plan.budget_tokens")? > request.budget_tokens {
         return Err(invalid(
-            "Engine context-plan response budget exceeds the request",
+            "LeanCTX instance context-plan response budget exceeds the request",
         ));
     }
 
@@ -373,39 +373,39 @@ pub(crate) fn validate_source_scope(
 ) -> Result<(), ValidationError> {
     let result = source_plan
         .get("result")
-        .ok_or_else(|| invalid("Engine source-plan result is missing"))?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan result is missing"))?;
     let plan = result
         .get("plan")
-        .ok_or_else(|| invalid("Engine source-plan projection is missing"))?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan projection is missing"))?;
     let selections = plan
         .get("selections")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Engine source-plan selections are invalid"))?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan selections are invalid"))?;
     for selection in selections {
         let source_ref = string_field(selection, "source_ref", "plan.selection.source_ref")?;
         let provider = string_field(selection, "provider", "plan.selection.provider")?;
         if !requested_ids.contains(&source_ref) || !requested_ids.contains(&provider) {
             return Err(invalid(
-                "Enterprise Engine selection is outside requested sources",
+                "Enterprise instance selection is outside requested sources",
             ));
         }
     }
     let bindings = source_plan
         .get("source_bindings")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Engine source-plan bindings are invalid"))?;
+        .ok_or_else(|| invalid("LeanCTX instance source-plan bindings are invalid"))?;
     for binding in bindings {
         let object_ref = string_field(binding, "object_ref", "source_bindings.object_ref")?;
         let source_id = string_field(binding, "source_id", "source_bindings.source_id")?;
         let permission = string_field(binding, "permission", "source_bindings.permission")?;
         if !requested_ids.contains(&object_ref) || !requested_ids.contains(&source_id) {
             return Err(invalid(
-                "Enterprise Engine source binding is outside requested sources",
+                "Enterprise instance source binding is outside requested sources",
             ));
         }
         if permission != "permitted" {
             return Err(invalid(
-                "Enterprise Engine selected source is not permitted",
+                "Enterprise instance selected source is not permitted",
             ));
         }
     }

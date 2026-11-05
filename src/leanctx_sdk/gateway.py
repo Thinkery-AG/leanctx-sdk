@@ -1,27 +1,32 @@
 """Preview: the information gateway's egress admission and decision receipts.
 
-`admit_egress` runs one model request through the local Engine's egress
+`admit_egress` runs one model request through the local instance's egress
 admission (`lean-ctx engine egress-admit`) before the caller sends it: secrets
 are masked, restricted content is withheld, and the request is classified.
 The result names what may leave (`body`), how sensitive it is
 (`classification`) and why (`receipt`, a `ContextDecisionReceipt`).
 
-Parsing is strict and mirrors the Engine's own validation: unknown fields,
+Parsing is strict and mirrors the instance's own validation: unknown fields,
 unknown enum values and inconsistent receipts are rejected, never defaulted.
 Preview contract `leanctx-gateway-preview` 0.1; it may change in minor
 releases.
 """
 
+import hashlib
+import hmac
 import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
-from .errors import EngineProtocolError, ValidationError
+from .errors import InstanceProtocolError, ValidationError
 from .protocol import canonical_bytes, strict_json_loads
 
 GATEWAY_PREVIEW_CONTRACT = "leanctx-gateway-preview"
 GATEWAY_PREVIEW_VERSION = "0.1.0"
 EGRESS_SCHEMA_VERSION = 1
+EGRESS_PREPARE_SCHEMA_VERSION = 2
+MAX_EGRESS_ATTEMPTS = 32
+MAX_EGRESS_REPORT_BYTES = 4096
 MAX_EGRESS_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_EGRESS_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_REF_BYTES = 512
@@ -50,13 +55,19 @@ SEVERITIES = ("info", "low", "medium", "high", "critical")
 COVERAGE_KINDS = ("complete", "partial", "unsupported", "failed", "not_required")
 DETECTOR_STATUSES = ("completed", "failed", "timed_out", "skipped")
 
+RECEIPT_SCHEMA_VERSIONS = (1, 2)
+OBJECT_DIGEST_ALGORITHMS = ("hmac-sha256",)
+
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_KEY_ID = re.compile(r"^rk-[0-9a-f]{32}$")
+_OBJECT_DOMAIN = b"leanctx.receipt.object.v2\x00"
+_KEY_ID_DOMAIN = b"leanctx.receipt.key-id.v2"
 _REASON = re.compile(r"^[a-z][a-z0-9_.]{2,63}$")
 _MAX_SAFE = 2**53 - 1
 
 
-def _bad(message: str) -> EngineProtocolError:
-    return EngineProtocolError("egress admission: " + message)
+def _bad(message: str) -> InstanceProtocolError:
+    return InstanceProtocolError("egress admission: " + message)
 
 
 def _object(value: Any, label: str) -> Mapping[str, Any]:
@@ -197,9 +208,24 @@ class ContextDecision:
 
 
 @dataclass(frozen=True)
+class ReceiptObjectDigest:
+    """How a schema_version 2 receipt digests its decision objects: keyed
+    (`hmac-sha256`) under the installation key named by `key_id`. The key
+    itself never leaves the installation."""
+
+    algorithm: str
+    key_id: str
+
+
+@dataclass(frozen=True)
 class ContextDecisionReceipt:
     """One governed delivery: who, where, under which policy, what was
-    inspected, withheld or transformed, and the delivered context's digest."""
+    inspected, withheld or transformed, and the delivered context's digest.
+
+    In schema_version 2 every `decisions[].object` is HMAC-SHA256 under the
+    installation's receipt key (`object_digest`); in schema_version 1 it is
+    the plain SHA-256 of the object. `final_context` is plain SHA-256 of the
+    delivered bytes in both."""
 
     receipt_id: str
     mode: str
@@ -215,6 +241,8 @@ class ContextDecisionReceipt:
     task: Optional[str] = None
     final_context: Optional[str] = None
     quality: Optional[Mapping[str, Any]] = None
+    schema_version: int = 1
+    object_digest: Optional[ReceiptObjectDigest] = None
 
     @property
     def signals(self) -> Tuple[SecuritySignal, ...]:
@@ -235,6 +263,27 @@ class EgressAdmission:
     def may_send(self) -> bool:
         """True when `body` may be sent; a refused request must not be."""
         return self.disposition != "refused"
+
+
+@dataclass(frozen=True)
+class EgressPreparation:
+    """Instance's V2 decision plus the exact UTF-8 JSON string to transmit."""
+
+    decision: EgressAdmission
+    prepared_body: Optional[str]
+    admission_receipt_digest: Optional[str]
+
+    @property
+    def may_send(self) -> bool:
+        return self.decision.may_send and self.prepared_body is not None
+
+
+@dataclass(frozen=True)
+class EgressHostReportResponse:
+    """A persisted host observation; it is never an instance transport observation."""
+
+    observation_digest: str
+    observation: Mapping[str, Any]
 
 
 def _principal(value: Any) -> ContextPrincipal:
@@ -345,14 +394,55 @@ def _counts(value: Any, keys: Sequence[str], label: str, maximum: int) -> Mappin
     return {key: _int(value[key], f"{label}.{key}", maximum) for key in keys}
 
 
+def _key(key: bytes) -> bytes:
+    if not isinstance(key, (bytes, bytearray)) or len(key) != 32:
+        raise ValidationError("a receipt key is exactly 32 bytes")
+    return bytes(key)
+
+
+def receipt_key_id(key: bytes) -> str:
+    """The public id a schema_version 2 receipt names for the 32-byte `key`."""
+    mac = hmac.new(_key(key), _KEY_ID_DOMAIN, hashlib.sha256).hexdigest()
+    return "rk-" + mac[:32]
+
+
+def keyed_object_digest(key: bytes, plain_object: str) -> str:
+    """The schema_version 2 `object` for the plain `sha256:<hex>` digest a
+    schema_version 1 receipt would name. Only the key holder can compute it."""
+    if not isinstance(plain_object, str) or not _DIGEST.fullmatch(plain_object):
+        raise ValidationError("plain_object must be a sha256 digest")
+    mac = hmac.new(_key(key), _OBJECT_DOMAIN + plain_object.encode("ascii"), hashlib.sha256)
+    return "sha256:" + mac.hexdigest()
+
+
+def _object_digest(value: Any) -> ReceiptObjectDigest:
+    value = _object(value, "receipt.object_digest")
+    _keys(value, {"algorithm", "key_id"}, set(), "receipt.object_digest")
+    key_id = value["key_id"]
+    if not isinstance(key_id, str) or not _KEY_ID.fullmatch(key_id):
+        raise _bad("receipt.object_digest.key_id must be rk- and 32 hex digits")
+    return ReceiptObjectDigest(
+        algorithm=_enum(value["algorithm"], OBJECT_DIGEST_ALGORITHMS,
+                        "receipt.object_digest.algorithm"),
+        key_id=key_id,
+    )
+
+
 def parse_decision_receipt(value: Any) -> ContextDecisionReceipt:
-    """Parse and validate a `ContextDecisionReceiptV1` document."""
+    """Parse and validate a `ContextDecisionReceiptV1` document (receipt
+    schema_version 1 or 2)."""
     value = _object(value, "receipt")
     _keys(value, {"schema_version", "receipt_id", "mode", "principal", "destination", "sources",
                   "security", "tokens", "outcome", "duration_us"},
-          {"task", "policy", "decisions", "final_context", "quality"}, "receipt")
-    if value["schema_version"] != 1:
+          {"task", "policy", "decisions", "final_context", "quality", "object_digest"}, "receipt")
+    schema_version = value["schema_version"]
+    if (isinstance(schema_version, bool) or not isinstance(schema_version, int)
+            or schema_version not in RECEIPT_SCHEMA_VERSIONS):
         raise _bad("unsupported receipt schema_version")
+    if (schema_version == 2) != ("object_digest" in value):
+        raise _bad("exactly a schema_version 2 receipt names its object digest key")
+    object_digest = (_object_digest(value["object_digest"])
+                     if "object_digest" in value else None)
     decisions = value.get("decisions", [])
     if not isinstance(decisions, list) or len(decisions) > MAX_DECISIONS:
         raise _bad("receipt.decisions must be a bounded list")
@@ -402,6 +492,8 @@ def parse_decision_receipt(value: Any) -> ContextDecisionReceipt:
         task=_ref(value["task"], "receipt.task") if "task" in value else None,
         final_context=final_context,
         quality=quality,
+        schema_version=schema_version,
+        object_digest=object_digest,
     )
 
 
@@ -434,6 +526,164 @@ def parse_egress_admission(value: Any) -> EgressAdmission:
     )
 
 
+def parse_egress_preparation(value: Any) -> EgressPreparation:
+    """Parse EngineEgressPrepareResponseV2 without reserializing its body."""
+    value = _object(value, "preparation")
+    _keys(value, {"schema_version", "decision"},
+          {"prepared_body", "admission_receipt_digest"}, "preparation")
+    if _int(value["schema_version"], "schema_version", EGRESS_PREPARE_SCHEMA_VERSION) != EGRESS_PREPARE_SCHEMA_VERSION:
+        raise _bad("unsupported egress preparation schema_version")
+    decision = parse_egress_admission(value["decision"])
+    if decision.receipt is not None:
+        receipt = decision.receipt
+        if decision.disposition == "refused":
+            if receipt.outcome == "delivered" or receipt.final_context is not None:
+                raise _bad("decision receipt outcome/final_context do not match disposition")
+        elif receipt.outcome != "delivered" or receipt.final_context is None:
+            raise _bad("decision receipt outcome/final_context do not match disposition")
+    prepared_body = value.get("prepared_body")
+    if decision.disposition == "refused":
+        if prepared_body is not None:
+            raise _bad("a refused preparation cannot carry prepared bytes")
+    else:
+        if not isinstance(prepared_body, str):
+            raise _bad("a dispatchable preparation must carry exact bytes")
+        try:
+            prepared_bytes = prepared_body.encode("utf-8")
+            parsed_body = strict_json_loads(prepared_bytes, label="prepared egress body")
+        except (UnicodeEncodeError, ValidationError) as exc:
+            raise _bad("prepared bytes are not strict JSON") from exc
+        if not isinstance(parsed_body, dict) or parsed_body != decision.body:
+            raise _bad("prepared bytes do not match the admitted decision body")
+        if decision.receipt is not None and decision.receipt.final_context is not None:
+            prepared_digest = "sha256:" + hashlib.sha256(prepared_bytes).hexdigest()
+            if decision.receipt.final_context != prepared_digest:
+                raise _bad("prepared bytes do not match the decision receipt digest")
+    raw_digest = value.get("admission_receipt_digest")
+    admission_digest = _digest(raw_digest, "admission_receipt_digest") if raw_digest is not None else None
+    if admission_digest is not None and decision.receipt is None:
+        raise _bad("egress admission digest requires its decision receipt")
+    return EgressPreparation(decision, prepared_body, admission_digest)
+
+
+def prepare_egress(
+    engine,
+    project_root: str,
+    *,
+    provider: str,
+    upstream_base: str,
+    body: Mapping[str, Any],
+) -> EgressPreparation:
+    """Prepare one egress request; send `prepared_body` verbatim only if `may_send`."""
+    request = egress_request(provider, upstream_base, body)
+    raw = engine._invoke_bytes(  # noqa: SLF001 - same package, bounded runner
+        "egress-prepare", project_root, request,
+        maximum=MAX_EGRESS_REQUEST_BYTES, stdin=True,
+    )
+    if len(raw) > 32 * 1024 * 1024:
+        raise _bad("preparation response exceeds its bound")
+    try:
+        document = strict_json_loads(raw, label="egress preparation")
+    except ValidationError as exc:
+        raise _bad("response is not strict JSON") from exc
+    return parse_egress_preparation(document)
+
+
+def _host_report_request(
+    admission_receipt_digest: str,
+    attempt: int,
+    transport: str,
+    result: str,
+    http_status: Optional[int],
+    failure: Optional[str],
+) -> Mapping[str, Any]:
+    request: dict[str, Any] = {
+        "schema_version": EGRESS_SCHEMA_VERSION,
+        "admission_receipt_digest": _digest(admission_receipt_digest, "admission_receipt_digest"),
+        "attempt": _int(attempt, "attempt", MAX_EGRESS_ATTEMPTS),
+        "transport": _enum(transport, ("http", "websocket"), "transport"),
+        "result": _enum(result, ("response_observed", "no_response_observed"), "result"),
+    }
+    if request["attempt"] == 0:
+        raise ValidationError("attempt must be in 1..32")
+    if http_status is not None:
+        request["http_status"] = _int(http_status, "http_status", 599)
+        if request["http_status"] < 100:
+            raise ValidationError("http_status must be in 100..599")
+    if failure is not None:
+        request["failure"] = _enum(failure, ("connect", "timeout", "cancelled", "other"), "failure")
+    if result == "response_observed":
+        if failure is not None or (transport == "http" and http_status is None):
+            raise ValidationError("response_observed requires no failure and an HTTP status for HTTP")
+    elif http_status is not None or failure is None:
+        raise ValidationError("no_response_observed requires a bounded failure and no HTTP status")
+    return request
+
+
+def parse_egress_host_report(value: Any, request: Mapping[str, Any]) -> EgressHostReportResponse:
+    """Parse an instance report and require a matching HostReported observation."""
+    value = _object(value, "report")
+    _keys(value, {"schema_version", "observation_digest", "observation"}, set(), "report")
+    if _int(value["schema_version"], "schema_version", EGRESS_SCHEMA_VERSION) != EGRESS_SCHEMA_VERSION:
+        raise _bad("unsupported egress report schema_version")
+    observation_digest = _digest(value["observation_digest"], "observation_digest")
+    observation = _object(value["observation"], "observation")
+    _keys(observation,
+          {"schema_version", "admission_receipt_digest", "attempt", "transport", "observer", "result"},
+          {"http_status", "failure"}, "observation")
+    if _int(observation["schema_version"], "observation.schema_version", EGRESS_SCHEMA_VERSION) != EGRESS_SCHEMA_VERSION:
+        raise _bad("unsupported observation schema_version")
+    if observation["observer"] != "host_reported":
+        raise _bad("host report response must be HostReported")
+    for key in ("admission_receipt_digest", "attempt", "transport", "result", "http_status", "failure"):
+        expected_present = key in request
+        if (key in observation) != expected_present or (expected_present and observation[key] != request[key]):
+            raise _bad(f"report observation does not match request field {key}")
+    canonical_observation = dict(request)
+    canonical_observation["observer"] = "host_reported"
+    expected_digest = "sha256:" + hashlib.sha256(canonical_bytes(canonical_observation)).hexdigest()
+    if observation_digest != expected_digest:
+        raise _bad("observation_digest does not match the reported observation")
+    if observation.get("http_status") is not None:
+        _int(observation["http_status"], "observation.http_status", 599)
+        if observation["http_status"] < 100:
+            raise _bad("observation.http_status must be in 100..599")
+    if "failure" in observation:
+        _enum(observation["failure"], ("connect", "timeout", "cancelled", "other"), "observation.failure")
+    return EgressHostReportResponse(observation_digest, dict(observation))
+
+
+def report_egress(
+    engine,
+    project_root: str,
+    *,
+    admission_receipt_digest: str,
+    attempt: int,
+    transport: str,
+    result: str,
+    http_status: Optional[int] = None,
+    failure: Optional[str] = None,
+) -> EgressHostReportResponse:
+    """Report bounded host-observed transport facts for a prepared admission."""
+    request = _host_report_request(
+        admission_receipt_digest, attempt, transport, result, http_status, failure,
+    )
+    payload = canonical_bytes(request)
+    if len(payload) > MAX_EGRESS_REPORT_BYTES:
+        raise ValidationError("egress report request exceeds its bound")
+    raw = engine._invoke_bytes(  # noqa: SLF001 - same package, bounded runner
+        "egress-report", project_root, request,
+        maximum=MAX_EGRESS_REPORT_BYTES, stdin=True,
+    )
+    if len(raw) > 32 * 1024 * 1024:
+        raise _bad("report response exceeds its bound")
+    try:
+        document = strict_json_loads(raw, label="egress report")
+    except ValidationError as exc:
+        raise _bad("response is not strict JSON") from exc
+    return parse_egress_host_report(document, request)
+
+
 def egress_request(provider: str, upstream_base: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
     """The `EngineEgressAdmissionRequestV1` document for one model request."""
     if not isinstance(provider, str) or not provider.strip():
@@ -457,9 +707,9 @@ def admit_egress(
     upstream_base: str,
     body: Mapping[str, Any],
 ) -> EgressAdmission:
-    """Admit one model request through the local Engine before sending it.
+    """Admit one model request through the local instance before sending it.
 
-    `engine` is a `SubprocessEngineClient`. Send `admission.body`, never the
+    `engine` is a `SubprocessInstanceClient`. Send `admission.body`, never the
     original body, and only when `admission.may_send`.
     """
     request = egress_request(provider, upstream_base, body)

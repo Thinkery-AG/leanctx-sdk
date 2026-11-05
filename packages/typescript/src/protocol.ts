@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import {
-  EngineExecutionError,
+  InstanceExecutionError,
   ValidationError,
 } from "./errors.js";
 
@@ -44,7 +44,7 @@ export enum SessionState {
   CLOSED = "closed",
 }
 
-export enum EngineStatus {
+export enum InstanceStatus {
   SUCCEEDED = "succeeded",
   DEGRADED = "degraded",
   REJECTED = "rejected",
@@ -690,7 +690,7 @@ export type ContextViewOptions = Readonly<{
   sourceRef: string;
   sourceDigest: string;
   recoveryRef: string | null;
-  status: EngineStatus | string;
+  status: InstanceStatus | string;
   measurements?: readonly ContextMeasurement[];
   failure?: ContextFailure | null;
   receiptLink?: ContextReceiptLink | null;
@@ -728,7 +728,7 @@ export class ContextView {
     sourceRef: string,
     sourceDigest: string,
     recoveryRef: string | null,
-    status: EngineStatus | string,
+    status: InstanceStatus | string,
     measurements?: readonly ContextMeasurement[],
     failure?: ContextFailure | null,
     receiptLink?: ContextReceiptLink | null,
@@ -768,7 +768,7 @@ export class ContextView {
     const sourceRef = validateRef(options.sourceRef, "source_ref");
     const sourceDigest = validateDigest(options.sourceDigest, "source_digest");
     if (options.recoveryRef !== null) validateRef(options.recoveryRef, "recovery_ref");
-    if (!Object.values(EngineStatus).includes(options.status as EngineStatus)) throw new ValidationError("invalid Engine observation status");
+    if (!Object.values(InstanceStatus).includes(options.status as InstanceStatus)) throw new ValidationError("invalid instance observation status");
     const measurements = Object.freeze([...(options.measurements ?? [])]);
     if (measurements.length > MAX_MEASUREMENTS || measurements.some((item) => !(item instanceof ContextMeasurement))) throw new ValidationError("invalid measurements");
     if (options.failure !== undefined && options.failure !== null && !(options.failure instanceof ContextFailure)) throw new ValidationError("failure must be ContextFailure");
@@ -835,7 +835,7 @@ export class ContextView {
   }
 
   requireText(): string {
-    if (this.text === null) throw new EngineExecutionError("Engine view has no text", { view: this });
+    if (this.text === null) throw new InstanceExecutionError("LeanCTX instance view has no text", { view: this });
     return this.text;
   }
 
@@ -850,7 +850,7 @@ export class ContextView {
 
   verify(): boolean {
     try {
-      if (this.status !== EngineStatus.SUCCEEDED && this.status !== EngineStatus.DEGRADED) return false;
+      if (this.status !== InstanceStatus.SUCCEEDED && this.status !== InstanceStatus.DEGRADED) return false;
       if (this.recoveryRef === null || this.outputRef === null || this.outputDigest === null || this.text === null) return false;
       const sourceRefs = this.invocation.source_refs;
       if (!Array.isArray(sourceRefs) || !sourceRefs.includes(this.sourceRef)) return false;

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Immutable result envelope returned by an Agent Tool. */
+@SuppressWarnings("removal")
 public final class ToolResult {
     private final String tool;
     private final String text;

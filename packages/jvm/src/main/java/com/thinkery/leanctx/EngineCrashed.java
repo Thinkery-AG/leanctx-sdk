@@ -1,18 +1,24 @@
 package com.thinkery.leanctx;
 
-/** A persistent Agent Tools Engine process exited unexpectedly. */
-public class EngineCrashed extends EngineError {
+/**
+ * Deprecated alias of {@link InstanceCrashed}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineCrashed e)} and {@code catch (InstanceCrashed e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceCrashed}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public final class EngineCrashed extends InstanceCrashed {
     public EngineCrashed() {
-        this(null);
+        super();
     }
 
     public EngineCrashed(String message) {
-        this(message, null);
+        super(message);
     }
 
     public EngineCrashed(String message, Throwable cause) {
-        super(message, cause, "engine_crashed",
-                "create a new AgentContext; mutation and execution calls are never retried",
-                false, false, true, false, false);
+        super(message, cause);
     }
 }

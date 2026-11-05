@@ -1,6 +1,6 @@
 """Preview `.ctxpkg v2` checkpoint lifecycle bridge.
 
-The open Engine owns package parsing, hashing and Ed25519 verification. This
+The open instance owns package parsing, hashing and Ed25519 verification. This
 module owns Product admission and Workspace lifecycle semantics only.
 """
 
@@ -17,6 +17,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
+from . import _deprecation
 from .errors import (
     WorkspaceConflictError,
     WorkspaceIOError,
@@ -194,8 +195,8 @@ class SnapshotV1MigrationResult:
     provenance: SnapshotV1MigrationProvenance
 
 
-class LocalCheckpointPackageEngine:
-    """Bounded subprocess bridge to the open Engine checkpoint package path."""
+class LocalCheckpointPackageInstance:
+    """Bounded subprocess bridge to the open instance checkpoint package path."""
 
     def __init__(
         self,
@@ -207,27 +208,27 @@ class LocalCheckpointPackageEngine:
         selected = executable or shutil.which("lean-ctx")
         if selected is None:
             raise WorkspaceIncompatibleError(
-                "lean-ctx Engine executable is unavailable"
+                "lean-ctx instance executable is unavailable"
             )
         try:
             selected_info = os.lstat(selected)
         except OSError as exc:
             raise WorkspaceIncompatibleError(
-                "lean-ctx Engine executable is unavailable"
+                "lean-ctx instance executable is unavailable"
             ) from exc
         if stat.S_ISLNK(selected_info.st_mode):
-            raise WorkspaceIncompatibleError("lean-ctx Engine executable is invalid")
+            raise WorkspaceIncompatibleError("lean-ctx instance executable is invalid")
         resolved = os.path.realpath(selected)
         try:
             info = os.stat(resolved)
         except OSError as exc:
             raise WorkspaceIncompatibleError(
-                "lean-ctx Engine executable is unavailable"
+                "lean-ctx instance executable is unavailable"
             ) from exc
         if not stat.S_ISREG(info.st_mode) or info.st_mode & stat.S_IXUSR == 0:
-            raise WorkspaceIncompatibleError("lean-ctx Engine executable is invalid")
+            raise WorkspaceIncompatibleError("lean-ctx instance executable is invalid")
         if timeout <= 0 or timeout > 120:
-            raise WorkspaceValidationError("Engine timeout is invalid")
+            raise WorkspaceValidationError("Instance timeout is invalid")
         self._executable = resolved
         self._timeout = timeout
         self._environment = dict(environment or {})
@@ -252,17 +253,17 @@ class LocalCheckpointPackageEngine:
             raise WorkspacePolicyError()
         if result.returncode != 0:
             raise WorkspaceIncompatibleError(
-                "Engine rejected checkpoint package operation"
+                "Instance rejected checkpoint package operation"
             )
         try:
             decoded = result.stdout.decode("utf-8", "strict")
             value = strict_json_loads(decoded)
         except Exception as exc:
             raise WorkspaceIncompatibleError(
-                "Engine checkpoint response is invalid"
+                "Instance checkpoint response is invalid"
             ) from exc
         if not isinstance(value, Mapping):
-            raise WorkspaceIncompatibleError("Engine checkpoint response is invalid")
+            raise WorkspaceIncompatibleError("Instance checkpoint response is invalid")
         return value
 
     def seal(
@@ -348,7 +349,7 @@ class LocalCheckpointPackageEngine:
         )
         if response["schema_version"] != _INSPECT_SCHEMA:
             raise WorkspaceIncompatibleError(
-                "Engine checkpoint inspect schema is unsupported"
+                "Instance checkpoint inspect schema is unsupported"
             )
         package = _exact(
             response["package"],
@@ -516,7 +517,8 @@ def seal_checkpoint_package(
     *,
     package_name: str,
     package_version: str,
-    engine: Optional[LocalCheckpointPackageEngine] = None,
+    instance: Optional[LocalCheckpointPackageInstance] = None,
+    engine: Optional[LocalCheckpointPackageInstance] = None,
     migration_provenance: Optional[SnapshotV1MigrationProvenance] = None,
     sign: bool = True,
 ) -> CheckpointPackageInspection:
@@ -527,7 +529,9 @@ def seal_checkpoint_package(
         != checkpoint.to_dict()
     ):
         raise WorkspaceConflictError()
-    selected = engine or LocalCheckpointPackageEngine()
+    selected = _deprecation.renamed_kwarg(
+        "engine", engine, "instance", instance, None
+    ) or LocalCheckpointPackageInstance()
     inspection = selected.seal(
         checkpoint,
         destination,
@@ -545,11 +549,14 @@ def seed_workspace_from_package(
     package_path: Any,
     name: str,
     *,
-    engine: Optional[LocalCheckpointPackageEngine] = None,
+    instance: Optional[LocalCheckpointPackageInstance] = None,
+    engine: Optional[LocalCheckpointPackageInstance] = None,
     trusted_signer: bool = False,
     allow_unsigned: bool = False,
 ) -> ContextWorkspace:
-    selected = engine or LocalCheckpointPackageEngine()
+    selected = _deprecation.renamed_kwarg(
+        "engine", engine, "instance", instance, None
+    ) or LocalCheckpointPackageInstance()
     inspection = selected.inspect(package_path)
     if inspection.signed and not trusted_signer:
         raise WorkspacePolicyError()
@@ -576,14 +583,17 @@ def migrate_snapshot_v1(
     workspace: ContextWorkspace,
     snapshot_path: Any,
     *,
-    engine: Optional[LocalCheckpointPackageEngine] = None,
+    instance: Optional[LocalCheckpointPackageInstance] = None,
+    engine: Optional[LocalCheckpointPackageInstance] = None,
     limitations: Sequence[str],
 ) -> SnapshotV1MigrationResult:
     if not limitations:
         raise WorkspaceValidationError(
             "SnapshotV1 migration requires explicit limitations"
         )
-    selected = engine or LocalCheckpointPackageEngine()
+    selected = _deprecation.renamed_kwarg(
+        "engine", engine, "instance", instance, None
+    ) or LocalCheckpointPackageInstance()
     inspection = selected.inspect_snapshot_v1(snapshot_path)
     checkpoint = workspace.checkpoint()
     provenance = SnapshotV1MigrationProvenance(
@@ -598,3 +608,13 @@ def migrate_snapshot_v1(
         checkpoint,
         provenance,
     )
+
+
+# Engine names are deprecated aliases of the same objects until SDK 2.0.
+__getattr__ = _deprecation.module_getattr(
+    __name__,
+    globals(),
+    {
+        "LocalCheckpointPackageEngine",
+    },
+)

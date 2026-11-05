@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,7 +27,9 @@ const (
 
 var forbiddenEnvironment = map[string]bool{
 	"COMSPEC": true, "DYLD_INSERT_LIBRARIES": true, "HOME": true,
-	"LD_PRELOAD": true, "PATH": true, "PATHEXT": true,
+	"DYLD_LIBRARY_PATH": true,
+	"LD_LIBRARY_PATH":   true,
+	"LD_PRELOAD":        true, "PATH": true, "PATHEXT": true,
 	"PYTHONPATH": true, "RUSTC_WRAPPER": true, "SHELL": true,
 }
 
@@ -184,9 +187,11 @@ type AgentContextOptions struct {
 	Task            string
 	Permissions     AgentPermissions
 	ExecutionPolicy ExecutionPolicy
-	EngineBinary    string
-	Timeout         time.Duration
-	GitLabSource    *GitLabSource
+	InstanceBinary  string
+	// Deprecated: use InstanceBinary. Used only when InstanceBinary is empty.
+	EngineBinary string
+	Timeout      time.Duration
+	GitLabSource *GitLabSource
 }
 
 // GitLabSource selects a host-owned GitLab CLI source for one Agent Tools session.
@@ -265,12 +270,20 @@ type AgentContext struct {
 	Task            string
 	Permissions     AgentPermissions
 	ExecutionPolicy ExecutionPolicy
-	EngineBinary    string
-	Timeout         time.Duration
-	gitlabSource    *GitLabSource
+	InstanceBinary  string
+	// Deprecated: use InstanceBinary. Mirrors InstanceBinary as opened.
+	EngineBinary string
+	Timeout      time.Duration
+	gitlabSource *GitLabSource
 
-	mu             sync.Mutex
-	command        *exec.Cmd
+	// exchangeSlot admits one exchange at a time. It is a channel, not a
+	// mutex, so that a waiting call still honours its own context and deadline.
+	exchangeSlot chan struct{}
+	mu           sync.Mutex
+	command      *exec.Cmd
+	// The context's own ends of the Engine pipes. Closing them is what ends
+	// the transport and stderr goroutines when the Engine cannot be reaped.
+	pipes          []io.Closer
 	stdin          *bufio.Writer
 	stdout         *bufio.Reader
 	stderrDone     chan struct{}
@@ -282,6 +295,76 @@ type AgentContext struct {
 	capabilities   []string
 	metrics        AgentMetrics
 	policyDir      string
+	// Shutdown has exactly one owner. shutdownDone closes when that owner has
+	// finished; processFailure is its stored result and never changes afterwards.
+	shutdownStarted bool
+	shutdownDone    chan struct{}
+	processFailure  error
+	containment     containmentState
+}
+
+// SessionContainment says how the Engine's own process tree is contained.
+//
+// SessionContainmentInstanceStarter: the process the SDK started is the Engine's
+// session starter. It runs the Engine in a process group of its own, ends that
+// group when the Engine exits, when the SDK ends the starter or when the SDK's
+// process is gone, and exits only afterwards.
+//
+// SessionContainmentUnavailable is reduced containment: the Engine binary has
+// no such mode, or the platform is Windows. The SDK's own process-group
+// handling is then all there is.
+type SessionContainment string
+
+const (
+	SessionContainmentInstanceStarter SessionContainment = "engine-starter"
+	SessionContainmentUnavailable     SessionContainment = "unavailable"
+)
+
+const sessionContainmentEnv = "LEAN_CTX_SESSION_CONTAINMENT"
+
+// The starter writes this line to standard output before the Engine exists.
+var sessionContainmentAck = []byte("{\"leanctx_session_containment\":1}\n")
+
+// containmentState records whether the first output line of an Engine start
+// was the starter's acknowledgement. Only the very first line can be.
+type containmentState struct {
+	mu       sync.Mutex
+	seen     bool
+	contains bool
+}
+
+func (s *containmentState) reset() {
+	s.mu.Lock()
+	s.seen, s.contains = false, false
+	s.mu.Unlock()
+}
+
+// firstLine reports whether line is the acknowledgement. It answers true at
+// most once per start, and only for the first line.
+func (s *containmentState) firstLine(line []byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.seen {
+		return false
+	}
+	s.seen = true
+	s.contains = bytes.Equal(line, sessionContainmentAck)
+	return s.contains
+}
+
+func (s *containmentState) value() SessionContainment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.contains {
+		return SessionContainmentInstanceStarter
+	}
+	return SessionContainmentUnavailable
+}
+
+// SessionContainment reports how the Engine's process tree is contained. It is
+// final once the context is open.
+func (a *AgentContext) SessionContainment() SessionContainment {
+	return a.containment.value()
 }
 
 // OpenAgentContext starts the child and completes the exact hello handshake.
@@ -327,11 +410,14 @@ func OpenAgentContext(ctx context.Context, projectRoot string, options ...AgentC
 	if timeout < 100*time.Millisecond || timeout > 120*time.Second {
 		return nil, NewConfigurationError("timeout must be between 0.1 and 120 seconds")
 	}
-	binary := option.EngineBinary
+	binary := option.InstanceBinary
+	if binary == "" {
+		binary = option.EngineBinary
+	}
 	if binary == "" {
 		binary = "lean-ctx"
 	}
-	client := &AgentContext{ProjectRoot: root, Task: option.Task, Permissions: option.Permissions, ExecutionPolicy: policy, EngineBinary: binary, Timeout: timeout, gitlabSource: selectedGitLab, stderrDone: make(chan struct{})}
+	client := &AgentContext{ProjectRoot: root, Task: option.Task, Permissions: option.Permissions, ExecutionPolicy: policy, InstanceBinary: binary, EngineBinary: binary, Timeout: timeout, gitlabSource: selectedGitLab, stderrDone: make(chan struct{}), exchangeSlot: make(chan struct{}, 1), shutdownDone: make(chan struct{})}
 	if err := client.start(ctx); err != nil {
 		client.terminate()
 		return nil, err
@@ -366,11 +452,11 @@ func validateAgentRoot(projectRoot string) (string, error) {
 func (a *AgentContext) start(ctx context.Context) error {
 	policyDir, err := os.MkdirTemp(a.ProjectRoot, ".leanctx-agent-")
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools policy directory could not be created")
+		return NewInstanceUnavailable("Agent Tools policy directory could not be created")
 	}
 	a.policyDir = policyDir
 	if err := os.Chmod(policyDir, 0700); err != nil {
-		return NewEngineUnavailable("Agent Tools policy directory could not be secured")
+		return NewInstanceUnavailable("Agent Tools policy directory could not be secured")
 	}
 	policyPath := filepath.Join(policyDir, "policy.json")
 	policy := map[string]any{"allow_exec": a.Permissions.Execute, "allow_write": a.Permissions.Write, "allowed_env": a.ExecutionPolicy.AllowedEnv, "allowed_executables": a.ExecutionPolicy.AllowedExecutables, "max_timeout_ms": int64(a.ExecutionPolicy.MaxTimeout / time.Millisecond), "schema_version": int64(AgentToolsSchemaVersion)}
@@ -383,11 +469,11 @@ func (a *AgentContext) start(ctx context.Context) error {
 	}
 	payload, err := canonicalJSON(policy)
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools policy could not be encoded")
+		return NewInstanceUnavailable("Agent Tools policy could not be encoded")
 	}
 	file, err := os.OpenFile(policyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools policy could not be created")
+		return NewInstanceUnavailable("Agent Tools policy could not be created")
 	}
 	if _, err = file.Write(payload); err == nil {
 		err = file.Sync()
@@ -396,9 +482,9 @@ func (a *AgentContext) start(ctx context.Context) error {
 		err = closeErr
 	}
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools policy could not be written")
+		return NewInstanceUnavailable("Agent Tools policy could not be written")
 	}
-	binary, err := resolveExecutable(a.EngineBinary)
+	binary, err := resolveExecutable(a.InstanceBinary)
 	if err != nil {
 		return err
 	}
@@ -411,25 +497,36 @@ func (a *AgentContext) start(ctx context.Context) error {
 			command.Env = append(command.Env, name+"="+value)
 		}
 	}
+	// Executable resolution needs a search path; forward it only under the execute permission.
+	if a.Permissions.Execute {
+		for _, name := range []string{"PATH", "TMPDIR", "TEMP", "TMP"} {
+			if value, ok := os.LookupEnv(name); ok {
+				command.Env = append(command.Env, name+"="+value)
+			}
+		}
+	}
 	configureProcessGroup(command)
+	requestSessionContainment(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools stdin could not be opened")
+		return NewInstanceUnavailable("Agent Tools stdin could not be opened")
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools stdout could not be opened")
+		return NewInstanceUnavailable("Agent Tools stdout could not be opened")
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		return NewEngineUnavailable("Agent Tools stderr could not be opened")
+		return NewInstanceUnavailable("Agent Tools stderr could not be opened")
 	}
 	if err := command.Start(); err != nil {
-		return NewEngineUnavailable("Agent Tools Engine could not be started")
+		return NewInstanceUnavailable("Agent Tools instance could not be started")
 	}
 	a.command = command
+	a.pipes = []io.Closer{stdin, stdout, stderr}
 	a.stdin = bufio.NewWriter(stdin)
 	a.stdout = bufio.NewReaderSize(stdout, 64*1024)
+	a.containment.reset()
 	go a.collectStderr(stderr)
 	result, err := a.exchange(ctx, map[string]any{"op": "hello", "schema_version": int64(AgentToolsSchemaVersion), "transport_version": int64(AgentToolsTransportVersion), "agent_tools_interface_version": AgentToolsInterfaceVersion, "sdk_version": Version}, a.Timeout)
 	if err != nil {
@@ -438,17 +535,36 @@ func (a *AgentContext) start(ctx context.Context) error {
 	if err := a.acceptHello(result); err != nil {
 		return err
 	}
-	a.removePolicy()
-	return nil
+	return a.removePolicy()
 }
 
-func (a *AgentContext) removePolicy() {
-	if a.policyDir == "" {
-		return
+// removePolicy removes exactly the temporary policy directory this context
+// created: a direct child of the project root named ".leanctx-agent-*" that
+// holds at most policy.json. It is idempotent; a directory that cannot be
+// removed stays recorded for the next attempt and is reported.
+func (a *AgentContext) removePolicy() error {
+	a.mu.Lock()
+	policyDir := a.policyDir
+	a.mu.Unlock()
+	if policyDir == "" {
+		return nil
 	}
-	_ = os.Remove(filepath.Join(a.policyDir, "policy.json"))
-	_ = os.Remove(a.policyDir)
-	a.policyDir = ""
+	if filepath.Dir(policyDir) != a.ProjectRoot || !strings.HasPrefix(filepath.Base(policyDir), ".leanctx-agent-") {
+		return NewInstanceExecutionError("Agent Tools policy path is not owned by this context", nil, nil)
+	}
+	fileErr := os.Remove(filepath.Join(policyDir, "policy.json"))
+	dirErr := os.Remove(policyDir)
+	for _, err := range []error{fileErr, dirErr} {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return NewInstanceExecutionError("Agent Tools policy could not be removed", nil, nil)
+		}
+	}
+	a.mu.Lock()
+	if a.policyDir == policyDir {
+		a.policyDir = ""
+	}
+	a.mu.Unlock()
+	return nil
 }
 
 func (a *AgentContext) collectStderr(reader io.Reader) {
@@ -481,8 +597,9 @@ func (a *AgentContext) nextRequestID() string {
 }
 
 type agentReadResult struct {
-	line []byte
-	err  error
+	line  []byte
+	err   error
+	write bool
 }
 
 func readAgentLine(reader *bufio.Reader) ([]byte, error) {
@@ -507,12 +624,35 @@ func (a *AgentContext) exchange(ctx context.Context, request map[string]any, tim
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// One deadline covers waiting for the exchange slot, the request write and
+	// the response.
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	// exchangeSlot serializes whole exchanges. a.mu guards state only and is
+	// never held across pipe I/O, so Cancel, Close and the stderr collector
+	// cannot be blocked by an Engine that stopped reading or answering. A call
+	// that gives up while waiting for the slot never touched the wire: it
+	// returns its own error and leaves the session and the running call intact.
+	if err := ctx.Err(); err != nil {
+		return nil, agentContextFailure(err)
+	}
+	select {
+	case a.exchangeSlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, agentContextFailure(ctx.Err())
+	case <-deadline.C:
+		return nil, NewInstanceTimeout("Agent Tools request exceeded its deadline while another call was running")
+	}
+	defer func() { <-a.exchangeSlot }()
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.closed || a.command == nil || a.command.ProcessState != nil {
-		return nil, NewEngineCrashed(a.crashMessageLocked())
+		message := a.crashMessageLocked()
+		a.mu.Unlock()
+		return nil, NewInstanceCrashed(message)
 	}
 	requestID := a.nextRequestID()
+	stdin, stdout := a.stdin, a.stdout
+	a.mu.Unlock()
 	envelope := make(map[string]any, len(request)+1)
 	for key, value := range request {
 		envelope[key] = value
@@ -520,133 +660,248 @@ func (a *AgentContext) exchange(ctx context.Context, request map[string]any, tim
 	envelope["id"] = requestID
 	payload, err := canonicalJSON(envelope)
 	if err != nil {
-		return nil, NewEngineProtocolError("Agent Tools request is not deterministic JSON")
+		return nil, NewInstanceProtocolError("Agent Tools request is not deterministic JSON")
 	}
 	payload = append(payload, '\n')
 	if len(payload) > maxAgentRequestBytes {
-		return nil, NewEngineProtocolError("Agent Tools request exceeds its bound")
+		return nil, NewInstanceProtocolError("Agent Tools request exceeds its bound")
 	}
-	if _, err := a.stdin.Write(payload); err != nil {
-		a.closed = true
-		return nil, NewEngineCrashed(a.crashMessageLocked())
-	}
-	if err := a.stdin.Flush(); err != nil {
-		a.closed = true
-		return nil, NewEngineCrashed(a.crashMessageLocked())
-	}
+	// The write and the read run on a goroutine that termination unblocks by
+	// closing this context's own pipe ends.
 	readResult := make(chan agentReadResult, 1)
 	go func() {
-		line, err := readAgentLine(a.stdout)
+		if _, err := stdin.Write(payload); err != nil {
+			readResult <- agentReadResult{err: err, write: true}
+			return
+		}
+		if err := stdin.Flush(); err != nil {
+			readResult <- agentReadResult{err: err, write: true}
+			return
+		}
+		line, err := readAgentLine(stdout)
+		if err == nil && a.containment.firstLine(line) {
+			// The session starter's acknowledgement is not a response.
+			line, err = readAgentLine(stdout)
+		}
 		readResult <- agentReadResult{line: line, err: err}
 	}()
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
 	select {
 	case <-ctx.Done():
-		a.closed = true
-		cleanupErr := a.terminateLocked()
-		<-readResult
-		if cleanupErr != nil {
-			return nil, cleanupErr
-		}
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, NewEngineTimeout("Agent Tools response exceeded its deadline")
-		}
-		return nil, ctx.Err()
+		failure := a.terminalError(agentContextFailure(ctx.Err()))
+		return nil, joinTransport(failure, readResult)
 	case <-deadline.C:
-		a.closed = true
-		cleanupErr := a.terminateLocked()
-		<-readResult
-		if cleanupErr != nil {
-			return nil, cleanupErr
-		}
-		return nil, NewEngineTimeout("Agent Tools response exceeded its deadline")
+		failure := a.terminalError(NewInstanceTimeout("Agent Tools response exceeded its deadline"))
+		return nil, joinTransport(failure, readResult)
 	case result := <-readResult:
 		if result.err != nil {
-			a.closed = true
-			if errors.Is(result.err, bufio.ErrBufferFull) {
-				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response exceeds its bound"))
+			if !result.write && errors.Is(result.err, bufio.ErrBufferFull) {
+				return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response exceeds its bound"))
 			}
-			return nil, a.terminalErrorLocked(NewEngineCrashed(a.crashMessageLocked()))
+			return nil, a.terminalError(NewInstanceCrashed(a.crashMessage()))
 		}
 		if len(result.line) == 0 || result.line[len(result.line)-1] != '\n' {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response is not newline terminated"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response is not newline terminated"))
 		}
 		decoded, err := strictJSONLoads(bytes.TrimSuffix(result.line, []byte{'\n'}), "Agent Tools response")
 		if err != nil {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response is invalid JSON"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response is invalid JSON"))
 		}
 		response, ok := decoded.(map[string]any)
 		if !ok {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope is invalid"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response envelope is invalid"))
 		}
 		id, ok := response["id"].(string)
 		if !ok || id != requestID {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response id is unexpected"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response id is unexpected"))
 		}
 		okValue, ok := response["ok"].(bool)
 		if !okValue && !ok {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope is invalid"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response envelope is invalid"))
 		}
 		if okValue {
 			if len(response) != 3 {
-				a.closed = true
-				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response envelope fields are invalid"))
+				return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response envelope fields are invalid"))
 			}
 			result, ok := response["result"].(map[string]any)
 			if !ok {
-				a.closed = true
-				return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools response omitted result"))
+				return nil, a.terminalError(NewInstanceProtocolError("Agent Tools response omitted result"))
 			}
 			return result, nil
 		}
 		if len(response) != 3 {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope fields are invalid"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools error envelope fields are invalid"))
 		}
 		errorValue, ok := response["error"].(map[string]any)
 		if !ok || len(errorValue) != 2 {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope is invalid"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools error envelope is invalid"))
 		}
 		code, codeOK := errorValue["code"].(string)
 		message, messageOK := errorValue["message"].(string)
 		if !codeOK || !messageOK {
-			a.closed = true
-			return nil, a.terminalErrorLocked(NewEngineProtocolError("Agent Tools error envelope is invalid"))
+			return nil, a.terminalError(NewInstanceProtocolError("Agent Tools error envelope is invalid"))
 		}
 		return nil, agentErrorFromWire(code, message)
 	}
 }
 
-func (a *AgentContext) terminateLocked() error {
-	command := a.command
-	a.command = nil
-	if command == nil {
-		return nil
+// terminalError ends the session through the one cleanup routine and returns
+// failure. A cleanup error is never dropped: it is joined to failure, so
+// errors.As and errors.Is still find the primary error.
+func (a *AgentContext) terminalError(failure error) error {
+	cleanupErr := a.shutdown()
+	if cleanupErr == nil {
+		return failure
 	}
-	killErr := terminateProcess(command)
-	waitErr := command.Wait()
-	if killErr != nil {
-		return NewEngineExecutionError("Agent Tools process tree could not be terminated", nil, nil)
-	}
-	var exitErr *exec.ExitError
-	if waitErr != nil && !errors.As(waitErr, &exitErr) {
-		return NewEngineExecutionError("Agent Tools process could not be reaped", nil, nil)
-	}
-	return nil
+	return errors.Join(failure, cleanupErr)
 }
 
-func (a *AgentContext) terminalErrorLocked(protocolErr error) error {
-	if cleanupErr := a.terminateLocked(); cleanupErr != nil {
-		return cleanupErr
+// agentContextFailure maps a caller context error to the SDK's typed timeout
+// where it is a deadline; a plain cancellation stays the caller's own error.
+func agentContextFailure(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return NewInstanceTimeout("Agent Tools response exceeded its deadline")
 	}
-	return protocolErr
+	return err
+}
+
+// Budgets for ending a session. They are variables so that tests can prove the
+// bounded paths without waiting for the production values.
+var (
+	agentReapBudget      = 5 * time.Second
+	agentTransportBudget = 2 * time.Second
+	agentTerminate       = terminateProcess
+)
+
+var errAgentReapBudget = errors.New("process was not reaped within its budget")
+
+// terminateAndReap ends the process tree, closes this context's own pipe ends
+// so that its transport and stderr goroutines end even if the Engine survives,
+// and reaps the leader within agentReapBudget. Nothing here can wait forever:
+// if the Engine cannot be reaped, waitErr is errAgentReapBudget and the reaping
+// goroutine stays parked until the operating system releases the process.
+//
+// Order matters: every signal is sent by agentTerminate while the leader is
+// still unreaped, which is what makes its group number ours. Wait is called
+// only afterwards, here and nowhere else for an agent's command, and nothing
+// is signalled once it has been called.
+func terminateAndReap(command *exec.Cmd, pipes []io.Closer) (killErr error, waitErr error) {
+	killErr = agentTerminate(command)
+	for _, pipe := range pipes {
+		_ = pipe.Close()
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- command.Wait() }()
+	budget := time.NewTimer(agentReapBudget)
+	defer budget.Stop()
+	select {
+	case waitErr = <-waited:
+	case <-budget.C:
+		return killErr, errAgentReapBudget
+	}
+	return killErr, waitErr
+}
+
+// joinTransport waits, within agentTransportBudget, for the goroutine that owns
+// the pipe I/O of one exchange. A goroutine that does not end is reported with
+// the terminal error instead of being waited for.
+func joinTransport(failure error, done <-chan agentReadResult) error {
+	budget := time.NewTimer(agentTransportBudget)
+	defer budget.Stop()
+	select {
+	case <-done:
+		return failure
+	case <-budget.C:
+		return errors.Join(failure, NewInstanceExecutionError("Agent Tools transport did not stop within its budget", nil, nil))
+	}
+}
+
+func (a *AgentContext) crashMessage() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.crashMessageLocked()
+}
+
+// shutdown is the single cleanup routine behind every terminal path: protocol
+// and transport failures, deadlines, caller cancellation, Cancel and Close.
+//
+// Exactly one caller owns the cleanup of the process. Every other caller,
+// concurrent or later, waits within a budget for that owner and then reports
+// the owner's stored result: a failed cleanup stays failed for everybody, and
+// nobody reports success before the cleanup is confirmed. A caller whose
+// budget runs out first gets a typed "still pending" error, never nil. Once
+// shutdown has started the session cannot become live again. a.mu is held
+// only to claim ownership; killing, reaping and file removal run unlocked.
+func (a *AgentContext) shutdown() error {
+	a.mu.Lock()
+	owner := !a.shutdownStarted
+	a.shutdownStarted = true
+	a.closed = true
+	command := a.command
+	a.command = nil
+	a.mu.Unlock()
+	if !owner {
+		budget := time.NewTimer(agentReapBudget + agentTransportBudget + 3*time.Second)
+		defer budget.Stop()
+		select {
+		case <-a.shutdownDone:
+			return a.cleanupResult()
+		case <-budget.C:
+			return NewInstanceExecutionError("Agent Tools cleanup is still pending", nil, nil)
+		}
+	}
+	processFailure := reapAgentProcess(command, a.pipes, a.stderrDone)
+	a.mu.Lock()
+	a.processFailure = processFailure
+	a.mu.Unlock()
+	close(a.shutdownDone)
+	return a.cleanupResult()
+}
+
+// cleanupResult is what every caller of a finished shutdown reports: the
+// owner's stored process cleanup failure, joined with the state of the policy
+// directory. Removing the policy directory is retried on each call because it
+// is a plain file operation that can be confirmed later; a failed process
+// cleanup is never retried and never forgotten.
+func (a *AgentContext) cleanupResult() error {
+	a.mu.Lock()
+	processFailure := a.processFailure
+	a.mu.Unlock()
+	policyFailure := a.removePolicy()
+	if processFailure != nil && policyFailure != nil {
+		return errors.Join(processFailure, policyFailure)
+	}
+	if processFailure != nil {
+		return processFailure
+	}
+	return policyFailure
+}
+
+// reapAgentProcess ends and reaps the one process this context started and
+// reports every failure. It runs once, in the shutdown owner.
+func reapAgentProcess(command *exec.Cmd, pipes []io.Closer, stderrDone <-chan struct{}) error {
+	var failures []error
+	if command != nil {
+		killErr, waitErr := terminateAndReap(command, pipes)
+		var exitErr *exec.ExitError
+		if killErr != nil {
+			failures = append(failures, NewInstanceExecutionError("Agent Tools process tree could not be terminated", nil, nil))
+		}
+		if errors.Is(waitErr, errAgentReapBudget) {
+			failures = append(failures, NewInstanceExecutionError("Agent Tools process could not be reaped within its budget", nil, nil))
+		} else if killErr == nil && waitErr != nil && !errors.As(waitErr, &exitErr) {
+			failures = append(failures, NewInstanceExecutionError("Agent Tools process could not be reaped", nil, nil))
+		}
+		if stderrDone != nil {
+			select {
+			case <-stderrDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	if len(failures) == 1 {
+		return failures[0]
+	}
+	return errors.Join(failures...)
 }
 
 func agentErrorFromWire(code, message string) error {
@@ -656,41 +911,80 @@ func agentErrorFromWire(code, message string) error {
 	case "unsupported_capability":
 		return NewUnsupportedCapabilityError(message)
 	case "invalid_request", "invalid_state", "unsupported_interface":
-		return NewEngineProtocolError(message)
+		return NewInstanceProtocolError(message)
 	default:
-		return NewEngineExecutionError(message, nil, nil)
+		return NewInstanceExecutionError(message, nil, nil)
 	}
+}
+
+// The (interface, schema, transport, engine) pairs a hello is accepted for:
+// the rows of contracts/agent-tools-compatibility-v1.json, mirrored here and
+// held equal to it by scripts/check_language_versions.py. A pair that is not
+// a row is refused, whatever the Engine says about itself.
+// agent-tools-compatibility: begin
+var admittedInstancePairs = []struct {
+	iface     string
+	schema    int
+	transport int
+	engine    string
+}{
+	{"1.0.0", 1, 1, "3.11.0"},
+	{"1.0.0", 1, 1, "3.11.3"},
+	{"1.0.0", 1, 1, "3.11.4"},
+	{"1.0.0", 1, 1, "3.11.5"},
+	{"1.0.0", 1, 1, "3.12.0"},
+	{"1.0.0", 1, 1, "3.12.1"},
+	{"1.0.0", 1, 1, "3.12.2"},
+}
+
+// agent-tools-compatibility: end
+
+func admittedInstancePair(engine string) bool {
+	for _, pair := range admittedInstancePairs {
+		if pair.iface == AgentToolsInterfaceVersion && pair.schema == AgentToolsSchemaVersion && pair.transport == AgentToolsTransportVersion && pair.engine == engine {
+			return true
+		}
+	}
+	return false
+}
+
+// helloInteger reports whether a hello version is written as the JSON integer
+// expected: digits only, as the Engine sent them. The general number reader
+// would also take 1.0 and 1e0 for 1; a version field is not such a number.
+func helloInteger(value any, expected int) bool {
+	number, ok := value.(json.Number)
+	return ok && number.String() == strconv.Itoa(expected)
 }
 
 func (a *AgentContext) acceptHello(result map[string]any) error {
 	expected := map[string]bool{"agent_tools_interface_version": true, "allow_exec": true, "allow_write": true, "capabilities": true, "engine_version": true, "schema_version": true, "transport_version": true}
 	if err := exactObjectKeys(result, expected, "Agent Tools hello"); err != nil {
-		return NewEngineProtocolError("Agent Tools hello is incompatible")
+		return NewInstanceProtocolError("Agent Tools hello is incompatible")
 	}
-	if result["agent_tools_interface_version"] != AgentToolsInterfaceVersion || result["engine_version"] != SupportedAgentToolsEngineVersion || result["allow_exec"] != a.Permissions.Execute || result["allow_write"] != a.Permissions.Write {
-		return NewEngineProtocolError("Agent Tools hello is incompatible")
+	if result["agent_tools_interface_version"] != AgentToolsInterfaceVersion || result["allow_exec"] != a.Permissions.Execute || result["allow_write"] != a.Permissions.Write {
+		return NewInstanceProtocolError("Agent Tools hello is incompatible")
 	}
-	if schema, err := protocolInt(result["schema_version"], "hello.schema_version"); err != nil || schema != AgentToolsSchemaVersion {
-		return NewEngineProtocolError("Agent Tools hello is incompatible")
+	if !helloInteger(result["schema_version"], AgentToolsSchemaVersion) || !helloInteger(result["transport_version"], AgentToolsTransportVersion) {
+		return NewInstanceProtocolError("Agent Tools hello is incompatible")
 	}
-	if transport, err := protocolInt(result["transport_version"], "hello.transport_version"); err != nil || transport != AgentToolsTransportVersion {
-		return NewEngineProtocolError("Agent Tools hello is incompatible")
+	if engine, ok := result["engine_version"].(string); !ok || !admittedInstancePair(engine) {
+		return NewInstanceProtocolError("Agent Tools instance pair is unsupported")
 	}
 	values, ok := result["capabilities"].([]any)
 	if !ok {
-		return NewEngineProtocolError("Agent Tools capabilities are invalid")
+		return NewInstanceProtocolError("Agent Tools capabilities are invalid")
 	}
 	capabilities := make([]string, len(values))
 	for i, value := range values {
 		capabilities[i], ok = value.(string)
 		if !ok {
-			return NewEngineProtocolError("Agent Tools capabilities are invalid")
+			return NewInstanceProtocolError("Agent Tools capabilities are invalid")
 		}
 	}
 	sorted := append([]string(nil), capabilities...)
 	sort.Strings(sorted)
 	if !equalStrings(capabilities, uniqueStrings(sorted)) {
-		return NewEngineProtocolError("Agent Tools capabilities are not canonical")
+		return NewInstanceProtocolError("Agent Tools capabilities are not canonical")
 	}
 	expectedCapabilities := append([]string(nil), agentReadTools...)
 	if a.Permissions.Write {
@@ -704,7 +998,7 @@ func (a *AgentContext) acceptHello(result map[string]any) error {
 	}
 	sort.Strings(expectedCapabilities)
 	if !equalStrings(capabilities, uniqueStrings(expectedCapabilities)) {
-		return NewEngineProtocolError("Agent Tools capabilities do not match policy")
+		return NewInstanceProtocolError("Agent Tools capabilities do not match policy")
 	}
 	a.capabilities = append([]string(nil), capabilities...)
 	a.helloAccepted = true
@@ -726,12 +1020,12 @@ func equalStrings(left, right []string) bool {
 func (a *AgentContext) crashMessageLocked() string {
 	detail := strings.TrimSpace(a.stderr.String())
 	if detail == "" {
-		return "Agent Tools Engine exited"
+		return "Agent Tools instance exited"
 	}
 	if len(detail) > 4096 {
 		detail = detail[:4096]
 	}
-	return "Agent Tools Engine exited: " + detail
+	return "Agent Tools instance exited: " + detail
 }
 
 func (a *AgentContext) callToolContext(ctx context.Context, tool string, arguments map[string]any, timeout time.Duration) (*ToolResult, error) {
@@ -739,7 +1033,7 @@ func (a *AgentContext) callToolContext(ctx context.Context, tool string, argumen
 	capable := contains(a.capabilities, tool)
 	a.mu.Unlock()
 	if !capable {
-		return nil, NewUnsupportedCapabilityError("Engine did not negotiate capability: " + tool)
+		return nil, NewUnsupportedCapabilityError("LeanCTX instance did not negotiate capability: " + tool)
 	}
 	canonical, err := canonicalJSON(arguments)
 	if err != nil {
@@ -754,8 +1048,7 @@ func (a *AgentContext) callToolContext(ctx context.Context, tool string, argumen
 	}
 	result, err := parseToolResult(tool, value)
 	if err != nil {
-		a.terminalProtocol(err)
-		return nil, err
+		return nil, a.terminalError(err)
 	}
 	a.mu.Lock()
 	a.metrics.ToolCalls++
@@ -773,71 +1066,59 @@ func parseToolResult(tool string, value map[string]any) (*ToolResult, error) {
 	}
 	text, ok := value["text"].(string)
 	if !ok || len([]byte(text)) > maxTextBytes {
-		return nil, NewEngineProtocolError("Agent Tools text is invalid")
+		return nil, NewInstanceProtocolError("Agent Tools text is invalid")
 	}
 	var mode *string
 	if value["mode"] != nil {
 		modeValue, ok := value["mode"].(string)
 		if !ok {
-			return nil, NewEngineProtocolError("Agent Tools mode is invalid")
+			return nil, NewInstanceProtocolError("Agent Tools mode is invalid")
 		}
 		mode = &modeValue
 	}
 	original, err := protocolInt(value["original_tokens"], "Agent Tools original_tokens")
 	if err != nil || original < 0 {
-		return nil, NewEngineProtocolError("Agent Tools token metrics are invalid")
+		return nil, NewInstanceProtocolError("Agent Tools token metrics are invalid")
 	}
 	output, err := protocolInt(value["output_tokens"], "Agent Tools output_tokens")
 	if err != nil || output < 0 {
-		return nil, NewEngineProtocolError("Agent Tools token metrics are invalid")
+		return nil, NewInstanceProtocolError("Agent Tools token metrics are invalid")
 	}
 	saved, err := protocolInt(value["saved_tokens"], "Agent Tools saved_tokens")
 	if err != nil || saved < 0 || output+saved != original {
-		return nil, NewEngineProtocolError("Agent Tools token metrics are invalid")
+		return nil, NewInstanceProtocolError("Agent Tools token metrics are invalid")
 	}
 	changed, ok := value["changed"].(bool)
 	if !ok {
-		return nil, NewEngineProtocolError("Agent Tools status metadata is invalid")
+		return nil, NewInstanceProtocolError("Agent Tools status metadata is invalid")
 	}
 	blocksValue, ok := value["content_blocks"].([]any)
 	if !ok {
-		return nil, NewEngineProtocolError("Agent Tools content blocks are invalid")
+		return nil, NewInstanceProtocolError("Agent Tools content blocks are invalid")
 	}
 	blocks := make([]map[string]any, len(blocksValue))
 	for i, blockValue := range blocksValue {
 		block, ok := blockValue.(map[string]any)
 		if !ok {
-			return nil, NewEngineProtocolError("Agent Tools content blocks are invalid")
+			return nil, NewInstanceProtocolError("Agent Tools content blocks are invalid")
 		}
 		blocks[i], err = cloneMap(block)
 		if err != nil {
-			return nil, NewEngineProtocolError("Agent Tools content blocks are invalid")
+			return nil, NewInstanceProtocolError("Agent Tools content blocks are invalid")
 		}
 	}
 	var shell map[string]any
 	if value["shell"] != nil {
 		item, ok := value["shell"].(map[string]any)
 		if !ok {
-			return nil, NewEngineProtocolError("Agent Tools shell metadata is invalid")
+			return nil, NewInstanceProtocolError("Agent Tools shell metadata is invalid")
 		}
 		shell, err = cloneMap(item)
 		if err != nil {
-			return nil, NewEngineProtocolError("Agent Tools shell metadata is invalid")
+			return nil, NewInstanceProtocolError("Agent Tools shell metadata is invalid")
 		}
 	}
 	return &ToolResult{Tool: tool, Text: text, ContentBlocks: blocks, OriginalTokens: original, OutputTokens: output, SavedTokens: saved, Mode: mode, Changed: changed, Shell: shell}, nil
-}
-
-func (a *AgentContext) terminalProtocol(err error) {
-	a.mu.Lock()
-	a.closed = true
-	command := a.command
-	a.command = nil
-	a.mu.Unlock()
-	if command != nil {
-		_ = terminateProcess(command)
-		_ = command.Wait()
-	}
 }
 
 // Call invokes a negotiated non-execution tool.
@@ -1095,12 +1376,13 @@ func (a *AgentContext) Close() error {
 	if closed {
 		return a.terminate()
 	}
-	_, err := a.exchange(context.Background(), map[string]any{"op": "close"}, a.Timeout)
-	terminateErr := a.terminate()
-	if err != nil {
-		return err
-	}
-	return terminateErr
+	// The close request is a courtesy to the Engine, as in the other five
+	// bindings: whether it was answered does not decide the outcome. Close
+	// reports whether the session was cleaned up, which is what terminate
+	// confirms. An unanswered request has already ended the session through
+	// the terminal path, and its cleanup failure, if any, is the stored result.
+	_, _ = a.exchange(context.Background(), map[string]any{"op": "close"}, a.Timeout)
+	return a.terminate()
 }
 
 func (a *AgentContext) Cancel() error {
@@ -1108,35 +1390,7 @@ func (a *AgentContext) Cancel() error {
 }
 
 func (a *AgentContext) terminate() error {
-	a.mu.Lock()
-	if a.closed && a.command == nil {
-		a.mu.Unlock()
-		return nil
-	}
-	a.closed = true
-	command := a.command
-	policyDir := a.policyDir
-	a.command = nil
-	a.mu.Unlock()
-	var terminateErr error
-	if command != nil {
-		terminateErr = terminateProcess(command)
-		_ = command.Wait()
-	}
-	if a.stderrDone != nil {
-		select {
-		case <-a.stderrDone:
-		case <-time.After(2 * time.Second):
-		}
-	}
-	if policyDir != "" {
-		_ = os.Remove(filepath.Join(policyDir, "policy.json"))
-		_ = os.Remove(policyDir)
-	}
-	if terminateErr != nil {
-		return NewEngineExecutionError("Agent Tools process tree could not be terminated", nil, nil)
-	}
-	return nil
+	return a.shutdown()
 }
 
 // Reconnect always creates a fresh process and reuses the original policy
@@ -1145,12 +1399,12 @@ func (a *AgentContext) Reconnect(ctx context.Context) (*AgentContext, error) {
 	if err := a.Cancel(); err != nil {
 		return nil, err
 	}
-	return OpenAgentContext(ctx, a.ProjectRoot, AgentContextOptions{Task: a.Task, Permissions: a.Permissions, ExecutionPolicy: a.ExecutionPolicy, EngineBinary: a.EngineBinary, Timeout: a.Timeout, GitLabSource: a.gitlabSource})
+	return OpenAgentContext(ctx, a.ProjectRoot, AgentContextOptions{Task: a.Task, Permissions: a.Permissions, ExecutionPolicy: a.ExecutionPolicy, InstanceBinary: a.InstanceBinary, Timeout: a.Timeout, GitLabSource: a.gitlabSource})
 }
 
 func resolveExecutable(value string) (string, error) {
 	if value == "" {
-		return "", NewEngineUnavailable("configured Engine binary is unavailable")
+		return "", NewInstanceUnavailable("configured instance binary is unavailable")
 	}
 	candidate := value
 	if !filepath.IsAbs(candidate) && !strings.ContainsAny(candidate, `/\\`) {
@@ -1166,18 +1420,18 @@ func resolveExecutable(value string) (string, error) {
 			}
 		}
 		if candidate == "" {
-			return "", NewEngineUnavailable("configured Engine binary is unavailable")
+			return "", NewInstanceUnavailable("configured instance binary is unavailable")
 		}
 	} else {
 		var err error
 		candidate, err = filepath.Abs(candidate)
 		if err != nil {
-			return "", NewEngineUnavailable("configured Engine binary is unavailable")
+			return "", NewInstanceUnavailable("configured instance binary is unavailable")
 		}
 	}
 	resolved, err := filepath.EvalSymlinks(candidate)
 	if err != nil || !isExecutableRegular(resolved) {
-		return "", NewEngineUnavailable("configured Engine binary is unavailable")
+		return "", NewInstanceUnavailable("configured instance binary is unavailable")
 	}
 	return resolved, nil
 }
@@ -1224,7 +1478,7 @@ func (a *AsyncAgentContext) context() (*AgentContext, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.current == nil {
-		return nil, NewEngineUnavailable("AsyncAgentContext is not open")
+		return nil, NewInstanceUnavailable("AsyncAgentContext is not open")
 	}
 	return a.current, nil
 }
@@ -1259,6 +1513,14 @@ func (a *AsyncAgentContext) Metrics() (AgentMetrics, error) {
 		return AgentMetrics{}, err
 	}
 	return current.Metrics(), nil
+}
+
+func (a *AsyncAgentContext) SessionContainment() (SessionContainment, error) {
+	current, err := a.context()
+	if err != nil {
+		return SessionContainmentUnavailable, err
+	}
+	return current.SessionContainment(), nil
 }
 
 func (a *AsyncAgentContext) Capabilities() ([]string, error) {

@@ -1,55 +1,37 @@
 package com.thinkery.leanctx;
 
-/** The Engine validly rejected a request for policy or security reasons. */
-public class EngineRejected extends EngineError {
-    private final ContextFailure failure;
-    private final ContextView view;
-
+/**
+ * Deprecated alias of {@link InstanceRejected}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineRejected e)} and {@code catch (InstanceRejected e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceRejected}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public class EngineRejected extends InstanceRejected {
     public EngineRejected() {
-        this(null, null, null, null);
+        super();
     }
 
     public EngineRejected(String message) {
-        this(message, null, null, null);
+        super(message);
     }
 
     public EngineRejected(String message, ContextFailure failure, ContextView view) {
-        this(message, failure, view, null);
+        super(message, failure, view);
     }
 
-    public EngineRejected(String message, ContextFailure failure, ContextView view,
-                          Throwable cause) {
-        super(message, cause, "engine_rejected",
-                "fail closed and satisfy the reported Engine policy",
-                failure != null && failure.retryableByHost(), false, true, false, false);
-        this.failure = failure;
-        this.view = view;
+    public EngineRejected(String message, ContextFailure failure, ContextView view, Throwable cause) {
+        super(message, failure, view, cause);
     }
 
     protected EngineRejected(String message, ContextFailure failure, ContextView view,
-                             Throwable cause, String code, String guidance,
-                             boolean retryable, boolean degradeAllowed,
-                             boolean abortRequired, boolean configurationFix,
-                             boolean versionChange) {
-        super(message, cause, code, guidance, retryable, degradeAllowed,
+                     Throwable cause, String code, String guidance,
+                     boolean retryable, boolean degradeAllowed,
+                     boolean abortRequired, boolean configurationFix,
+                     boolean versionChange) {
+        super(message, failure, view, cause, code, guidance, retryable, degradeAllowed,
                 abortRequired, configurationFix, versionChange);
-        this.failure = failure;
-        this.view = view;
-    }
-
-    public ContextFailure failure() {
-        return failure;
-    }
-
-    public ContextFailure getFailure() {
-        return failure;
-    }
-
-    public ContextView view() {
-        return view;
-    }
-
-    public ContextView getView() {
-        return view;
     }
 }

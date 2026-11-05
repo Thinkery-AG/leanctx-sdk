@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.check_language_versions import check_agent_tools_versions, versions
 
@@ -12,7 +15,61 @@ from scripts.check_language_versions import check_agent_tools_versions, versions
 class LanguageVersionContractTests(unittest.TestCase):
     def test_current_clients_and_installer_require_the_same_engine(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.11.4"})
+        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.12.2"})
+
+    def test_release_configured_versions_must_match_contract_before_build(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(
+            check_agent_tools_versions(
+                root,
+                configured_engine_version="3.12.2",
+                configured_agent_tools_version="3.12.2",
+            )["release_engine"],
+            "3.12.2",
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"Engine pairing mismatch: contract requires 3\.12\.2"
+        ):
+            check_agent_tools_versions(
+                root,
+                configured_engine_version="3.10.5",
+                configured_agent_tools_version="3.10.5",
+            )
+
+    def test_candidate_binary_version_is_checked_against_contract(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        binary = Path(sys.executable).resolve(strict=True)
+        argv = [str(binary), "--version"]
+        with patch("scripts.check_language_versions.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="lean-ctx 3.12.2 (official, https://github.com/yvgude/lean-ctx)\n",
+                stderr="",
+            )
+            self.assertEqual(
+                check_agent_tools_versions(root, engine_binary=binary)[
+                    "engine_binary"
+                ],
+                "3.12.2",
+            )
+            self.assertEqual(run.call_args.args, (argv,))
+            self.assertEqual(run.call_args.kwargs["timeout"], 15)
+            run.return_value = subprocess.CompletedProcess(
+                argv, 0, stdout="lean-ctx 3.10.5\n", stderr=""
+            )
+            with self.assertRaisesRegex(ValueError, "Engine pairing mismatch"):
+                check_agent_tools_versions(root, engine_binary=binary)
+            run.return_value = subprocess.CompletedProcess(
+                argv, 1, stdout="lean-ctx 3.12.2\n", stderr="failed"
+            )
+            with self.assertRaisesRegex(ValueError, "--version exited 1"):
+                check_agent_tools_versions(root, engine_binary=binary)
+            run.return_value = subprocess.CompletedProcess(
+                argv, 0, stdout="unrecognized version\n", stderr=""
+            )
+            with self.assertRaisesRegex(ValueError, "unrecognized --version"):
+                check_agent_tools_versions(root, engine_binary=binary)
 
     def test_rejects_stale_client_installer_and_engine_before_build(self) -> None:
         repository = Path(__file__).resolve().parents[1]
@@ -43,21 +100,21 @@ class LanguageVersionContractTests(unittest.TestCase):
                 shutil.copyfile(repository / "setup.cfg", root / "setup.cfg")
                 manifest = root / "engine.toml"
                 manifest.write_text(
-                    '[package]\nname = "lean-ctx"\nversion = "3.11.4"\n'
+                    '[package]\nname = "lean-ctx"\nversion = "3.12.2"\n'
                 )
                 (root / "Cargo.lock").write_text(
-                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.11.4"\n'
+                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.12.2"\n'
                 )
                 check_agent_tools_versions(root, manifest)
                 path = root / changed
-                path.write_text(path.read_text().replace("3.11.4", "3.11.5"))
+                path.write_text(path.read_text().replace("3.12.2", "3.11.1"))
                 with self.assertRaisesRegex(ValueError, "Engine pairing mismatch"):
                     check_agent_tools_versions(root, manifest)
 
     def test_repository_versions_are_synchronized(self) -> None:
         root = Path(__file__).resolve().parents[1]
         found = versions(root)
-        self.assertEqual(set(found.values()), {"1.2.0"})
+        self.assertEqual(set(found.values()), {"1.3.0"})
         self.assertEqual(
             set(found),
             {"python", "typescript", "go", "rust", "jvm", "dotnet"},

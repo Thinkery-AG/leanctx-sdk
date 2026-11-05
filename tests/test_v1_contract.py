@@ -14,13 +14,13 @@ from leanctx_sdk import (
     ContextReceipt,
     ContextSession,
     ContextSource,
-    EngineTimeout,
-    EngineUnavailable,
+    InstanceTimeout,
+    InstanceUnavailable,
     FrameworkIntegrationError,
     PolicyAdmissionError,
     RecoveryUnavailableError,
     SourceUnavailableError,
-    UnsupportedEngineError,
+    UnsupportedInstanceError,
 )
 from tests.test_sdk import FakeEngine, _fixture_view
 
@@ -31,7 +31,7 @@ class V1ContractTests(unittest.TestCase):
         self.contract = json.loads(path.read_text(encoding="utf-8"))
 
     def test_exact_product_primitives_exist_and_post_v1_is_absent(self):
-        self.assertEqual(sdk.__version__, "1.2.0")
+        self.assertEqual(sdk.__version__, "1.3.0")
         self.assertEqual(
             self.contract["primitives"],
             [
@@ -82,7 +82,7 @@ class V1ContractTests(unittest.TestCase):
             self.assertEqual(one.plan_id, two.plan_id)
 
     def test_error_guidance_is_stable_and_omits_message(self):
-        error = EngineTimeout("sensitive host detail")
+        error = InstanceTimeout("sensitive host detail")
         self.assertEqual(
             error.as_dict(),
             {
@@ -100,8 +100,8 @@ class V1ContractTests(unittest.TestCase):
     def test_error_taxonomy_covers_every_release_family(self):
         families = {
             "configuration": ConfigurationError,
-            "unsupported_engine": UnsupportedEngineError,
-            "engine_unavailable": EngineUnavailable,
+            "unsupported_engine": UnsupportedInstanceError,
+            "engine_unavailable": InstanceUnavailable,
             "policy_admission": PolicyAdmissionError,
             "source_unavailable": SourceUnavailableError,
             "recovery_unavailable": RecoveryUnavailableError,
@@ -151,7 +151,7 @@ class V1ContractTests(unittest.TestCase):
             project_root="/PROJECT",
             session_id="session-fixed",
             task_id="task-fixed",
-            engine=FakeEngine(),
+            instance=FakeEngine(),
         )
         values = {
             "ContextSource": dict(source.to_dict()),

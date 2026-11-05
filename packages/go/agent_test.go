@@ -2,6 +2,9 @@
 
 package leanctx
 
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+// remains unresolved until the paired Engine decision. Private refusal tests stay.
+
 import (
 	"context"
 	"encoding/json"
@@ -33,16 +36,16 @@ func TestDefaultPolicyListsAreArrays(t *testing.T) {
 	}
 }
 
-func TestDefaultAgentPolicyWithActualEngine(t *testing.T) {
-	binary := os.Getenv("LEANCTX_TEST_ENGINE_BINARY")
+func TestDefaultAgentPolicyWithActualInstance(t *testing.T) {
+	binary := instanceEnv("LEANCTX_TEST_INSTANCE_BINARY", "LEANCTX_TEST_ENGINE_BINARY")
 	if binary == "" {
-		t.Skip("set LEANCTX_TEST_ENGINE_BINARY to run actual Agent Tools")
+		t.Skip("set LEANCTX_TEST_INSTANCE_BINARY to run actual Agent Tools")
 	}
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte("actual default policy content\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	client, err := OpenAgentContext(context.Background(), root, AgentContextOptions{EngineBinary: binary})
+	client, err := OpenAgentContext(context.Background(), root, AgentContextOptions{InstanceBinary: binary})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func fakeAgentScript(t *testing.T, behavior string, capturePolicyPath ...string)
 	withWrite := `["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_symbol","ctx_tree"]`
 	full := `["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"]`
 	result := `{"changed":false,"content_blocks":[],"mode":"auto","original_tokens":100,"output_tokens":25,"saved_tokens":75,"shell":null,"text":"ok"}`
-	hello := `{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":CAPS,"engine_version":"3.11.4","schema_version":1,"transport_version":1}`
+	hello := `{"agent_tools_interface_version":"1.0.0","allow_exec":false,"allow_write":false,"capabilities":CAPS,"engine_version":"3.12.2","schema_version":1,"transport_version":1}`
 	hello = strings.Replace(hello, "CAPS", readOnly, 1)
 	providerHello := strings.Replace(hello, readOnly, providerReadOnly, 1)
 	if behavior == "badhello" {
@@ -88,7 +91,7 @@ func fakeAgentFullScript(t *testing.T) string {
 while IFS= read -r line; do
   id=$(/usr/bin/printf '%s' "$line" | /usr/bin/sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
   if /usr/bin/printf '%s' "$line" | /usr/bin/grep -q '"op":"hello"'; then
-    /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":true,"allow_write":true,"capabilities":["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"],"engine_version":"3.11.4","schema_version":1,"transport_version":1}}'
+    /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{"agent_tools_interface_version":"1.0.0","allow_exec":true,"allow_write":true,"capabilities":["ctx_compose","ctx_edit","ctx_fill","ctx_glob","ctx_patch","ctx_read","ctx_search","ctx_shell","ctx_symbol","ctx_tree"],"engine_version":"3.12.2","schema_version":1,"transport_version":1}}'
   elif /usr/bin/printf '%s' "$line" | /usr/bin/grep -q '"op":"close"'; then
     /usr/bin/printf '%s\n' '{"id":"'$id'","ok":true,"result":{}}'
     exit 0
@@ -101,10 +104,10 @@ done
 
 func agentOptions(binary string, permissions AgentPermissions) AgentContextOptions {
 	return AgentContextOptions{
-		Task:         "inspect",
-		Permissions:  permissions,
-		EngineBinary: binary,
-		Timeout:      2 * time.Second,
+		Task:           "inspect",
+		Permissions:    permissions,
+		InstanceBinary: binary,
+		Timeout:        2 * time.Second,
 	}
 }
 
@@ -265,7 +268,7 @@ func TestAgentContextStartupIsTransactionalAndProtocolErrorsTerminal(t *testing.
 	if _, err := client.Read("file"); err == nil {
 		t.Fatal("malformed result unexpectedly accepted")
 	} else {
-		var protocol *EngineProtocolError
+		var protocol *InstanceProtocolError
 		if !errors.As(err, &protocol) {
 			t.Fatalf("protocol error = %T: %v", err, err)
 		}
@@ -290,7 +293,7 @@ func TestAgentContextCancellationReconnectAndAsyncFacade(t *testing.T) {
 	if _, err := client.ReadContext(deadline, "file"); err == nil {
 		t.Fatal("cancelled Agent Tools call unexpectedly succeeded")
 	} else {
-		var timeout *EngineTimeout
+		var timeout *InstanceTimeout
 		if !errors.As(err, &timeout) && !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("cancel error = %T: %v", err, err)
 		}
@@ -332,6 +335,14 @@ func TestExecutionPolicyValidationAndToolResultMetrics(t *testing.T) {
 	if _, err := normalizeExecutionPolicy(ExecutionPolicy{AllowedEnv: []string{"PATH"}}); err == nil {
 		t.Fatal("dangerous environment unexpectedly accepted")
 	}
+	for _, name := range []string{"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "ld_library_path", "dYlD_LiBrArY_PaTh"} {
+		if _, err := normalizeExecutionPolicy(ExecutionPolicy{AllowedEnv: []string{name}}); err == nil {
+			t.Fatalf("dangerous environment %q unexpectedly accepted", name)
+		}
+	}
+	if _, err := normalizeExecutionPolicy(ExecutionPolicy{AllowedEnv: []string{"LANG"}}); err != nil {
+		t.Fatalf("ordinary explicit environment rejected: %v", err)
+	}
 	result, err := parseToolResult("ctx_read", map[string]any{
 		"text": "ok", "content_blocks": []any{}, "original_tokens": int64(2), "output_tokens": int64(1), "saved_tokens": int64(1), "mode": nil, "changed": false, "shell": nil,
 	})
@@ -342,5 +353,29 @@ func TestExecutionPolicyValidationAndToolResultMetrics(t *testing.T) {
 		"text": "ok", "content_blocks": []any{}, "original_tokens": int64(2), "output_tokens": int64(2), "saved_tokens": int64(1), "mode": nil, "changed": false, "shell": nil,
 	}); err == nil {
 		t.Fatal("inconsistent metrics unexpectedly accepted")
+	}
+}
+
+func TestHelloVersionIsAnIntegerLexemeAndThePairAMatrixRow(t *testing.T) {
+	// The lexeme as the Engine wrote it: only the digits of the expected
+	// integer, never a number that merely equals it.
+	for lexeme, want := range map[string]bool{"1": true, "1.0": false, "1e0": false, "01": false, "-1": false, "2": false, "": false} {
+		if got := helloInteger(json.Number(lexeme), 1); got != want {
+			t.Fatalf("helloInteger(%q) = %v, want %v", lexeme, got, want)
+		}
+	}
+	for _, value := range []any{true, "1", 1, int64(1), 1.0, nil} {
+		if helloInteger(value, 1) {
+			t.Fatalf("helloInteger(%#v) accepted a value that is no JSON number lexeme", value)
+		}
+	}
+	// A pair is accepted because it is a row, not because it handshakes.
+	if !admittedInstancePair(SupportedAgentToolsInstanceVersion) {
+		t.Fatal("the legacy pair is not a row")
+	}
+	for _, engine := range []string{"3.11.1", "3.10.5", ""} {
+		if admittedInstancePair(engine) {
+			t.Fatalf("LeanCTX instance %q is accepted without a row", engine)
+		}
 	}
 }

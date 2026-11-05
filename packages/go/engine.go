@@ -15,10 +15,10 @@ import (
 	"unicode/utf8"
 )
 
-// EngineClient is the only injected transport seam for Product lifecycle
+// InstanceClient is the only injected transport seam for Product lifecycle
 // tests and integrations. Context cancellation is available on the concrete
-// SubprocessEngineClient through its Context*Context methods.
-type EngineClient interface {
+// SubprocessInstanceClient through its Context*Context methods.
+type InstanceClient interface {
 	ContextView(plan *ContextPlan) (*ContextView, error)
 	Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error)
 }
@@ -69,7 +69,7 @@ var (
 	receiptLinkKeys = map[string]bool{"schema_version": true, "receipt_id": true, "receipt_ref": true, "receipt_digest": true, "invocation_id": true}
 )
 
-func protocolError(message string) error { return NewEngineProtocolError(message) }
+func protocolError(message string) error { return NewInstanceProtocolError(message) }
 
 func objectValue(value any, label string) (map[string]any, error) {
 	result, ok := value.(map[string]any)
@@ -259,7 +259,7 @@ func parseFailure(value any) (*ContextFailure, error) {
 	}
 	failure, err := NewContextFailure(FailureCode(codeText), retryable, recovery)
 	if err != nil {
-		return nil, protocolError("unknown Engine failure code")
+		return nil, protocolError("unknown instance failure code")
 	}
 	return failure, nil
 }
@@ -353,7 +353,7 @@ func parseInvocation(value any) (map[string]any, error) {
 		return nil, err
 	}
 	if engineID != "lean-ctx-local" || !semverPattern.MatchString(engineVersion) || !strings.HasPrefix(engineVersion, "3.") {
-		return nil, NewUnsupportedEngineError("unsupported Engine identity")
+		return nil, NewUnsupportedInstanceError("unsupported instance identity")
 	}
 	capabilityID, err := protocolString(operation["capability_id"], "invocation.operation.capability_id", maxRefBytes)
 	if err != nil {
@@ -364,7 +364,7 @@ func parseInvocation(value any) (map[string]any, error) {
 		return nil, err
 	}
 	if capabilityID != "capability://leanctx/context-optimization" || capabilityVersion != "1.0.0" {
-		return nil, NewUnsupportedEngineError("unsupported Engine capability")
+		return nil, NewUnsupportedInstanceError("unsupported instance capability")
 	}
 	decision, err := protocolString(policy["decision"], "invocation.policy_admission.decision", maxRefBytes)
 	if err != nil {
@@ -434,7 +434,7 @@ func parseObservation(value any, invocationID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	status := EngineStatus(statusText)
+	status := InstanceStatus(statusText)
 	if !validStatus(status) {
 		return nil, protocolError("unknown observation status")
 	}
@@ -484,13 +484,13 @@ func parseObservation(value any, invocationID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if (status == EngineStatusSucceeded || status == EngineStatusDegraded) && failure != nil {
+	if (status == InstanceStatusSucceeded || status == InstanceStatusDegraded) && failure != nil {
 		return nil, protocolError("successful/degraded observation cannot contain failure")
 	}
-	if (status == EngineStatusFailed || status == EngineStatusRejected) && failure == nil {
+	if (status == InstanceStatusFailed || status == InstanceStatusRejected) && failure == nil {
 		return nil, protocolError("failed/rejected observation requires failure")
 	}
-	if status == EngineStatusSucceeded && link == nil {
+	if status == InstanceStatusSucceeded && link == nil {
 		return nil, protocolError("succeeded observation requires receipt_link")
 	}
 	result := map[string]any{"schema_version": int64(SchemaVersion), "invocation_id": observedID, "status": statusText, "output_ref": pointerOrNil(outputRef), "output_digest": pointerOrNil(outputDigest), "source_lineage": lineage, "measurements": measurements, "failure": failure, "receipt_link": link}
@@ -551,17 +551,17 @@ func parseRecovery(value any) (parsedRecovery, error) {
 
 func parseResponse(raw []byte) (parsedResponse, error) {
 	if len(raw) > maxResponseBytes {
-		return parsedResponse{}, protocolError("Engine response exceeds the bound")
+		return parsedResponse{}, protocolError("LeanCTX instance response exceeds the bound")
 	}
-	decoded, err := strictJSONLoads(raw, "Engine response")
+	decoded, err := strictJSONLoads(raw, "LeanCTX instance response")
 	if err != nil {
 		return parsedResponse{}, protocolError(err.Error())
 	}
-	item, err := objectValue(decoded, "Engine response")
+	item, err := objectValue(decoded, "LeanCTX instance response")
 	if err != nil {
 		return parsedResponse{}, err
 	}
-	if err := exactObjectKeys(item, engineTopKeys, "Engine response"); err != nil {
+	if err := exactObjectKeys(item, engineTopKeys, "LeanCTX instance response"); err != nil {
 		return parsedResponse{}, err
 	}
 	schema, err := protocolInt(item["schema_version"], "response.schema_version")
@@ -637,44 +637,68 @@ func optionalStringEqual(value any, expected *string) bool {
 
 func safeRelativePath(value string) (string, error) {
 	if err := utf8String(value, "path"); err != nil {
-		return "", NewEngineProtocolError(err.Error())
+		return "", NewInstanceProtocolError(err.Error())
 	}
 	if value == "" || len([]byte(value)) > maxPathBytes || strings.IndexByte(value, 0) >= 0 || filepath.IsAbs(value) {
-		return "", NewEngineProtocolError("path must be a rooted relative path")
+		return "", NewInstanceProtocolError("path must be a rooted relative path")
 	}
 	for _, r := range value {
 		if r < 0x20 {
-			return "", NewEngineProtocolError("path must be a rooted relative path")
+			return "", NewInstanceProtocolError("path must be a rooted relative path")
 		}
 	}
 	normalized := filepath.ToSlash(filepath.Clean(value))
 	if normalized == "." || normalized == ".." || strings.HasPrefix(normalized, "../") {
-		return "", NewEngineProtocolError("path escapes project root")
+		return "", NewInstanceProtocolError("path escapes project root")
 	}
 	return normalized, nil
 }
 
-// SubprocessEngineClient implements strict Engine Interface v1.
-type SubprocessEngineClient struct {
+// SubprocessInstanceClient implements the strict engine interface v1 against a
+// local LeanCTX instance.
+type SubprocessInstanceClient struct {
+	InstanceBinary string
+	// Deprecated: use InstanceBinary. Used only when InstanceBinary is empty.
 	EngineBinary string
 	Timeout      time.Duration
 	mu           sync.Mutex
+	// Session containment of the most recent Engine run that reached its end.
+	containmentMu sync.Mutex
+	lastContained bool
 }
 
-type SubprocessEngineClientOptions struct {
+// LastSessionContainment reports how the process tree of the most recent
+// completed Engine run was contained (see SessionContainment). A run that was
+// ended early by a deadline, a cancellation or an output overflow does not
+// change it. With concurrent calls it is the state of whichever finished last.
+func (c *SubprocessInstanceClient) LastSessionContainment() SessionContainment {
+	c.containmentMu.Lock()
+	defer c.containmentMu.Unlock()
+	if c.lastContained {
+		return SessionContainmentInstanceStarter
+	}
+	return SessionContainmentUnavailable
+}
+
+type SubprocessInstanceClientOptions struct {
+	InstanceBinary string
+	// Deprecated: use InstanceBinary. Used only when InstanceBinary is empty.
 	EngineBinary string
 	Timeout      time.Duration
 }
 
-func NewSubprocessEngineClient(options ...SubprocessEngineClientOptions) (*SubprocessEngineClient, error) {
+func NewSubprocessInstanceClient(options ...SubprocessInstanceClientOptions) (*SubprocessInstanceClient, error) {
 	if len(options) > 1 {
-		return nil, NewConfigurationError("at most one SubprocessEngineClientOptions value is allowed")
+		return nil, NewConfigurationError("at most one SubprocessInstanceClientOptions value is allowed")
 	}
-	option := SubprocessEngineClientOptions{EngineBinary: "lean-ctx", Timeout: 30 * time.Second}
+	option := SubprocessInstanceClientOptions{InstanceBinary: "lean-ctx", Timeout: 30 * time.Second}
 	if len(options) == 1 {
 		option = options[0]
-		if option.EngineBinary == "" {
-			option.EngineBinary = "lean-ctx"
+		if option.InstanceBinary == "" {
+			option.InstanceBinary = option.EngineBinary
+		}
+		if option.InstanceBinary == "" {
+			option.InstanceBinary = "lean-ctx"
 		}
 		if option.Timeout == 0 {
 			option.Timeout = 30 * time.Second
@@ -683,12 +707,12 @@ func NewSubprocessEngineClient(options ...SubprocessEngineClientOptions) (*Subpr
 	if option.Timeout < 100*time.Millisecond || option.Timeout > 120*time.Second {
 		return nil, NewConfigurationError("timeout must be between 0.1 and 120 seconds")
 	}
-	return &SubprocessEngineClient{EngineBinary: option.EngineBinary, Timeout: option.Timeout}, nil
+	return &SubprocessInstanceClient{InstanceBinary: option.InstanceBinary, Timeout: option.Timeout}, nil
 }
 
-func (c *SubprocessEngineClient) configured() error {
+func (c *SubprocessInstanceClient) configured() error {
 	if c == nil {
-		return NewConfigurationError("SubprocessEngineClient is nil")
+		return NewConfigurationError("SubprocessInstanceClient is nil")
 	}
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
@@ -696,17 +720,20 @@ func (c *SubprocessEngineClient) configured() error {
 	if c.Timeout < 100*time.Millisecond || c.Timeout > 120*time.Second {
 		return NewConfigurationError("timeout must be between 0.1 and 120 seconds")
 	}
-	if c.EngineBinary == "" {
-		c.EngineBinary = "lean-ctx"
+	if c.InstanceBinary == "" {
+		c.InstanceBinary = c.EngineBinary
+	}
+	if c.InstanceBinary == "" {
+		c.InstanceBinary = "lean-ctx"
 	}
 	return nil
 }
 
-func (c *SubprocessEngineClient) ContextView(plan *ContextPlan) (*ContextView, error) {
+func (c *SubprocessInstanceClient) ContextView(plan *ContextPlan) (*ContextView, error) {
 	return c.ContextViewContext(context.Background(), plan)
 }
 
-func (c *SubprocessEngineClient) ContextViewContext(parent context.Context, plan *ContextPlan) (*ContextView, error) {
+func (c *SubprocessInstanceClient) ContextViewContext(parent context.Context, plan *ContextPlan) (*ContextView, error) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -740,46 +767,46 @@ func (c *SubprocessEngineClient) ContextViewContext(parent context.Context, plan
 		return nil, protocolError("recovery source_ref is not admitted by invocation")
 	}
 	if plan.Source.SourceRef != "" && plan.Source.SourceRef != response.Recovery.SourceRef {
-		return nil, protocolError("Engine source_ref differs from requested binding")
+		return nil, protocolError("LeanCTX instance source_ref differs from requested binding")
 	}
 	if plan.Source.SourceDigest != "" && plan.Source.SourceDigest != response.Recovery.SourceDigest {
-		return nil, protocolError("Engine source_digest differs from requested binding")
+		return nil, protocolError("LeanCTX instance source_digest differs from requested binding")
 	}
 	view, err := buildView(plan.Source, response)
 	if err != nil {
 		return nil, err
 	}
-	if view.Status == EngineStatusRejected {
+	if view.Status == InstanceStatusRejected {
 		failure := view.Failure
 		if failure != nil && failure.Code == FailureCodePolicyRejected {
-			return view, NewPolicyAdmissionError("Engine rejected request: policy_rejected", failure, view)
+			return view, NewPolicyAdmissionError("LeanCTX instance rejected request: policy_rejected", failure, view)
 		}
 		if failure != nil && failure.Code == FailureCodeSourceUnavailable {
-			return view, NewSourceUnavailableError("Engine rejected request: source_unavailable", failure, view)
+			return view, NewSourceUnavailableError("LeanCTX instance rejected request: source_unavailable", failure, view)
 		}
-		return view, NewEngineRejected("Engine rejected request: rejected", failure, view)
+		return view, NewInstanceRejected("LeanCTX instance rejected request: rejected", failure, view)
 	}
-	if view.Status == EngineStatusFailed {
+	if view.Status == InstanceStatusFailed {
 		failure := view.Failure
 		if failure != nil && failure.Code == FailureCodeUnsupportedOperation {
-			return view, NewUnsupportedEngineError("Engine execution failed: unsupported_operation")
+			return view, NewUnsupportedInstanceError("LeanCTX instance execution failed: unsupported_operation")
 		}
 		if failure != nil && failure.Code == FailureCodeSourceIntegrityMismatch {
-			return view, NewArtifactIntegrityError("Engine execution failed: source_integrity_mismatch", failure, view)
+			return view, NewArtifactIntegrityError("LeanCTX instance execution failed: source_integrity_mismatch", failure, view)
 		}
 		if failure != nil && failure.Code == FailureCodeSourceUnavailable {
-			return view, NewSourceUnavailableError("Engine execution failed: source_unavailable", failure, view)
+			return view, NewSourceUnavailableError("LeanCTX instance execution failed: source_unavailable", failure, view)
 		}
-		return view, NewEngineExecutionError("Engine execution failed: failed", failure, view)
+		return view, NewInstanceExecutionError("LeanCTX instance execution failed: failed", failure, view)
 	}
 	return view, nil
 }
 
-func (c *SubprocessEngineClient) Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
+func (c *SubprocessInstanceClient) Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
 	return c.RecoverContext(context.Background(), projectRoot, path, recoveryRef, sourceRef, sourceDigest)
 }
 
-func (c *SubprocessEngineClient) RecoverContext(parent context.Context, projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
+func (c *SubprocessInstanceClient) RecoverContext(parent context.Context, projectRoot, path, recoveryRef, sourceRef, sourceDigest string) (*RecoveredSource, error) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -850,8 +877,8 @@ func validateRoot(projectRoot string) (string, error) {
 	return root, nil
 }
 
-func (c *SubprocessEngineClient) resolveBinary() (string, error) {
-	binary := c.EngineBinary
+func (c *SubprocessInstanceClient) resolveBinary() (string, error) {
+	binary := c.InstanceBinary
 	if binary == "" {
 		binary = "lean-ctx"
 	}
@@ -868,22 +895,22 @@ func (c *SubprocessEngineClient) resolveBinary() (string, error) {
 			}
 		}
 		if found == "" {
-			return "", NewEngineUnavailable("configured Engine binary is unavailable")
+			return "", NewInstanceUnavailable("configured instance binary is unavailable")
 		}
 		binary = found
 	} else {
 		var err error
 		binary, err = filepath.Abs(binary)
 		if err != nil {
-			return "", NewEngineUnavailable("configured Engine binary is unavailable")
+			return "", NewInstanceUnavailable("configured instance binary is unavailable")
 		}
 	}
 	if !isExecutableRegular(binary) {
-		return "", NewEngineUnavailable("configured Engine binary is unavailable")
+		return "", NewInstanceUnavailable("configured instance binary is unavailable")
 	}
 	resolved, err := filepath.EvalSymlinks(binary)
 	if err != nil || !isExecutableRegular(resolved) {
-		return "", NewEngineUnavailable("configured Engine binary is unavailable")
+		return "", NewInstanceUnavailable("configured instance binary is unavailable")
 	}
 	return resolved, nil
 }
@@ -893,17 +920,17 @@ func isExecutableRegular(path string) bool {
 	return err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0
 }
 
-func (c *SubprocessEngineClient) invoke(parent context.Context, operation, root string, request map[string]any) (parsedResponse, error) {
+func (c *SubprocessInstanceClient) invoke(parent context.Context, operation, root string, request map[string]any) (parsedResponse, error) {
 	validatedRoot, err := validateRoot(root)
 	if err != nil {
 		return parsedResponse{}, err
 	}
 	payload, err := canonicalJSON(request)
 	if err != nil {
-		return parsedResponse{}, NewEngineProtocolError("Engine request is not canonical JSON")
+		return parsedResponse{}, NewInstanceProtocolError("LeanCTX instance request is not canonical JSON")
 	}
 	if len(payload) > maxRequestBytes {
-		return parsedResponse{}, NewEngineProtocolError("Engine request exceeds the bound")
+		return parsedResponse{}, NewInstanceProtocolError("LeanCTX instance request exceeds the bound")
 	}
 	raw, err := c.runPayload(parent, operation, validatedRoot, payload)
 	if err != nil {
@@ -914,27 +941,27 @@ func (c *SubprocessEngineClient) invoke(parent context.Context, operation, root 
 
 // runPayload writes one request document to a private file under the
 // validated root, runs the operation on it and removes the file.
-func (c *SubprocessEngineClient) runPayload(parent context.Context, operation, validatedRoot string, payload []byte) ([]byte, error) {
+func (c *SubprocessInstanceClient) runPayload(parent context.Context, operation, validatedRoot string, payload []byte) ([]byte, error) {
 	temporary, err := os.CreateTemp(validatedRoot, ".leanctx-sdk-*.json")
 	if err != nil {
-		return nil, NewEngineUnavailable("Engine request file could not be created")
+		return nil, NewInstanceUnavailable("LeanCTX instance request file could not be created")
 	}
 	requestPath := temporary.Name()
 	defer os.Remove(requestPath)
 	if err := temporary.Chmod(0600); err != nil {
 		temporary.Close()
-		return nil, NewEngineUnavailable("Engine request file could not be secured")
+		return nil, NewInstanceUnavailable("LeanCTX instance request file could not be secured")
 	}
 	if _, err := temporary.Write(payload); err != nil {
 		temporary.Close()
-		return nil, NewEngineUnavailable("Engine request file could not be written")
+		return nil, NewInstanceUnavailable("LeanCTX instance request file could not be written")
 	}
 	if err := temporary.Sync(); err != nil {
 		temporary.Close()
-		return nil, NewEngineUnavailable("Engine request file could not be synced")
+		return nil, NewInstanceUnavailable("LeanCTX instance request file could not be synced")
 	}
 	if err := temporary.Close(); err != nil {
-		return nil, NewEngineUnavailable("Engine request file could not be closed")
+		return nil, NewInstanceUnavailable("LeanCTX instance request file could not be closed")
 	}
 	return c.run(parent, operation, validatedRoot, requestPath)
 }
@@ -967,7 +994,48 @@ func collectStream(reader io.Reader, name string, maximum int, results chan<- st
 	}
 }
 
-func (c *SubprocessEngineClient) run(parent context.Context, operation, root, requestPath string) ([]byte, error) {
+// endOneShot ends a one-shot Engine process with the same budgets and outcome
+// reporting as the persistent agent: it terminates the process tree, closes
+// this client's own pipe ends so that its collectors end, and waits for the
+// reaper within agentReapBudget. It returns failure when the cleanup is
+// confirmed; a cleanup that failed or could not be confirmed is joined to
+// failure, so errors.As and errors.Is still find the primary error and the
+// cleanup failure is never dropped.
+//
+// It must be called before anything waits for the command: the group signals
+// are sent while the leader is unreaped, Wait is started only afterwards, and
+// nothing is signalled after that.
+func endOneShot(failure error, command *exec.Cmd, pipes []io.Closer) error {
+	killErr := agentTerminate(command)
+	for _, pipe := range pipes {
+		_ = pipe.Close()
+	}
+	reaped := make(chan error, 1)
+	go func() { reaped <- command.Wait() }()
+	budget := time.NewTimer(agentReapBudget)
+	defer budget.Stop()
+	select {
+	case <-reaped:
+	case <-budget.C:
+		return errors.Join(failure, NewInstanceExecutionError("LeanCTX instance process could not be reaped within its budget", nil, nil))
+	}
+	if killErr != nil {
+		return errors.Join(failure, NewInstanceExecutionError("LeanCTX instance process tree could not be terminated", nil, nil))
+	}
+	return failure
+}
+
+// abandonAwaitedOneShot handles the one case in which a deadline arrives while
+// the command is already being waited for: the Engine closed both of its
+// outputs and kept running. A waiter may reap the leader at any moment, so the
+// group number is no longer provably ours and nothing is signalled, neither
+// the group nor the process. The Engine is left to itself and that is said in
+// the error; it is never reported as terminated.
+func abandonAwaitedOneShot(failure error) error {
+	return errors.Join(failure, NewInstanceExecutionError("LeanCTX instance process closed its output and kept running; it was not signalled and its termination is unconfirmed", nil, nil))
+}
+
+func (c *SubprocessInstanceClient) run(parent context.Context, operation, root, requestPath string) ([]byte, error) {
 	binary, err := c.resolveBinary()
 	if err != nil {
 		return nil, err
@@ -977,92 +1045,105 @@ func (c *SubprocessEngineClient) run(parent context.Context, operation, root, re
 	command.Dir = root
 	command.Env = []string{"LC_ALL=C", "LANG=C", "TZ=UTC", "PYTHONHASHSEED=0"}
 	configureProcessGroup(command)
+	requestSessionContainment(command)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return nil, NewEngineUnavailable("Engine stdout could not be opened")
+		return nil, NewInstanceUnavailable("LeanCTX instance stdout could not be opened")
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		return nil, NewEngineUnavailable("Engine stderr could not be opened")
+		return nil, NewInstanceUnavailable("LeanCTX instance stderr could not be opened")
 	}
 	if err := command.Start(); err != nil {
-		return nil, NewEngineUnavailable("Engine process could not be started")
+		return nil, NewInstanceUnavailable("LeanCTX instance process could not be started")
 	}
 	results := make(chan streamResult, 2)
 	overflow := make(chan string, 1)
 	go collectStream(stdout, "stdout", maxResponseBytes, results, overflow)
 	go collectStream(stderr, "stderr", maxStderrBytes, results, overflow)
-	wait := make(chan error, 1)
-	go func() { wait <- command.Wait() }()
 	deadline := time.NewTimer(c.Timeout)
 	defer deadline.Stop()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	contextFailure := func() error {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return NewInstanceTimeout("LeanCTX instance process exceeded its deadline")
+		}
+		return ctx.Err()
+	}
+	// Phase one: nobody waits for the command. Until both outputs are at their
+	// end the leader is unreaped, so a deadline, a cancellation or an overflow
+	// may still end the whole group by its number. This also covers an Engine
+	// that exited and left a child holding its pipes: the exited leader stays
+	// unreaped and its group is ended at the deadline.
+	collected := make([]streamResult, 0, 2)
+	for len(collected) < 2 {
+		select {
+		case <-ctx.Done():
+			return nil, endOneShot(contextFailure(), command, []io.Closer{stdout, stderr})
+		case <-deadline.C:
+			return nil, endOneShot(NewInstanceTimeout("LeanCTX instance process exceeded its deadline"), command, []io.Closer{stdout, stderr})
+		case <-overflow:
+			return nil, endOneShot(NewInstanceProtocolError("LeanCTX instance process output exceeds its bound"), command, []io.Closer{stdout, stderr})
+		case result := <-results:
+			collected = append(collected, result)
+		}
+	}
+	// Phase two: both outputs are closed, so the Engine has exited or is about
+	// to. Only now is it waited for. From here on nothing is signalled.
+	wait := make(chan error, 1)
+	go func() { wait <- command.Wait() }()
 	var waitErr error
 	select {
-	case <-ctx.Done():
-		terminateErr := terminateProcess(command)
-		waitErr = <-wait
-		if terminateErr != nil {
-			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
-		}
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, NewEngineTimeout("Engine process exceeded its deadline")
-		}
-		return nil, ctx.Err()
-	case <-deadline.C:
-		terminateErr := terminateProcess(command)
-		waitErr = <-wait
-		if terminateErr != nil {
-			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
-		}
-		return nil, NewEngineTimeout("Engine process exceeded its deadline")
-	case <-overflow:
-		terminateErr := terminateProcess(command)
-		waitErr = <-wait
-		if terminateErr != nil {
-			return nil, NewEngineExecutionError("Engine process tree could not be terminated", nil, nil)
-		}
-		_ = waitErr
-		return nil, NewEngineProtocolError("Engine process output exceeds its bound")
 	case waitErr = <-wait:
+	case <-ctx.Done():
+		return nil, abandonAwaitedOneShot(contextFailure())
+	case <-deadline.C:
+		return nil, abandonAwaitedOneShot(NewInstanceTimeout("LeanCTX instance process exceeded its deadline"))
 	}
-	first := <-results
-	second := <-results
 	var stdoutData, stderrData []byte
-	for _, result := range []streamResult{first, second} {
+	for _, result := range collected {
 		if result.name == "stdout" {
 			stdoutData = result.data
 		} else {
 			stderrData = result.data
 		}
 	}
+	// The session starter's acknowledgement precedes everything the Engine
+	// wrote. It is recorded for LastSessionContainment and is not output.
+	contained := bytes.HasPrefix(stdoutData, sessionContainmentAck)
+	if contained {
+		stdoutData = stdoutData[len(sessionContainmentAck):]
+	}
+	c.containmentMu.Lock()
+	c.lastContained = contained
+	c.containmentMu.Unlock()
 	if waitErr != nil {
-		code := stderrEngineCode(stderrData)
+		code := stderrInstanceCode(stderrData)
 		switch code {
 		case "unsafe_root", "source_outside_root", "source_symlink", "policy_rejected":
-			return nil, NewPolicyAdmissionError("Engine rejected request: "+code, nil, nil)
+			return nil, NewPolicyAdmissionError("LeanCTX instance rejected request: "+code, nil, nil)
 		case "source_unavailable":
-			return nil, NewSourceUnavailableError("Engine source is unavailable", nil, nil)
+			return nil, NewSourceUnavailableError("LeanCTX instance source is unavailable", nil, nil)
 		case "unsupported_mode":
-			return nil, NewUnsupportedEngineError("Engine operation is unsupported")
+			return nil, NewUnsupportedInstanceError("LeanCTX instance operation is unsupported")
 		default:
 			if code == "" {
 				code = "nonzero_exit"
 			}
-			return nil, NewEngineExecutionError("Engine process failed: "+code, nil, nil)
+			return nil, NewInstanceExecutionError("LeanCTX instance process failed: "+code, nil, nil)
 		}
 	}
 	if len(stdoutData) == 0 {
-		return nil, NewEngineProtocolError("Engine returned empty stdout")
+		return nil, NewInstanceProtocolError("LeanCTX instance returned empty stdout")
 	}
 	if !utf8.Valid(stdoutData) {
-		return nil, NewEngineProtocolError("Engine returned invalid UTF-8")
+		return nil, NewInstanceProtocolError("LeanCTX instance returned invalid UTF-8")
 	}
 	return stdoutData, nil
 }
 
-func stderrEngineCode(stderr []byte) string {
+func stderrInstanceCode(stderr []byte) string {
 	for _, line := range strings.Split(string(stderr), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "engine:") {
@@ -1077,12 +1158,12 @@ func stderrEngineCode(stderr []byte) string {
 
 func buildView(source ContextSource, response parsedResponse) (*ContextView, error) {
 	if !response.HasRecords {
-		return nil, protocolError("Engine records are malformed")
+		return nil, protocolError("LeanCTX instance records are malformed")
 	}
 	if refs, ok := response.Invocation["source_refs"].([]string); !ok || !contains(refs, response.Recovery.SourceRef) {
 		return nil, protocolError("recovery source_ref is not in invocation lineage")
 	}
-	options := ContextViewOptions{Source: source, Text: &response.View.Text, OutputRef: response.View.OutputRef, OutputDigest: response.View.OutputDigest, SourceRef: response.Recovery.SourceRef, SourceDigest: response.Recovery.SourceDigest, RecoveryRef: response.Recovery.RecoveryRef, Status: EngineStatus(response.Observation["status"].(string)), Invocation: response.Invocation, Observation: response.Observation}
+	options := ContextViewOptions{Source: source, Text: &response.View.Text, OutputRef: response.View.OutputRef, OutputDigest: response.View.OutputDigest, SourceRef: response.Recovery.SourceRef, SourceDigest: response.Recovery.SourceDigest, RecoveryRef: response.Recovery.RecoveryRef, Status: InstanceStatus(response.Observation["status"].(string)), Invocation: response.Invocation, Observation: response.Observation}
 	if value, ok := response.Observation["measurements"].([]ContextMeasurement); ok {
 		options.Measurements = value
 	}
@@ -1096,8 +1177,8 @@ func buildView(source ContextSource, response parsedResponse) (*ContextView, err
 	if err != nil {
 		return nil, protocolError(err.Error())
 	}
-	if view.Status == EngineStatusSucceeded && !view.Verify() {
-		return nil, NewArtifactIntegrityError("succeeded Engine evidence is not sealed", nil, view)
+	if view.Status == InstanceStatusSucceeded && !view.Verify() {
+		return nil, NewArtifactIntegrityError("succeeded instance evidence is not sealed", nil, view)
 	}
 	return view, nil
 }

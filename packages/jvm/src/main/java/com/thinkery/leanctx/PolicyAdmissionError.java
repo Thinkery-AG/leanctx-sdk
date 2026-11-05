@@ -1,6 +1,7 @@
 package com.thinkery.leanctx;
 
-/** The Engine rejected the request at policy admission. */
+/** The LeanCTX instance rejected the request at policy admission. */
+@SuppressWarnings("removal")
 public class PolicyAdmissionError extends EngineRejected {
     public PolicyAdmissionError() {
         this(null, null, null, null);
@@ -17,7 +18,7 @@ public class PolicyAdmissionError extends EngineRejected {
     public PolicyAdmissionError(String message, ContextFailure failure, ContextView view,
                                 Throwable cause) {
         super(message, failure, view, cause, "policy_admission_rejected",
-                "abort or change the request to satisfy the reported Engine policy",
+                "abort or change the request to satisfy the reported LeanCTX instance policy",
                 failure != null && failure.retryableByHost(), false, true, true, false);
     }
 }

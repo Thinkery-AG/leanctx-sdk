@@ -4,20 +4,22 @@
 import { accessSync, closeSync, constants, fchmodSync, fsyncSync, openSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { mkdtemp, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import type { SessionContainment } from "./agent.js";
 import {
   ArtifactIntegrityError,
   CompatibilityError,
   ConfigurationError,
-  EngineExecutionError,
-  EngineProtocolError,
-  EngineRejected,
-  EngineTimeout,
-  EngineUnavailable,
+  InstanceExecutionError,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceTimeout,
+  InstanceUnavailable,
   PolicyAdmissionError,
   SourceUnavailableError,
-  UnsupportedEngineError,
+  UnsupportedInstanceError,
   ValidationError,
 } from "./errors.js";
 import {
@@ -28,7 +30,7 @@ import {
   ContextReceiptLink,
   ContextSource,
   ContextView,
-  EngineStatus,
+  InstanceStatus,
   FailureCode,
   MAX_MEASUREMENTS,
   MAX_PATH_BYTES,
@@ -48,6 +50,8 @@ import {
   validateRef,
 } from "./protocol.js";
 
+/** First Engine release that serves `context-materialize-sources-v2`. */
+export const ENGINE_PRESENTER_CAPABILITY_MIN_ENGINE_VERSION = "3.11.0" as const;
 export const MAX_SOURCE_REQUEST_BYTES = 1024 * 1024;
 export const MAX_SOURCE_RESPONSE_BYTES = 2 * 1024 * 1024;
 export type SourceOperation = "context-plan-sources" | "context-materialize-sources";
@@ -57,7 +61,7 @@ const SOURCE_OPERATIONS = new Set<SourceOperation>([
   "context-materialize-sources",
 ]);
 
-export interface EngineClient {
+export interface InstanceClient {
   contextView(plan: ContextPlan): Promise<ContextView> | ContextView;
   recover(
     projectRoot: string,
@@ -92,8 +96,8 @@ const RECEIPT_LINK_KEYS = new Set(["schema_version", "receipt_id", "receipt_ref"
 const FAILURE_CODES = new Set(Object.values(FailureCode));
 const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 
-function protocol(message: string, cause?: unknown): EngineProtocolError {
-  return new EngineProtocolError(message, cause === undefined ? undefined : { cause });
+function protocol(message: string, cause?: unknown): InstanceProtocolError {
+  return new InstanceProtocolError(message, cause === undefined ? undefined : { cause });
 }
 
 function integer(value: unknown, fieldName: string): number {
@@ -139,7 +143,7 @@ function parseFailure(value: unknown): ContextFailure | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw protocol("failure must be an object or null");
   const item = value as Record<string, unknown>;
   if (Object.keys(item).length !== FAILURE_KEYS.size || Object.keys(item).some((key) => !FAILURE_KEYS.has(key))) throw protocol("failure fields do not match the v1 contract");
-  if (typeof item.code !== "string" || !FAILURE_CODES.has(item.code as FailureCode)) throw protocol("unknown Engine failure code");
+  if (typeof item.code !== "string" || !FAILURE_CODES.has(item.code as FailureCode)) throw protocol("unknown instance failure code");
   if (typeof item.retryable_by_host !== "boolean") throw protocol("failure.retryable_by_host must be boolean");
   const recoveryRef = item.recovery_ref === null ? null : requiredRef(item.recovery_ref, "failure.recovery_ref");
   try { return new ContextFailure(item.code, item.retryable_by_host, recoveryRef); } catch (error) { throw protocol(String(error)); }
@@ -173,10 +177,10 @@ function parseInvocation(value: unknown): Record<string, unknown> {
   }
   const engineId = stringValue(engine.engine_id, "invocation.engine.engine_id");
   const engineVersion = stringValue(engine.engine_version, "invocation.engine.engine_version");
-  if (engineId !== "lean-ctx-local" || !SEMVER_RE.test(engineVersion) || Number.parseInt(engineVersion, 10) !== 3) throw new UnsupportedEngineError("unsupported Engine identity");
+  if (engineId !== "lean-ctx-local" || !SEMVER_RE.test(engineVersion) || Number.parseInt(engineVersion, 10) !== 3) throw new UnsupportedInstanceError("unsupported instance identity");
   const capabilityId = stringValue(operation.capability_id, "invocation.operation.capability_id");
   const capabilityVersion = stringValue(operation.capability_version, "invocation.operation.capability_version");
-  if (capabilityId !== "capability://leanctx/context-optimization" || capabilityVersion !== "1.0.0") throw new UnsupportedEngineError("unsupported Engine capability");
+  if (capabilityId !== "capability://leanctx/context-optimization" || capabilityVersion !== "1.0.0") throw new UnsupportedInstanceError("unsupported instance capability");
   const decision = policy.decision;
   if (decision !== "admitted" && decision !== "rejected") throw protocol("unknown policy decision");
   const invocationId = stringValue(item.invocation_id, "invocation.invocation_id");
@@ -206,7 +210,7 @@ function parseObservation(value: unknown, invocationId: string): Record<string, 
   const observedId = stringValue(item.invocation_id, "observation.invocation_id");
   if (observedId !== invocationId) throw protocol("observation invocation binding mismatch");
   if (integer(item.schema_version, "observation.schema_version") !== SCHEMA_VERSION) throw protocol("unsupported observation schema version");
-  if (!Object.values(EngineStatus).includes(item.status as EngineStatus)) throw protocol("unknown observation status");
+  if (!Object.values(InstanceStatus).includes(item.status as InstanceStatus)) throw protocol("unknown observation status");
   const status = item.status as string;
   const outputRef = optionalOutputRef(item.output_ref === undefined ? null : item.output_ref, "observation.output_ref");
   const outputDigest = optionalDigest(item.output_digest === undefined ? null : item.output_digest, "observation.output_digest");
@@ -247,12 +251,12 @@ function parseRecovery(value: unknown): ParsedResponse["recovery"] {
 
 export function parseResponse(raw: Uint8Array | string): ParsedResponse {
   const bytes = typeof raw === "string" ? Buffer.from(raw, "utf8") : Buffer.from(raw);
-  if (bytes.byteLength > MAX_RESPONSE_BYTES) throw protocol("Engine response exceeds the bound");
+  if (bytes.byteLength > MAX_RESPONSE_BYTES) throw protocol("LeanCTX instance response exceeds the bound");
   let decoded: unknown;
-  try { decoded = strictJsonLoads(bytes, "Engine response"); } catch (error) { throw protocol(String(error)); }
-  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw protocol("Engine response must be an object");
+  try { decoded = strictJsonLoads(bytes, "LeanCTX instance response"); } catch (error) { throw protocol(String(error)); }
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw protocol("LeanCTX instance response must be an object");
   const item = decoded as Record<string, unknown>;
-  if (Object.keys(item).length !== TOP_LEVEL_KEYS.size || Object.keys(item).some((key) => !TOP_LEVEL_KEYS.has(key))) throw protocol("Engine response fields do not match the v1 contract");
+  if (Object.keys(item).length !== TOP_LEVEL_KEYS.size || Object.keys(item).some((key) => !TOP_LEVEL_KEYS.has(key))) throw protocol("LeanCTX instance response fields do not match the v1 contract");
   if (integer(item.schema_version, "response.schema_version") !== SCHEMA_VERSION) throw new CompatibilityError("unsupported schema version");
   if (integer(item.transport_version, "response.transport_version") !== TRANSPORT_VERSION) throw new CompatibilityError("unsupported transport version");
   if (item.engine_interface_version !== ENGINE_INTERFACE_VERSION) throw new CompatibilityError("unsupported Engine Interface version");
@@ -272,9 +276,9 @@ export function parseResponse(raw: Uint8Array | string): ParsedResponse {
 }
 
 export function safeRelativePath(pathValue: string): string {
-  if (typeof pathValue !== "string" || !pathValue || Buffer.byteLength(pathValue, "utf8") > MAX_PATH_BYTES || pathValue.includes("\0") || isAbsolute(pathValue) || [...pathValue].some((char) => char.charCodeAt(0) < 0x20)) throw new EngineProtocolError("path must be a rooted relative path");
+  if (typeof pathValue !== "string" || !pathValue || Buffer.byteLength(pathValue, "utf8") > MAX_PATH_BYTES || pathValue.includes("\0") || isAbsolute(pathValue) || [...pathValue].some((char) => char.charCodeAt(0) < 0x20)) throw new InstanceProtocolError("path must be a rooted relative path");
   const normalized = normalize(pathValue).split(sep).join("/");
-  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) throw new EngineProtocolError("path escapes project root");
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) throw new InstanceProtocolError("path escapes project root");
   return normalized;
 }
 
@@ -286,19 +290,46 @@ function failureFromView(observation: Record<string, unknown>): ContextFailure |
   return observation.failure instanceof ContextFailure ? observation.failure : null;
 }
 
-export type SubprocessEngineClientOptions = Readonly<{
+export type SubprocessInstanceClientOptions = Readonly<{
+  /** LeanCTX instance binary; defaults to `lean-ctx`. */
+  instanceBinary?: string;
+  /** @deprecated since 1.3.0, use instanceBinary */
   engineBinary?: string;
   timeout?: number;
 }>;
 
-export class SubprocessEngineClient implements EngineClient {
-  readonly engineBinary: string;
-  readonly timeout: number;
+/** Resolve `instanceBinary`, accepting the deprecated `engineBinary` key. */
+export function resolveInstanceBinary(options: Readonly<{ instanceBinary?: string; engineBinary?: string }>): string {
+  if (options.instanceBinary !== undefined && options.engineBinary !== undefined && options.instanceBinary !== options.engineBinary) {
+    throw new ConfigurationError("instanceBinary and the deprecated engineBinary must not differ");
+  }
+  return options.instanceBinary ?? options.engineBinary ?? "lean-ctx";
+}
 
-  constructor(options: SubprocessEngineClientOptions = {}) {
+// Session containment (POSIX): the request to the Engine binary and the line its
+// session starter answers with, before the Engine itself is started.
+const SESSION_CONTAINMENT_ACK = Buffer.from('{"leanctx_session_containment":1}\n');
+
+export class SubprocessInstanceClient implements InstanceClient {
+  readonly instanceBinary: string;
+  /** @deprecated since 1.3.0, use instanceBinary */
+  get engineBinary(): string { return this.instanceBinary; }
+  readonly timeout: number;
+  private lastSessionContainmentValue: SessionContainment = "unavailable";
+  /**
+   * How the process tree of the most recent completed Engine run was contained (see
+   * `SessionContainment`). "unavailable" is reduced containment: the Engine binary has
+   * no session starter, or the platform is Windows. Rule: it is set whenever a run
+   * reached its end and its output was read, also when the Engine exited with a
+   * failure; a run ended before that (deadline, output bound, send failure) leaves it
+   * unchanged. With concurrent calls it is the state of whichever finished last.
+   */
+  get lastSessionContainment(): SessionContainment { return this.lastSessionContainmentValue; }
+
+  constructor(options: SubprocessInstanceClientOptions = {}) {
     const timeout = options.timeout ?? 30;
     if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout < 0.1 || timeout > 120) throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
-    this.engineBinary = options.engineBinary ?? "lean-ctx";
+    this.instanceBinary = resolveInstanceBinary(options);
     this.timeout = timeout;
   }
 
@@ -310,45 +341,45 @@ export class SubprocessEngineClient implements EngineClient {
     if (response.records === null) throw protocol("context-view response omitted invocation/observation");
     const { invocation } = response.records;
     if (!(invocation.source_refs as string[]).includes(response.recovery.sourceRef)) throw protocol("recovery source_ref is not admitted by invocation");
-    if (source.sourceRef !== undefined && source.sourceRef !== response.recovery.sourceRef) throw protocol("Engine source_ref differs from requested binding");
-    if (source.sourceDigest !== undefined && source.sourceDigest !== response.recovery.sourceDigest) throw protocol("Engine source_digest differs from requested binding");
+    if (source.sourceRef !== undefined && source.sourceRef !== response.recovery.sourceRef) throw protocol("LeanCTX instance source_ref differs from requested binding");
+    if (source.sourceDigest !== undefined && source.sourceDigest !== response.recovery.sourceDigest) throw protocol("LeanCTX instance source_digest differs from requested binding");
     const result = this.buildView(source, response);
-    if (result.status === EngineStatus.REJECTED) {
+    if (result.status === InstanceStatus.REJECTED) {
       const failure = result.failure;
       const options = failure === null ? { view: result } : { failure, view: result };
-      if (failure?.code === FailureCode.POLICY_REJECTED) throw new PolicyAdmissionError("Engine rejected request: policy_rejected", options);
-      if (failure?.code === FailureCode.SOURCE_UNAVAILABLE) throw new SourceUnavailableError("Engine rejected request: source_unavailable", options);
-      throw new EngineRejected(`Engine rejected request: ${failure?.code ?? "rejected"}`, options);
+      if (failure?.code === FailureCode.POLICY_REJECTED) throw new PolicyAdmissionError("LeanCTX instance rejected request: policy_rejected", options);
+      if (failure?.code === FailureCode.SOURCE_UNAVAILABLE) throw new SourceUnavailableError("LeanCTX instance rejected request: source_unavailable", options);
+      throw new InstanceRejected(`LeanCTX instance rejected request: ${failure?.code ?? "rejected"}`, options);
     }
-    if (result.status === EngineStatus.FAILED) {
+    if (result.status === InstanceStatus.FAILED) {
       const failure = result.failure;
-      if (failure?.code === FailureCode.UNSUPPORTED_OPERATION) throw new UnsupportedEngineError("Engine execution failed: unsupported_operation");
+      if (failure?.code === FailureCode.UNSUPPORTED_OPERATION) throw new UnsupportedInstanceError("LeanCTX instance execution failed: unsupported_operation");
       const options = failure === null ? { view: result } : { failure, view: result };
-      if (failure?.code === FailureCode.SOURCE_INTEGRITY_MISMATCH) throw new ArtifactIntegrityError("Engine execution failed: source_integrity_mismatch", options);
-      if (failure?.code === FailureCode.SOURCE_UNAVAILABLE) throw new SourceUnavailableError("Engine execution failed: source_unavailable", options);
-      throw new EngineExecutionError(`Engine execution failed: ${failure?.code ?? "failed"}`, options);
+      if (failure?.code === FailureCode.SOURCE_INTEGRITY_MISMATCH) throw new ArtifactIntegrityError("LeanCTX instance execution failed: source_integrity_mismatch", options);
+      if (failure?.code === FailureCode.SOURCE_UNAVAILABLE) throw new SourceUnavailableError("LeanCTX instance execution failed: source_unavailable", options);
+      throw new InstanceExecutionError(`LeanCTX instance execution failed: ${failure?.code ?? "failed"}`, options);
     }
     return result;
   }
 
   async contextPlanSources(
     projectRoot: string,
-    request: import("./planning.js").EnginePlanningRequest,
-    sources: ReadonlyArray<import("./planning.js").EngineSource>,
-  ): Promise<import("./planning.js").EngineSourcePlan> {
-    const { EngineSourcePlanningClient } = await import("./planning.js");
-    return new EngineSourcePlanningClient(this).contextPlanSources(projectRoot, request, sources);
+    request: import("./planning.js").InstancePlanningRequest,
+    sources: ReadonlyArray<import("./planning.js").InstanceSource>,
+  ): Promise<import("./planning.js").InstanceSourcePlan> {
+    const { InstanceSourcePlanningClient } = await import("./planning.js");
+    return new InstanceSourcePlanningClient(this).contextPlanSources(projectRoot, request, sources);
   }
 
   async contextMaterializeSources(
     projectRoot: string,
-    request: import("./planning.js").EnginePlanningRequest,
-    sources: ReadonlyArray<import("./planning.js").EngineSource>,
+    request: import("./planning.js").InstancePlanningRequest,
+    sources: ReadonlyArray<import("./planning.js").InstanceSource>,
     expectedBindingDigest: string,
     planningEvaluationTime?: string,
-  ): Promise<import("./planning.js").EngineContextSourceMaterialization> {
-    const { EngineSourcePlanningClient } = await import("./planning.js");
-    return new EngineSourcePlanningClient(this).contextMaterializeSources(
+  ): Promise<import("./planning.js").InstanceContextSourceMaterialization> {
+    const { InstanceSourcePlanningClient } = await import("./planning.js");
+    return new InstanceSourcePlanningClient(this).contextMaterializeSources(
       projectRoot,
       request,
       sources,
@@ -382,24 +413,24 @@ export class SubprocessEngineClient implements EngineClient {
   }
 
   private resolveBinary(): string {
-    let candidate = this.engineBinary;
+    let candidate = this.instanceBinary;
     if (!isAbsolute(candidate) && !candidate.includes("/") && !candidate.includes("\\")) {
       const searchPath = (process.env.PATH?.split(delimiter) ?? []).filter((entry) => entry.length > 0);
       const resolved = searchPath.map((entry) => resolve(entry, candidate)).find((entry) => { try { return statSync(entry).isFile(); } catch { return false; } });
-      if (resolved === undefined) throw new EngineUnavailable("configured Engine binary is unavailable");
+      if (resolved === undefined) throw new InstanceUnavailable("configured instance binary is unavailable");
       candidate = resolved;
     } else candidate = resolve(candidate);
     try {
       if (!statSync(candidate).isFile()) throw new Error();
       accessSync(candidate, constants.X_OK);
-    } catch { throw new EngineUnavailable("configured Engine binary is unavailable"); }
+    } catch { throw new InstanceUnavailable("configured instance binary is unavailable"); }
     return realpathSync(candidate);
   }
 
   private async invoke(operation: string, projectRoot: string, request: Record<string, unknown>): Promise<ParsedResponse> {
     const root = this.validateRoot(projectRoot);
     const payload = canonicalBytes(request);
-    if (payload.byteLength > MAX_REQUEST_BYTES) throw new EngineProtocolError("Engine request exceeds the bound");
+    if (payload.byteLength > MAX_REQUEST_BYTES) throw new InstanceProtocolError("LeanCTX instance request exceeds the bound");
     let requestPath: string | undefined;
     try {
       const directory = await mkdtemp(resolve(root, ".leanctx-sdk-"));
@@ -422,14 +453,126 @@ export class SubprocessEngineClient implements EngineClient {
     request: Record<string, unknown>,
   ): Promise<Buffer> {
     if (!SOURCE_OPERATIONS.has(operation)) {
-      throw new ValidationError("unsupported Engine source operation");
+      throw new ValidationError("unsupported instance source operation");
     }
     const root = this.validateRoot(projectRoot);
     const payload = canonicalBytes(request);
     if (payload.byteLength > MAX_SOURCE_REQUEST_BYTES) {
-      throw new EngineProtocolError("Engine source request exceeds the bound");
+      throw new InstanceProtocolError("LeanCTX instance source request exceeds the bound");
     }
     return this.run(operation, root, undefined, payload, MAX_SOURCE_RESPONSE_BYTES);
+  }
+
+  /**
+   * Run `context-materialize-sources-v2`; planning owns the DTO validation.
+   *
+   * `capability` is the wire form of a presenter capability the host already holds
+   * (renew), or undefined (issue). It reaches the Engine through an owner-only file in
+   * a private temporary directory that is removed afterwards — never through argv, the
+   * environment or the request document.
+   */
+  async presenterMaterializeOperation(
+    projectRoot: string,
+    request: Record<string, unknown>,
+    capability?: string,
+    // The two operations a held capability is USED with take the same path:
+    // `context-presented-use` (a delivered text as a JSON string, hence the
+    // larger bound) and `context-presenter-revoke`.
+    operation: "context-materialize-sources-v2" | "context-presented-use" | "context-presenter-revoke" = "context-materialize-sources-v2",
+    maxRequestBytes: number = MAX_SOURCE_REQUEST_BYTES + 256,
+  ): Promise<Buffer> {
+    const root = this.validateRoot(projectRoot);
+    const payload = canonicalBytes(request);
+    if (payload.byteLength > maxRequestBytes) {
+      throw new InstanceProtocolError("LeanCTX instance source request exceeds the bound");
+    }
+    // There is no version handshake for one-shot operations. An Engine that serves the
+    // operation never answers it with the bare `invalid_request` for a request this
+    // client built; an Engine older than the minimum does, because it does not know the
+    // operation. That refusal is reported as what it is.
+    const serve = async (extraArgs: readonly string[]): Promise<Buffer> => {
+      try {
+        return await this.run(operation, root, undefined, payload, MAX_SOURCE_RESPONSE_BYTES, extraArgs);
+      } catch (cause) {
+        if (cause instanceof InstanceExecutionError && cause.message === "LeanCTX instance process failed: invalid_request") {
+          throw new UnsupportedInstanceError(
+            "LeanCTX instance does not serve " + operation + ": LeanCTX "
+              + ENGINE_PRESENTER_CAPABILITY_MIN_ENGINE_VERSION + " or later is required",
+            { cause },
+          );
+        }
+        throw cause;
+      }
+    };
+    if (capability === undefined) return serve([]);
+    let capabilityPath: string | undefined;
+    try {
+      const directory = await mkdtemp(resolve(tmpdir(), "leanctx-presenter-"));
+      capabilityPath = resolve(directory, "capability");
+      const fd = openSync(capabilityPath, "wx", 0o600);
+      try { fchmodSync(fd, 0o600); writeFileSync(fd, capability); fsyncSync(fd); } finally { closeSync(fd); }
+      return await serve(["--presenter-capability-file", capabilityPath]);
+    } finally {
+      if (capabilityPath) {
+        try { unlinkSync(capabilityPath); } catch { /* best effort */ }
+        try { await rmdir(resolve(capabilityPath, "..")); } catch { /* best effort */ }
+      }
+    }
+  }
+
+  /**
+   * Materialize explicit sources and present them under a presenter capability
+   * (Engine 3.11.0 or later). Pass `{ ttlSeconds }` to have one issued, or the
+   * capability of an earlier grant to present under it again.
+   *
+   * The capability is a host-internal secret: it shows that a later request comes from
+   * the holder of the capability these sources were presented under — not who the host
+   * is. Never place it in model context, tool arguments, logs or provider requests.
+   */
+  async contextMaterializeSourcesV2(
+    projectRoot: string,
+    request: import("./planning.js").InstancePlanningRequest,
+    sources: ReadonlyArray<import("./planning.js").InstanceSource>,
+    expectedBindingDigest: string,
+    presenter: { ttlSeconds: number } | import("./planning.js").PresenterCapability,
+    planningEvaluationTime?: string,
+  ): Promise<import("./planning.js").InstanceContextSourceMaterializationV2> {
+    const { InstanceSourcePlanningClient } = await import("./planning.js");
+    return new InstanceSourcePlanningClient(this).contextMaterializeSourcesV2(
+      projectRoot,
+      request,
+      sources,
+      expectedBindingDigest,
+      presenter,
+      planningEvaluationTime,
+    );
+  }
+
+  /**
+   * Use text that was materialized under `capability` (Engine 3.11.0 or later):
+   * `{ mode: "check", content }`, `{ mode: "retain", content }` or
+   * `{ mode: "expand", recovery_id }`. The Engine re-checks the capability and the
+   * current source rights; `usable: false` carries a content-free reason. With
+   * `authorizedSourceIds` the Engine answers only for a lineage of EXACTLY these
+   * source ids and stores nothing for any other.
+   */
+  async presentedUse(
+    projectRoot: string,
+    capability: import("./planning.js").PresenterCapability,
+    asked: import("./planning.js").PresentedUse,
+    authorizedSourceIds?: readonly string[],
+  ): Promise<import("./planning.js").PresentedUseAnswer> {
+    const { InstanceSourcePlanningClient } = await import("./planning.js");
+    return new InstanceSourcePlanningClient(this).presentedUse(projectRoot, capability, asked, authorizedSourceIds);
+  }
+
+  /** End `capability`: from now on it presents and reuses nothing. */
+  async revokePresenter(
+    projectRoot: string,
+    capability: import("./planning.js").PresenterCapability,
+  ): Promise<import("./planning.js").PresenterRevocation> {
+    const { InstanceSourcePlanningClient } = await import("./planning.js");
+    return new InstanceSourcePlanningClient(this).revokePresenter(projectRoot, capability);
   }
 
   /**
@@ -439,8 +582,22 @@ export class SubprocessEngineClient implements EngineClient {
    */
   async egressAdmit(projectRoot: string, payload: Buffer, maxRequestBytes: number, maxResponseBytes: number): Promise<Buffer> {
     const root = this.validateRoot(projectRoot);
-    if (payload.byteLength > maxRequestBytes) throw new EngineProtocolError("egress request exceeds the bound");
+    if (payload.byteLength > maxRequestBytes) throw new InstanceProtocolError("egress request exceeds the bound");
     return this.run("egress-admit", root, undefined, payload, maxResponseBytes);
+  }
+
+  /** Explicit preparation lifecycle V2; legacy egressAdmit remains V1. */
+  async egressPrepare(projectRoot: string, payload: Buffer, maxRequestBytes: number, maxResponseBytes: number): Promise<Buffer> {
+    const root = this.validateRoot(projectRoot);
+    if (payload.byteLength > maxRequestBytes) throw new InstanceProtocolError("egress request exceeds the bound");
+    return this.run("egress-prepare", root, undefined, payload, maxResponseBytes);
+  }
+
+  /** Submit bounded host-observed transport facts through report V1. */
+  async egressReport(projectRoot: string, payload: Buffer, maxRequestBytes: number, maxResponseBytes: number): Promise<Buffer> {
+    const root = this.validateRoot(projectRoot);
+    if (payload.byteLength > maxRequestBytes) throw new InstanceProtocolError("egress report exceeds the bound");
+    return this.run("egress-report", root, undefined, payload, maxResponseBytes);
   }
 
   /**
@@ -460,7 +617,7 @@ export class SubprocessEngineClient implements EngineClient {
       throw new ValidationError("unsupported Context Store operation");
     }
     const root = this.validateRoot(projectRoot);
-    if (payload.byteLength > maxRequestBytes) throw new EngineProtocolError("context store request exceeds the bound");
+    if (payload.byteLength > maxRequestBytes) throw new InstanceProtocolError("context store request exceeds the bound");
     return this.run(operation, root, undefined, payload, maxResponseBytes);
   }
 
@@ -470,12 +627,17 @@ export class SubprocessEngineClient implements EngineClient {
     requestPath: string | undefined,
     stdinPayload?: Buffer,
     maxOutputBytes = MAX_RESPONSE_BYTES,
+    extraArgs: readonly string[] = [],
   ): Promise<Buffer> {
     const binary = this.resolveBinary();
     const jsonFile = stdinPayload === undefined ? requestPath : "-";
-    if (jsonFile === undefined) throw new EngineProtocolError("Engine request input is missing");
-    const argv = [binary, "engine", operation, "--project-root", projectRoot, "--json-file", jsonFile];
-    const env = { LC_ALL: "C", LANG: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
+    if (jsonFile === undefined) throw new InstanceProtocolError("LeanCTX instance request input is missing");
+    const argv = [binary, "engine", operation, "--project-root", projectRoot, "--json-file", jsonFile, ...extraArgs];
+    const env: Record<string, string> = { LC_ALL: "C", LANG: "C", TZ: "UTC", PYTHONHASHSEED: "0" };
+    // Ask the Engine to contain its session: on POSIX it runs as its own session starter,
+    // on Windows it joins a kill-on-close job. An Engine without the mode ignores the
+    // variable and acknowledges nothing.
+    env.LEAN_CTX_SESSION_CONTAINMENT = "1";
     let child: ChildProcess;
     try {
       child = spawn(binary, argv.slice(1), {
@@ -485,18 +647,30 @@ export class SubprocessEngineClient implements EngineClient {
         detached: process.platform !== "win32",
         stdio: [stdinPayload === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       });
-    } catch (error) { throw new EngineUnavailable("Engine process could not be started", { cause: error }); }
+    } catch (error) { throw new InstanceUnavailable("LeanCTX instance process could not be started", { cause: error }); }
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
-    return await new Promise<Buffer>((resolvePromise, rejectPromise) => {
+    return await new Promise<Buffer>((resolveBuffer, rejectNow) => {
+      const resolvePromise = resolveBuffer;
+      // Every failure that ends the Engine goes through here: the process is
+      // terminated and the failure is reported only once the Engine has exited.
+      // If it has not exited within its budget, that is reported instead:
+      // the cleanup failed, and a typed timeout must not hide it.
+      let terminated = false;
+      const rejectPromise = (error: Error): void => {
+        if (!terminated || child.exitCode !== null || child.signalCode !== null) { rejectNow(error); return; }
+        const confirm = setTimeout(() => rejectNow(new InstanceExecutionError("LeanCTX instance process could not be reaped within its budget")), ONE_SHOT_REAP_TIMEOUT_MS);
+        child.once("exit", () => { clearTimeout(confirm); rejectNow(error); });
+      };
+      const terminateProcess = (target: ChildProcess): void => { terminated = true; signalProcess(target); };
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
         terminateProcess(child);
-        rejectPromise(new EngineTimeout("Engine process exceeded its deadline"));
+        rejectPromise(new InstanceTimeout("LeanCTX instance process exceeded its deadline"));
       }, this.timeout * 1000);
       child.stdout?.on("data", (chunk: Buffer) => {
         if (settled) return;
@@ -505,7 +679,7 @@ export class SubprocessEngineClient implements EngineClient {
           settled = true;
           clearTimeout(timer);
           terminateProcess(child);
-          rejectPromise(new EngineProtocolError("Engine process output exceeds its bound"));
+          rejectPromise(new InstanceProtocolError("LeanCTX instance process output exceeds its bound"));
         } else stdout.push(Buffer.from(chunk));
       });
       child.stderr?.on("data", (chunk: Buffer) => {
@@ -515,40 +689,46 @@ export class SubprocessEngineClient implements EngineClient {
           settled = true;
           clearTimeout(timer);
           terminateProcess(child);
-          rejectPromise(new EngineProtocolError("Engine process output exceeds its bound"));
+          rejectPromise(new InstanceProtocolError("LeanCTX instance process output exceeds its bound"));
         } else stderr.push(Buffer.from(chunk));
       });
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        rejectPromise(new EngineUnavailable("Engine process could not be started", { cause: error }));
+        rejectPromise(new InstanceUnavailable("LeanCTX instance process could not be started", { cause: error }));
       });
       child.stdin?.once("error", (error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         terminateProcess(child);
-        rejectPromise(new EngineUnavailable("Engine process request could not be sent", { cause: error }));
+        rejectPromise(new InstanceUnavailable("LeanCTX instance process request could not be sent", { cause: error }));
       });
       child.once("close", (code) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // The session starter's acknowledgement precedes everything the Engine wrote.
+        // It is recorded — for a failed run too — and is not output.
+        let output = Buffer.concat(stdout);
+        const contained = output.subarray(0, SESSION_CONTAINMENT_ACK.byteLength).equals(SESSION_CONTAINMENT_ACK);
+        if (contained) output = output.subarray(SESSION_CONTAINMENT_ACK.byteLength);
+        this.lastSessionContainmentValue = contained ? "engine-starter" : "unavailable";
         if (code !== 0) {
           const failureCode = stderrCode(Buffer.concat(stderr));
           if (["unsafe_root", "source_outside_root", "source_symlink", "policy_rejected"].includes(failureCode ?? "")) {
-            rejectPromise(new PolicyAdmissionError(`Engine rejected request: ${failureCode}`));
+            rejectPromise(new PolicyAdmissionError(`LeanCTX instance rejected request: ${failureCode}`));
           } else if (failureCode === "source_unavailable") {
-            rejectPromise(new SourceUnavailableError("Engine source is unavailable"));
+            rejectPromise(new SourceUnavailableError("LeanCTX instance source is unavailable"));
           } else if (failureCode === "unsupported_mode") {
-            rejectPromise(new UnsupportedEngineError("Engine operation is unsupported"));
+            rejectPromise(new UnsupportedInstanceError("LeanCTX instance operation is unsupported"));
           } else {
-            rejectPromise(new EngineExecutionError(`Engine process failed: ${failureCode ?? "nonzero_exit"}`));
+            rejectPromise(new InstanceExecutionError(`LeanCTX instance process failed: ${failureCode ?? "nonzero_exit"}`));
           }
           return;
         }
-        resolvePromise(Buffer.concat(stdout));
+        resolvePromise(output);
       });
       if (stdinPayload !== undefined) child.stdin?.end(stdinPayload);
     });
@@ -580,7 +760,14 @@ function stderrCode(stderr: Buffer): string | null {
   return match?.[1] ?? null;
 }
 
-function terminateProcess(child: ChildProcess): void {
+const ONE_SHOT_REAP_TIMEOUT_MS = 5_000;
+
+function signalProcess(child: ChildProcess): void {
+  // Ownership rule: the group is addressed by the leader's pid, which is ours only
+  // while the leader is unreaped. Node reaps on its event loop and sets exitCode or
+  // signalCode before our code runs again; both null means unreaped for the whole of
+  // this synchronous function. A reaped leader's number is not signalled.
+  if (child.exitCode !== null || child.signalCode !== null) return;
   const pid = child.pid;
   if (!pid) { try { child.kill("SIGKILL"); } catch { /* already gone */ } return; }
   try {

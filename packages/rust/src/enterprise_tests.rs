@@ -1,5 +1,5 @@
 // These loopback-only tests exercise the HTTP transport contract with synthetic
-// Engine responses. They are not installed-user proof and make no remote calls.
+// instance responses. They are not installed-user proof and make no remote calls.
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use super::{EnginePlanningRequest, EnterpriseEngineClient};
-use crate::errors::{EngineProtocolError, EngineTimeout};
+use super::{EnterpriseInstanceClient, InstancePlanningRequest};
+use crate::errors::{InstanceProtocolError, InstanceTimeout};
 use crate::planning::canonical_bytes;
 use crate::protocol::sha256_digest;
 
@@ -115,13 +115,13 @@ fn write_response(
     stream.flush().expect("flush fixture response");
 }
 
-fn test_client(base_url: &str, timeout: Duration) -> EnterpriseEngineClient {
-    EnterpriseEngineClient::with_options(base_url, CREDENTIAL, TENANT_ID, timeout, true)
+fn test_client(base_url: &str, timeout: Duration) -> EnterpriseInstanceClient {
+    EnterpriseInstanceClient::with_options(base_url, CREDENTIAL, TENANT_ID, timeout, true)
         .expect("configure loopback-only fixture client")
 }
 
-fn planning_request() -> EnginePlanningRequest {
-    EnginePlanningRequest::new(TASK_ID, "summarize the selected source", 10)
+fn planning_request() -> InstancePlanningRequest {
+    InstancePlanningRequest::new(TASK_ID, "summarize the selected source", 10)
         .expect("valid planning request")
 }
 
@@ -221,7 +221,7 @@ fn materialization_response(
 }
 
 fn is_protocol_error(error: &(dyn std::error::Error + 'static)) -> bool {
-    error.downcast_ref::<EngineProtocolError>().is_some()
+    error.downcast_ref::<InstanceProtocolError>().is_some()
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn trickled_response_body_cannot_extend_the_full_request_deadline() {
     let elapsed = started.elapsed();
     server.join().expect("fixture server");
 
-    assert!(error.downcast_ref::<EngineTimeout>().is_some());
+    assert!(error.downcast_ref::<InstanceTimeout>().is_some());
     assert!(
         elapsed < Duration::from_millis(700),
         "deadline took {elapsed:?}"
@@ -467,9 +467,191 @@ fn delayed_headers_then_stalled_body_respect_one_request_deadline() {
     let elapsed = started.elapsed();
     server.join().expect("fixture server");
 
-    assert!(error.downcast_ref::<EngineTimeout>().is_some());
+    assert!(error.downcast_ref::<InstanceTimeout>().is_some());
     assert!(
         elapsed < Duration::from_millis(700),
         "delayed-header body deadline took {elapsed:?}"
     );
+}
+
+/// The capability is returned once, travels back in a request header only,
+/// and no rendering of the result shows it.
+#[test]
+fn materialization_v2_keeps_the_capability_out_of_bodies_and_renderings() {
+    use super::{PresenterCapability, PresenterUse, PRESENTER_CAPABILITY_HEADER};
+
+    // Assembled at run time: the source holds no capability-shaped text.
+    let secret = format!("lcp1_{}", "ab".repeat(32));
+    let reference = format!("presenter:{}", "0123456789abcdef".repeat(2));
+    let (v1, binding_digest) =
+        materialization_response(TENANT_ID, GOVERNANCE_REVISION, SOURCE_ID, CONTENT);
+    let v2 = |capability: Option<&str>| {
+        let mut grant = json!({"presenter_ref": reference, "expires_at_unix": 1_900_000_000_u64});
+        if let Some(capability) = capability {
+            grant["capability"] = json!(capability);
+        }
+        serde_json::to_vec(&json!({
+            "schema_version": 2,
+            "tenant_id": v1["tenant_id"],
+            "governance_revision": v1["governance_revision"],
+            "materialization": {
+                "schema_version": 2,
+                "materialization": v1["materialization"],
+                "presenter": grant
+            }
+        }))
+        .expect("serialize v2 fixture")
+    };
+    let call = |body: Vec<u8>, status: &'static str, presenter: PresenterUse<'_>| {
+        let (url, server) = start_fixture(move |stream| {
+            write_response(stream, status, &[], body.len(), &body);
+        });
+        let result = test_client(&url, Duration::from_secs(2)).context_materialize_v2(
+            &planning_request(),
+            &[SOURCE_ID],
+            GOVERNANCE_REVISION,
+            &binding_digest,
+            None,
+            presenter,
+        );
+        (result, server.join().expect("fixture server"))
+    };
+
+    let (issued, request) = call(
+        v2(Some(&secret)),
+        "200 OK",
+        PresenterUse::Issue { ttl_seconds: 600 },
+    );
+    let issued = issued.expect("validated v2 materialization");
+    assert_eq!(request.path(), "/v1/engine/context-materialize-v2");
+    assert_eq!(request.header(PRESENTER_CAPABILITY_HEADER), None);
+    assert_eq!(
+        request.json_body()["presenter"],
+        json!({"mode": "issue", "ttl_seconds": 600})
+    );
+    assert_eq!(issued.materialization().content(), Some(CONTENT));
+    assert_eq!(issued.presenter().presenter_ref(), reference);
+    let capability: PresenterCapability = issued
+        .presenter()
+        .capability()
+        .expect("an issue returns the capability once")
+        .clone();
+    assert_eq!(capability.reveal(), secret);
+    assert!(!format!("{issued:?} {capability:?}").contains(&secret));
+
+    let (renewed, request) = call(v2(None), "200 OK", PresenterUse::Renew(&capability));
+    let renewed = renewed.expect("validated renewal");
+    assert_eq!(
+        request.header(PRESENTER_CAPABILITY_HEADER),
+        Some(secret.as_str())
+    );
+    assert!(!String::from_utf8_lossy(&request.body).contains(&secret));
+    assert_eq!(request.json_body()["presenter"], json!({"mode": "renew"}));
+    assert!(renewed.presenter().capability().is_none());
+
+    // A renewal that returns a capability, and an issue that returns none.
+    let (mismatch, _) = call(
+        v2(Some(&secret)),
+        "200 OK",
+        PresenterUse::Renew(&capability),
+    );
+    assert!(is_protocol_error(mismatch.expect_err("renewal").as_ref()));
+    let (mismatch, _) = call(v2(None), "200 OK", PresenterUse::Issue { ttl_seconds: 600 });
+    assert!(is_protocol_error(mismatch.expect_err("issue").as_ref()));
+
+    // A suite without the route, or an instance without the operation.
+    for status in ["404 Not Found", "501 Not Implemented"] {
+        let (unsupported, _) = call(Vec::new(), status, PresenterUse::Issue { ttl_seconds: 600 });
+        assert!(
+            unsupported
+                .expect_err("unsupported")
+                .downcast_ref::<crate::errors::UnsupportedInstanceError>()
+                .is_some(),
+            "{status}"
+        );
+    }
+}
+
+#[test]
+fn a_held_capability_is_used_and_revoked_in_the_header_only() {
+    use super::{PresentedUse, PresenterCapability, PRESENTER_CAPABILITY_HEADER};
+
+    // Assembled at run time: the source holds no capability-shaped text.
+    let secret = format!("lcp1_{}", "ab".repeat(32));
+    let capability = PresenterCapability::new(&secret).expect("capability form");
+    let reference = format!("presenter:{}", "0123456789abcdef".repeat(2));
+    let recovery_id = "5e".repeat(32);
+    let answer = |content: &str| {
+        serde_json::to_vec(&json!({
+            "schema_version": 1,
+            "tenant_id": TENANT_ID,
+            "governance_revision": GOVERNANCE_REVISION,
+            "use": {
+                "schema_version": 1, "presenter_ref": reference, "usable": true,
+                "source_ids": [SOURCE_ID], "recovery_id": recovery_id, "content": content
+            }
+        }))
+        .expect("serialize use fixture")
+    };
+    let call = |body: Vec<u8>, status: &'static str| {
+        let (url, server) = start_fixture(move |stream| {
+            write_response(stream, status, &[], body.len(), &body);
+        });
+        let result = test_client(&url, Duration::from_secs(2)).presented_use(
+            &capability,
+            &[SOURCE_ID],
+            GOVERNANCE_REVISION,
+            PresentedUse::Expand(&recovery_id),
+        );
+        (result, server.join().expect("fixture server"))
+    };
+
+    let (expanded, request) = call(answer("ledger"), "200 OK");
+    let expanded = expanded.expect("validated use");
+    assert_eq!(request.path(), "/v1/engine/presented-use");
+    assert_eq!(
+        request.header(PRESENTER_CAPABILITY_HEADER),
+        Some(secret.as_str())
+    );
+    assert!(!String::from_utf8_lossy(&request.body).contains(&secret));
+    assert_eq!(
+        request.json_body()["use"],
+        json!({"mode": "expand", "recovery_id": recovery_id})
+    );
+    assert_eq!(expanded.content(), Some("ledger"));
+    assert_eq!(expanded.source_ids(), [SOURCE_ID]);
+
+    // The capability handed back inside the text, the one capability
+    // refusal, and a suite without the route.
+    let (leaking, _) = call(answer(&format!("ledger {secret}")), "200 OK");
+    assert!(is_protocol_error(leaking.expect_err("leak").as_ref()));
+    let (refused, _) = call(Vec::new(), "403 Forbidden");
+    assert!(refused
+        .expect_err("refused")
+        .downcast_ref::<crate::errors::PolicyAdmissionError>()
+        .is_some());
+    let (unsupported, _) = call(Vec::new(), "404 Not Found");
+    assert!(unsupported
+        .expect_err("unsupported")
+        .downcast_ref::<crate::errors::UnsupportedInstanceError>()
+        .is_some());
+
+    let body = serde_json::to_vec(&json!({
+        "schema_version": 1,
+        "tenant_id": TENANT_ID,
+        "revocation": {"schema_version": 1, "presenter_ref": reference, "revoked": true}
+    }))
+    .expect("serialize revocation fixture");
+    let (url, server) = start_fixture(move |stream| {
+        write_response(stream, "200 OK", &[], body.len(), &body);
+    });
+    let revoked = test_client(&url, Duration::from_secs(2)).presenter_revoke(&capability);
+    let request = server.join().expect("fixture server");
+    assert_eq!(revoked.expect("validated revocation"), (reference, true));
+    assert_eq!(request.path(), "/v1/engine/presenter-revoke");
+    assert_eq!(
+        request.header(PRESENTER_CAPABILITY_HEADER),
+        Some(secret.as_str())
+    );
+    assert!(!String::from_utf8_lossy(&request.body).contains(&secret));
 }

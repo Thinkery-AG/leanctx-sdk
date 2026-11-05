@@ -171,9 +171,9 @@ func enterpriseExecutionResponse(t *testing.T, value map[string]any) []byte {
 	return payload
 }
 
-func enterpriseExecutionRequest(t *testing.T, bindingDigest string, revision uint64) EngineSourceExecutionV2Request {
+func enterpriseExecutionRequest(t *testing.T, bindingDigest string, revision uint64) InstanceSourceExecutionV2Request {
 	t.Helper()
-	return EngineSourceExecutionV2Request{
+	return InstanceSourceExecutionV2Request{
 		Task: enterpriseExecutionTaskFixture(),
 		Plan: enterpriseExecutionPlanFixture(),
 		Materialization: enterpriseMaterializationRequest(
@@ -251,7 +251,7 @@ func TestEnterpriseContextExecuteV2RejectsCriticalBindingMutations(t *testing.T)
 	tests := []struct {
 		name    string
 		value   map[string]any
-		request EngineSourceExecutionV2Request
+		request InstanceSourceExecutionV2Request
 		payload []byte
 	}{
 		{
@@ -307,8 +307,8 @@ func TestEnterpriseContextExecuteV2RejectsCriticalBindingMutations(t *testing.T)
 				context.Background(),
 				test.request,
 			)
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 			if strings.Contains(err.Error(), "credential-test") {
 				t.Fatal("execution protocol error leaked the bearer credential")
@@ -343,7 +343,7 @@ func TestEnterpriseContextExecuteV2RejectsReceiptAndLineageMutations(t *testing.
 			}
 			server, _ := newEnterprisePlanServer(t, http.StatusOK, enterpriseExecutionResponse(t, value))
 			_, err := newEnterprisePlanClient(t, server).ContextExecuteV2(enterpriseExecutionRequest(t, binding, 7))
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
 				t.Fatalf("expected protocol rejection, got %T: %v", err, err)
 			}
 		})

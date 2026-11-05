@@ -14,12 +14,12 @@
     {"distribution": "requests", "version": "2.33.0", "repository": "https://github.com/psf/requests.git", "commit": "bc04dfd6dad4cb02cd92f5daa81eb562d280a761"},
     {"distribution": "urllib3", "version": "2.8.0", "repository": "https://github.com/urllib3/urllib3.git", "commit": "b1d30ab61fe0db8f11092805e8c5ac43e091064a"}
   ],
-  "artifacts_digest": "255295d47432f88f38dbf1adbefd8b07df044085f0ef47e41f752e76f97e6c15",
+  "artifacts_digest": "42bb55a09b16a50016a09000ca335f19d7e1d18c8b9a5ba8ae2274fa16998626",
   "artifacts": [
     {"distribution": "annotated-types", "version": "0.8.0", "filename": "annotated_types-0.8.0-py3-none-any.whl", "sha256": "f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0"},
     {"distribution": "anyio", "version": "4.14.2", "filename": "anyio-4.14.2-py3-none-any.whl", "sha256": "9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494"},
     {"distribution": "attrs", "version": "26.1.0", "filename": "attrs-26.1.0-py3-none-any.whl", "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"},
-    {"distribution": "certifi", "version": "2026.7.22", "filename": "certifi-2026.7.22-py3-none-any.whl", "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775"},
+    {"distribution": "certifi", "version": "2026.10.18", "filename": "certifi-2026.10.18-py3-none-any.whl", "sha256": "73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62"},
     {"distribution": "cffi", "version": "2.1.1", "filename": "cffi-2.1.1-cp311-cp311-macosx_11_0_arm64.whl", "sha256": "398aff33cee2767e3e781d2554c54bd0dff386bb437581e0d8011fde1a942ec1"},
     {"distribution": "charset-normalizer", "version": "3.5.1", "filename": "charset_normalizer-3.5.1-cp311-cp311-macosx_10_9_universal2.whl", "sha256": "eda059b6bc8bc0812d626fd91a7ce01bf583df0a61296eff390fd94141a34e30"},
     {"distribution": "click", "version": "8.5.0", "filename": "click-8.5.0-py3-none-any.whl", "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360"},
@@ -35,7 +35,7 @@
     {"distribution": "jiter", "version": "0.16.0", "filename": "jiter-0.16.0-cp311-cp311-macosx_11_0_arm64.whl", "sha256": "c90c0f63df322be920eda6ce622e3083d8906ba267f8220fe7873213b8b4430e"},
     {"distribution": "jsonschema", "version": "4.26.0", "filename": "jsonschema-4.26.0-py3-none-any.whl", "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce"},
     {"distribution": "jsonschema-specifications", "version": "2025.9.1", "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl", "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe"},
-    {"distribution": "mcp", "version": "1.29.1", "filename": "mcp-1.29.1-py3-none-any.whl", "sha256": "b6310eeb59153300c4ab8b9aec4c52f4819a2d6a8e429eb43d908bed7c783648"},
+    {"distribution": "mcp", "version": "1.30.0", "filename": "mcp-1.30.0-py3-none-any.whl", "sha256": "666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0"},
     {"distribution": "openai", "version": "2.19.0", "filename": "openai-2.19.0-py3-none-any.whl", "sha256": "425d657ce4dcc9d6294b78f0f41dc36aa43230750e61f49c551fa490c8575803"},
     {"distribution": "openai-agents", "version": "0.8.4", "filename": "openai_agents-0.8.4-py3-none-any.whl", "sha256": "2383c6e8e59ed4146b89d1b6f53e34e55caf94bc14ae3fd704e7aad5021f4ff1"},
     {"distribution": "pycparser", "version": "3.0", "filename": "pycparser-3.0-py3-none-any.whl", "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"},

@@ -1,6 +1,6 @@
 """Durable, provider-free Product workspace contract.
 
-The workspace journal is deliberately independent from the Engine protocol.
+The workspace journal is deliberately independent from the instance protocol.
 Only immutable identifiers and explicitly committed Product values cross this
 module's persistence boundary.
 """
@@ -1271,7 +1271,7 @@ class ContextCheckpointV2:
             "transport_version": 1,
         }:
             raise WorkspaceIncompatibleError(
-                "Engine checkpoint identity is unsupported"
+                "Instance checkpoint identity is unsupported"
             )
         _reject_sensitive(logical_state, "logical_state")
         _reject_sensitive(package_pins, "package_pins")
@@ -1653,7 +1653,7 @@ def _verify_checkpoint_trust(
             continue
         if anchor.engine_binding is None:
             raise WorkspaceIncompatibleError(
-                "verified checkpoint source lacks Engine binding"
+                "verified checkpoint source lacks instance binding"
             )
         trusted_seed = False
         for event in state.events:
@@ -1920,7 +1920,7 @@ def _verify_checkpoint_sources(checkpoint: ContextCheckpointV2) -> None:
 def _validate_anchor_binding(anchor: SourceAnchor, source: ContextSource) -> None:
     if anchor.kind != "filesystem" or anchor.engine_binding is None:
         raise WorkspaceValidationError(
-            "source is not eligible for a local Engine session"
+            "source is not eligible for a local instance session"
         )
     if not isinstance(source, ContextSource):
         raise WorkspaceValidationError("source must be ContextSource")
@@ -4574,7 +4574,7 @@ class ContextWorkspace:
             entry.receipt_refs or entry.recovery_refs for entry in normalized
         ):
             raise WorkspaceValidationError(
-                "workspace entries cannot carry Engine lineage"
+                "workspace entries cannot carry instance lineage"
             )
         payload = {
             "entries": [_plain(entry.to_dict()) for entry in normalized],

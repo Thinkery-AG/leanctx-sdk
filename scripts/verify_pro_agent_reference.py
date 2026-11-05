@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Iterator
 
 import leanctx_sdk
-from leanctx_sdk import AgentContext, EngineProtocolError, GitLabSource
-from leanctx_sdk.errors import AgentPermissionError, EngineExecutionError
+from leanctx_sdk import AgentContext, InstanceProtocolError, GitLabSource
+from leanctx_sdk.errors import AgentPermissionError, InstanceExecutionError
 
 
 @contextmanager
@@ -70,15 +70,15 @@ def verify(
         policy = root / ".lean-ctx/policy.toml"
         rules = policy.read_text()
         try:
-            with AgentContext(root, engine_binary=previous_engine):
+            with AgentContext(root, instance_binary=previous_engine):
                 pass
-        except EngineProtocolError as error:
+        except InstanceProtocolError as error:
             checks["old_engine_rejected"] = "Agent Tools hello is incompatible" in str(
                 error
             )
         else:
             raise RuntimeError("old Engine unexpectedly admitted")
-        with AgentContext(root, engine_binary=engine, gitlab_source=source) as context:
+        with AgentContext(root, instance_binary=engine, gitlab_source=source) as context:
             read = context.read("login.py", "full")
             composed = context.compose("investigate authentication retry")
             if os.environ.get("LEANCTX_REFERENCE_PRO") == "1":
@@ -107,7 +107,7 @@ def verify(
             )
             try:
                 denied = context.read("login.py", "full")
-            except (AgentPermissionError, EngineExecutionError) as error:
+            except (AgentPermissionError, InstanceExecutionError) as error:
                 checks["changed_rule_blocks_read"] = (
                     "policy" in str(error).lower()
                     and "REFRESH_SESSION_FIRST" not in str(error)

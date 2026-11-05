@@ -10,8 +10,8 @@ from threading import Thread
 from typing import Any, Callable, Iterator, Mapping, Optional
 import unittest
 
-from leanctx_sdk.enterprise_engine import EnterpriseEngineClient
-from leanctx_sdk.errors import EngineProtocolError, ValidationError
+from leanctx_sdk.enterprise_instance import EnterpriseInstanceClient
+from leanctx_sdk.errors import InstanceProtocolError, ValidationError
 from leanctx_sdk.protocol import canonical_json, canonical_bytes, sha256_digest
 
 
@@ -103,8 +103,8 @@ def _server(body_factory: Callable[[bytes], bytes]) -> Iterator[_Server]:
         thread.join(timeout=2)
 
 
-def _client(server: _Server) -> EnterpriseEngineClient:
-    return EnterpriseEngineClient(
+def _client(server: _Server) -> EnterpriseInstanceClient:
+    return EnterpriseInstanceClient(
         f"http://127.0.0.1:{server.server_port}/",
         "credential-test",
         TENANT_ID,
@@ -241,7 +241,7 @@ class EnterpriseOutcomeTests(unittest.TestCase):
         for label, body in cases:
             with self.subTest(label=label):
                 with _server(lambda _request, body=body: body) as server:
-                    with self.assertRaises(EngineProtocolError):
+                    with self.assertRaises(InstanceProtocolError):
                         _client(server).context_outcome(
                             "enterprise-task", RECEIPT_DIGEST, DECISION_DIGEST, [
                                 {"signal_type": "human_acceptance", "value": {"boolean": True}}
@@ -251,7 +251,7 @@ class EnterpriseOutcomeTests(unittest.TestCase):
     def test_rejects_matching_transport_hash_for_other_task_document(self) -> None:
         body = _response(receipt_document_json=_receipt_document(task_id="other-task"))
         with _server(lambda _request: body) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_outcome(
                     "enterprise-task",
                     RECEIPT_DIGEST,
@@ -280,7 +280,7 @@ class EnterpriseOutcomeTests(unittest.TestCase):
     def test_rejects_oversized_receipt_document(self) -> None:
         oversized = "x" * (1024 * 1024 + 1)
         with _server(lambda _body: _response(receipt_document_json=oversized)) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_outcome(
                     "enterprise-task", RECEIPT_DIGEST, DECISION_DIGEST,
                     [{"signal_type": "human_acceptance", "value": {"boolean": True}}],
@@ -296,7 +296,7 @@ class EnterpriseOutcomeTests(unittest.TestCase):
             + "}"
         ).encode("utf-8")
         with _server(lambda _body: response) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_outcome(
                     "enterprise-task", RECEIPT_DIGEST, DECISION_DIGEST,
                     [{"signal_type": "human_acceptance", "value": {"boolean": True}}],
@@ -314,7 +314,7 @@ class EnterpriseOutcomeTests(unittest.TestCase):
         )
         body = _response(receipt_document_json=deep_document)
         with _server(lambda _body: body) as server:
-            with self.assertRaises(EngineProtocolError):
+            with self.assertRaises(InstanceProtocolError):
                 _client(server).context_outcome(
                     "enterprise-task", RECEIPT_DIGEST, DECISION_DIGEST,
                     [{"signal_type": "human_acceptance", "value": {"boolean": True}}],

@@ -80,7 +80,7 @@ func testFixtureView(t *testing.T, source ContextSource) *ContextView {
 	view, err := NewContextView(ContextViewOptions{
 		Source: source, Text: &text, OutputRef: stringPointer("output:" + outputDigest[len("sha256:"):]), OutputDigest: &outputDigest,
 		SourceRef: sourceRef, SourceDigest: sourceDigest, RecoveryRef: inputRef,
-		Status: EngineStatusSucceeded, Measurements: []ContextMeasurement{*measurementOne, *measurementTwo},
+		Status: InstanceStatusSucceeded, Measurements: []ContextMeasurement{*measurementOne, *measurementTwo},
 		ReceiptLink: link, Invocation: invocation, Observation: observation,
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestProductSerializationFingerprints(t *testing.T) {
 	}
 }
 
-func TestEngineFixtureResponseBuildsVerifiedView(t *testing.T) {
+func TestInstanceFixtureResponseBuildsVerifiedView(t *testing.T) {
 	fixture := readJSONFile(t, filepath.Join(testRepositoryRoot(t), "fixtures", "engine-interface-v1", "r1-success.json"))
 	response := fixture["response"].(map[string]any)
 	payload, err := canonicalJSON(response)
@@ -170,7 +170,7 @@ func TestEngineFixtureResponseBuildsVerifiedView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !view.Verify() || view.Status != EngineStatusSucceeded || view.RequireTextValue(t) != "Synthetic context view\n" {
+	if !view.Verify() || view.Status != InstanceStatusSucceeded || view.RequireTextValue(t) != "Synthetic context view\n" {
 		t.Fatalf("fixture view was not verified: %#v", view)
 	}
 	if view.RecoveryBinding()["source_ref"] != "source:fixture-path-sha256:"+stringsRepeat("a", 64) {
@@ -240,7 +240,7 @@ func TestProductValidationAndErrorGuidance(t *testing.T) {
 	if _, err := NewContextSource("bad\x00path", ContextSourceOptions{ProjectRoot: "/PROJECT"}); err == nil {
 		t.Fatal("NUL path unexpectedly accepted")
 	}
-	timeout := NewEngineTimeout("sensitive host detail")
+	timeout := NewInstanceTimeout("sensitive host detail")
 	guidance := timeout.AsDict()
 	if guidance.Guidance != "retry within host policy or use explicit bounded fail-open" || guidance.Code != "engine_timeout" || !guidance.Retryable || !guidance.DegradeAllowed || guidance.AbortRequired {
 		t.Fatalf("unexpected timeout guidance: %#v", guidance)
@@ -248,7 +248,7 @@ func TestProductValidationAndErrorGuidance(t *testing.T) {
 	if bytes.Contains([]byte(string(mustJSON(guidance))), []byte("sensitive")) {
 		t.Fatal("error guidance exposed a message")
 	}
-	var typed *EngineTimeout
+	var typed *InstanceTimeout
 	if !errors.As(timeout, &typed) {
 		t.Fatal("errors.As did not preserve concrete type")
 	}

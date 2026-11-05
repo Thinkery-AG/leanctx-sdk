@@ -21,6 +21,8 @@ internal static class EnterpriseHttpContractTests
     {
         Unsigned64WireContract();
         PlanAndMaterializationContract();
+        MaterializationV2KeepsTheCapabilityOutOfBodiesAndRenderings();
+        AHeldCapabilityIsUsedAndRevokedInTheHeaderOnly();
         ResponseBindingsFailClosed();
         TransportBoundsAndDeadlines();
         UrlAndTlsValidation();
@@ -35,12 +37,12 @@ internal static class EnterpriseHttpContractTests
         Equal("{\"value\":18446744073709551615}", Encoding.UTF8.GetString(bytes));
         var parsed = WireJson.ParseObject(bytes, "unsigned-64 fixture", 128);
         Equal(ulong.MaxValue, parsed["value"]);
-        Throws<ValidationError>(() => new EnginePlanningRequest("bad-budget", "query", 0));
+        Throws<ValidationError>(() => new InstancePlanningRequest("bad-budget", "query", 0));
     }
 
     private static void PlanAndMaterializationContract()
     {
-        var request = new EnginePlanningRequest("task-enterprise-contract", "summarize the issue", 128);
+        var request = new InstancePlanningRequest("task-enterprise-contract", "summarize the issue", 128);
         var sourcePlan = SourcePlan(request, SourceId);
         var bindingDigest = (string)sourcePlan["binding_digest"]!;
         const string content = "prepared issue context\n";
@@ -52,7 +54,7 @@ internal static class EnterpriseHttpContractTests
                 return Json(200, MaterializationEnvelope(request, SourceId, content));
             return Json(404, new byte[0]);
         });
-        using var client = new EnterpriseEngineClient(
+        using var client = new EnterpriseInstanceClient(
             server.Url, Token, TenantId, timeout: 5, allowLoopbackHttp: true);
 
         Throws<ValidationError>(() => client.ContextPlan(
@@ -85,23 +87,191 @@ internal static class EnterpriseHttpContractTests
         Equal("2025-06-01T12:30:00Z", calls[1].Body["planning_evaluation_time"]);
     }
 
+    private static void MaterializationV2KeepsTheCapabilityOutOfBodiesAndRenderings()
+    {
+        var request = new InstancePlanningRequest("task-presenter-contract", "summarize the issue", 128);
+        var bindingDigest = (string)SourcePlan(request, SourceId)["binding_digest"]!;
+        const string content = "prepared issue context\n";
+        // Assembled at run time: the source holds no capability-shaped text.
+        var secret = "lcp1_" + new StringBuilder().Insert(0, "ab", 32);
+        var reference = "presenter:" + new StringBuilder().Insert(0, "0123456789abcdef", 2);
+        var status = 200;
+        using var server = new LocalHttpServer((captured, _) =>
+        {
+            if (status != 200)
+                return Json(status, new byte[0]);
+            var v1 = MaterializationEnvelope(request, SourceId, content);
+            var grant = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["presenter_ref"] = reference,
+                ["expires_at_unix"] = 1_900_000_000UL,
+            };
+            if (!captured.Headers.ContainsKey(PresenterCapability.Header))
+                grant["capability"] = secret;
+            return Json(200, new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["schema_version"] = 2L,
+                ["tenant_id"] = v1["tenant_id"],
+                ["governance_revision"] = v1["governance_revision"],
+                ["materialization"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["schema_version"] = 2L,
+                    ["materialization"] = v1["materialization"],
+                    ["presenter"] = grant,
+                },
+            });
+        });
+        using var client = NewClient(server.Url);
+
+        var issued = client.ContextMaterializeV2Async(request, new[] { SourceId }, 7, bindingDigest, 600)
+            .GetAwaiter().GetResult();
+        var capability = issued.Presenter.Capability ?? throw new Exception("an issue returns the capability");
+        Equal(secret, capability.Reveal());
+        Equal(reference, issued.Presenter.PresenterRef);
+        Equal(content, ((IReadOnlyDictionary<string, object?>)issued.Materialization["materialization"]!)["content"]);
+        var renderings = $"{capability} {issued.Presenter} {issued}" +
+            System.Text.Json.JsonSerializer.Serialize(issued.Presenter);
+        if (renderings.Contains(secret, StringComparison.Ordinal))
+            throw new Exception("a rendering carries the capability");
+
+        var renewed = client.ContextMaterializeV2Async(request, new[] { SourceId }, 7, bindingDigest, capability)
+            .GetAwaiter().GetResult();
+        if (renewed.Presenter.Capability is not null)
+            throw new Exception("a renewal returns no capability");
+
+        var calls = server.Requests.ToArray();
+        Equal(2, calls.Length);
+        Equal("/v1/engine/context-materialize-v2", calls[0].Path);
+        if (calls[0].Headers.ContainsKey(PresenterCapability.Header))
+            throw new Exception("an issue shows no capability");
+        Equal(secret, calls[1].Headers[PresenterCapability.Header]);
+        Equal("issue", ((IReadOnlyDictionary<string, object?>)calls[0].Body["presenter"]!)["mode"]);
+        Equal("renew", ((IReadOnlyDictionary<string, object?>)calls[1].Body["presenter"]!)["mode"]);
+        foreach (var call in calls)
+        {
+            if (Encoding.UTF8.GetString(WireJson.CanonicalBytes(call.Body)).Contains(secret, StringComparison.Ordinal))
+                throw new Exception("the capability is never a body member");
+        }
+
+        Throws<ValidationError>(() => client.ContextMaterializeV2Async(
+            request, new[] { SourceId }, 7, bindingDigest, 0).GetAwaiter().GetResult());
+        Throws<ValidationError>(() => new PresenterCapability(reference));
+        Equal(2, server.Requests.Count);
+
+        // A suite without the route, or an Engine without the operation.
+        foreach (var unsupported in new[] { 404, 501 })
+        {
+            status = unsupported;
+            Throws<UnsupportedInstanceError>(() => client.ContextMaterializeV2Async(
+                request, new[] { SourceId }, 7, bindingDigest, 600).GetAwaiter().GetResult());
+        }
+    }
+
+    private static void AHeldCapabilityIsUsedAndRevokedInTheHeaderOnly()
+    {
+        // Assembled at run time: the source holds no capability-shaped text.
+        var secret = "lcp1_" + new StringBuilder().Insert(0, "ab", 32);
+        var capability = new PresenterCapability(secret);
+        var reference = "presenter:" + new StringBuilder().Insert(0, "0123456789abcdef", 2);
+        var recoveryId = new StringBuilder().Insert(0, "5e", 32).ToString();
+        var status = 200;
+        var text = "ledger";
+        var named = new List<object?> { SourceId };
+        using var server = new LocalHttpServer((captured, _) =>
+        {
+            if (status != 200)
+                return Json(status, new byte[0]);
+            if (captured.Path == "/v1/engine/presenter-revoke")
+                return Json(200, new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["schema_version"] = 1L,
+                    ["tenant_id"] = TenantId,
+                    ["revocation"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["schema_version"] = 1L,
+                        ["presenter_ref"] = reference,
+                        ["revoked"] = true,
+                    },
+                });
+            return Json(200, new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["schema_version"] = 1L,
+                ["tenant_id"] = TenantId,
+                ["governance_revision"] = 7UL,
+                ["use"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["schema_version"] = 1L,
+                    ["presenter_ref"] = reference,
+                    ["usable"] = true,
+                    ["source_ids"] = named,
+                    ["recovery_id"] = recoveryId,
+                    ["content"] = text,
+                },
+            });
+        });
+        using var client = NewClient(server.Url);
+        PresentedUseResult Expand() => client.PresentedUseAsync(
+            capability, new[] { SourceId }, 7, "expand", recoveryId).GetAwaiter().GetResult();
+
+        var expanded = Expand();
+        Equal("ledger", expanded.Content);
+        Equal(SourceId, expanded.SourceIds[0]);
+        var revoked = client.RevokePresenterAsync(capability).GetAwaiter().GetResult();
+        Equal(true, revoked.Revoked);
+        Equal(reference, revoked.PresenterRef);
+
+        var calls = server.Requests.ToArray();
+        Equal(2, calls.Length);
+        Equal("/v1/engine/presented-use", calls[0].Path);
+        Equal("/v1/engine/presenter-revoke", calls[1].Path);
+        Equal("expand", ((IReadOnlyDictionary<string, object?>)calls[0].Body["use"]!)["mode"]);
+        foreach (var call in calls)
+        {
+            Equal(secret, call.Headers[PresenterCapability.Header]);
+            if (Encoding.UTF8.GetString(WireJson.CanonicalBytes(call.Body)).Contains(secret, StringComparison.Ordinal))
+                throw new Exception("the capability is never a body member");
+        }
+        Throws<ValidationError>(() => client.PresentedUseAsync(
+            capability, new[] { SourceId }, 7, "expand", "../x").GetAwaiter().GetResult());
+        Throws<ValidationError>(() => client.PresentedUseAsync(
+            capability, new[] { SourceId }, 7, "other", "ledger").GetAwaiter().GetResult());
+        Equal(2, server.Requests.Count);
+
+        // Two sources asked, one named twice: a repeated id must not stand in for the
+        // source the answer leaves out.
+        const string other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+        named = new List<object?> { SourceId, SourceId };
+        Throws<InstanceProtocolError>(() => client.PresentedUseAsync(
+            capability, new[] { SourceId, other }, 7, "expand", recoveryId).GetAwaiter().GetResult());
+        named = new List<object?> { SourceId };
+
+        // The capability handed back inside the text, the one capability refusal, and a
+        // suite without the route.
+        text = "ledger " + secret;
+        Throws<InstanceProtocolError>(() => Expand());
+        status = 403;
+        Throws<PolicyAdmissionError>(() => Expand());
+        status = 404;
+        Throws<UnsupportedInstanceError>(() => client.RevokePresenterAsync(capability).GetAwaiter().GetResult());
+    }
+
     private static void ResponseBindingsFailClosed()
     {
-        var request = new EnginePlanningRequest("task-binding-contract", "check bindings", 64);
+        var request = new InstancePlanningRequest("task-binding-contract", "check bindings", 64);
         using (var wrongTenant = new LocalHttpServer((_, _) =>
                    Json(200, PlanEnvelope(request, SourceId, tenantId: OtherTenantId))))
         using (var client = NewClient(wrongTenant.Url))
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
 
         using (var unrequested = new LocalHttpServer((_, _) =>
                    Json(200, PlanEnvelope(request, OtherSourceId))))
         using (var client = NewClient(unrequested.Url))
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
 
         using (var denied = new LocalHttpServer((_, _) =>
                    Json(200, PlanEnvelope(request, SourceId, permission: "denied"))))
         using (var client = NewClient(denied.Url))
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
 
         var wrongVersionResponse = PlanEnvelope(request, SourceId);
         var wrongVersionPlan = (Dictionary<string, object?>)wrongVersionResponse["plan"]!;
@@ -109,32 +279,32 @@ internal static class EnterpriseHttpContractTests
         wrongVersionResult["engine_interface_version"] = "9.9.9";
         using (var wrongVersion = new LocalHttpServer((_, _) => Json(200, wrongVersionResponse)))
         using (var client = NewClient(wrongVersion.Url))
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
 
         var validPlan = SourcePlan(request, SourceId);
         var validBindingDigest = (string)validPlan["binding_digest"]!;
         using (var wrongGovernance = new LocalHttpServer((_, _) =>
                    Json(200, MaterializationEnvelope(request, SourceId, "prepared", governanceRevision: 8))))
         using (var client = NewClient(wrongGovernance.Url))
-            Throws<EngineProtocolError>(() => client.ContextMaterialize(
+            Throws<InstanceProtocolError>(() => client.ContextMaterialize(
                 request, new[] { SourceId }, 7, validBindingDigest));
 
         using (var wrongDigest = new LocalHttpServer((_, _) =>
                    Json(200, MaterializationEnvelope(request, SourceId, "prepared"))))
         using (var client = NewClient(wrongDigest.Url))
-            Throws<EngineProtocolError>(() => client.ContextMaterialize(
+            Throws<InstanceProtocolError>(() => client.ContextMaterialize(
                 request, new[] { SourceId }, 7, "sha256:" + new string('f', 64)));
 
         using (var badContentDigest = new LocalHttpServer((_, _) =>
                    Json(200, MaterializationEnvelope(request, SourceId, "prepared", corruptContentDigest: true))))
         using (var client = NewClient(badContentDigest.Url))
-            Throws<EngineProtocolError>(() => client.ContextMaterialize(
+            Throws<InstanceProtocolError>(() => client.ContextMaterialize(
                 request, new[] { SourceId }, 7, validBindingDigest));
     }
 
     private static void TransportBoundsAndDeadlines()
     {
-        var request = new EnginePlanningRequest("task-transport-contract", "check transport", 64);
+        var request = new InstancePlanningRequest("task-transport-contract", "check transport", 64);
         using (var target = new LocalHttpServer((_, _) => Json(200, PlanEnvelope(request, SourceId))))
         using (var redirect = new LocalHttpServer((_, _) => new Reply(
                    302, Array.Empty<byte>(), new Dictionary<string, string>
@@ -143,7 +313,7 @@ internal static class EnterpriseHttpContractTests
                    })))
         using (var client = NewClient(redirect.Url))
         {
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
             Equal(1, redirect.Requests.Count);
             Equal(0, target.Requests.Count);
         }
@@ -151,52 +321,52 @@ internal static class EnterpriseHttpContractTests
         using (var oversized = new LocalHttpServer((_, _) => new Reply(
                    200, Array.Empty<byte>(), DeclaredLength: 1024 * 1024 + 1)))
         using (var client = NewClient(oversized.Url))
-            Throws<EngineProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceProtocolError>(() => client.ContextPlan(request, new[] { SourceId }));
 
         using (var slow = new LocalHttpServer((_, _) =>
                    Json(200, PlanEnvelope(request, SourceId)) with { DelayMilliseconds = 500 }))
-        using (var client = new EnterpriseEngineClient(
+        using (var client = new EnterpriseInstanceClient(
                    slow.Url, Token, TenantId, timeout: 0.2, allowLoopbackHttp: true))
-            Throws<EngineTimeout>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceTimeout>(() => client.ContextPlan(request, new[] { SourceId }));
 
         using (var slowBody = new LocalHttpServer((_, _) =>
                    Json(200, PlanEnvelope(request, SourceId)) with { BodyDelayMilliseconds = 500 }))
-        using (var client = new EnterpriseEngineClient(
+        using (var client = new EnterpriseInstanceClient(
                    slowBody.Url, Token, TenantId, timeout: 0.2, allowLoopbackHttp: true))
-            Throws<EngineTimeout>(() => client.ContextPlan(request, new[] { SourceId }));
+            Throws<InstanceTimeout>(() => client.ContextPlan(request, new[] { SourceId }));
     }
 
     private static void UrlAndTlsValidation()
     {
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient("http://127.0.0.1:1", Token, TenantId));
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient(
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient("http://127.0.0.1:1", Token, TenantId));
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient(
             "http://localhost:1", Token, TenantId, allowLoopbackHttp: true));
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient(
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient(
             "https://user:secret@example.invalid", Token, TenantId));
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient(
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient(
             "https://example.invalid", "token with spaces", TenantId));
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient(
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient(
             "https://example.invalid", Token, "00000000-0000-0000-0000-000000000000"));
-        Throws<ConfigurationError>(() => new EnterpriseEngineClient(
+        Throws<ConfigurationError>(() => new EnterpriseInstanceClient(
             "https://example.invalid", Token, "invalid-tenant"));
 
         using var tls = new LocalInvalidTlsServer();
-        using var client = new EnterpriseEngineClient(tls.Url, Token, TenantId, timeout: 3);
-        Throws<EngineUnavailable>(() => client.ContextPlan(
-            new EnginePlanningRequest("tls-contract", "verify certificate", 8), new[] { SourceId }));
+        using var client = new EnterpriseInstanceClient(tls.Url, Token, TenantId, timeout: 3);
+        Throws<InstanceUnavailable>(() => client.ContextPlan(
+            new InstancePlanningRequest("tls-contract", "verify certificate", 8), new[] { SourceId }));
         Equal(0, tls.HttpRequestCount);
     }
 
     private static string OtherTenantId => "44444444-4444-4444-8444-444444444444";
 
-    private static EnterpriseEngineClient NewClient(string url) =>
+    private static EnterpriseInstanceClient NewClient(string url) =>
         new(url, Token, TenantId, timeout: 5, allowLoopbackHttp: true);
 
     private static Reply Json(int status, object value) =>
         new(status, WireJson.CanonicalBytes(value));
 
     private static Dictionary<string, object?> PlanEnvelope(
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         string sourceId,
         string tenantId = TenantId,
         ulong governanceRevision = 7,
@@ -209,7 +379,7 @@ internal static class EnterpriseHttpContractTests
         };
 
     private static Dictionary<string, object?> MaterializationEnvelope(
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         string sourceId,
         string content,
         ulong governanceRevision = 7,
@@ -239,7 +409,7 @@ internal static class EnterpriseHttpContractTests
     }
 
     private static Dictionary<string, object?> SourcePlan(
-        EnginePlanningRequest request,
+        InstancePlanningRequest request,
         string sourceId,
         string permission = "permitted")
     {

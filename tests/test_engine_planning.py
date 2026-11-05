@@ -4,8 +4,8 @@ import unittest
 
 from leanctx_sdk.errors import ValidationError
 from leanctx_sdk.planning import (
-    EnginePlanningRequest,
-    EngineSource,
+    InstancePlanningRequest,
+    InstanceSource,
     parse_context_plan,
     parse_source_plan,
 )
@@ -13,11 +13,11 @@ from leanctx_sdk.protocol import canonical_bytes, sha256_digest
 
 
 def _request():
-    return EnginePlanningRequest("task-1", "invoice ledger", 512, 64)
+    return InstancePlanningRequest("task-1", "invoice ledger", 512, 64)
 
 
 def _source(object_ref="object-1", content="invoice payload", source_id="source-1"):
-    return EngineSource(
+    return InstanceSource(
         {
             "object_ref": object_ref,
             "source_id": source_id,
@@ -75,9 +75,9 @@ class EnginePlanningTests(unittest.TestCase):
         source = _source()
         self.assertEqual(source.to_dict()["descriptor"]["permission"], "unknown")
         with self.assertRaises(ValidationError):
-            EnginePlanningRequest("task-1", "query", True)
+            InstancePlanningRequest("task-1", "query", True)
         with self.assertRaises(ValidationError):
-            EngineSource(
+            InstanceSource(
                 {
                     "object_ref": "object-1",
                     "source_id": "source-1",

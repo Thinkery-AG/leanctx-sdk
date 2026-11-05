@@ -36,7 +36,7 @@ internal static class ContextStorePreviewTests
                 {
                     parse(Load(kind, "invalid", name.GetString()!));
                 }
-                catch (EngineProtocolError)
+                catch (InstanceProtocolError)
                 {
                     continue;
                 }
@@ -56,13 +56,13 @@ internal static class ContextStorePreviewTests
 
     private static void LiveEngine()
     {
-        var binary = Environment.GetEnvironmentVariable("LEANCTX_ENGINE_BINARY");
+        var binary = Program.TestEnvironment("LEANCTX_TEST_INSTANCE_BINARY", "LEANCTX_ENGINE_BINARY");
         if (string.IsNullOrEmpty(binary))
         {
-            Console.WriteLine("SKIP context-store-preview live Engine (LEANCTX_ENGINE_BINARY)");
+            Console.WriteLine("SKIP context-store-preview live Engine (LEANCTX_TEST_INSTANCE_BINARY)");
             return;
         }
-        var engine = new SubprocessEngineClient(binary);
+        var engine = new SubprocessInstanceClient(binary);
         // Private Engine storage refuses symlinked ancestors (macOS /var).
         var created = Directory.CreateTempSubdirectory("leanctx-store-dotnet").FullName;
         var root = created.StartsWith("/var/", StringComparison.Ordinal) && Directory.Exists("/private" + created)

@@ -87,17 +87,28 @@ public class SessionStateError : SDKError
         : base(message, "session_state_error", "fix lifecycle ordering or create a new session", innerException: innerException) { }
 }
 
-public class EngineError : SDKError
+/// <summary>Base of every failure that comes from a LeanCTX instance or its protocol.</summary>
+/// <remarks>
+/// SDK 1.3 renamed the Engine error types to Instance names. .NET cannot alias a type
+/// across assemblies, so until 2.0 the hierarchy keeps both names catchable: the
+/// deprecated <c>EngineError</c> derives from <see cref="InstanceError"/>, every concrete
+/// error derives from <c>EngineError</c>, and each deprecated Engine type derives from its
+/// Instance type (for example <c>EngineUnavailable : InstanceUnavailable</c>). The SDK keeps
+/// throwing the deprecated subtypes, so both <c>catch (InstanceUnavailable)</c> and
+/// <c>catch (EngineUnavailable)</c> catch what it throws. Error codes such as
+/// <c>engine_unavailable</c> are contract values and are unchanged.
+/// </remarks>
+public class InstanceError : SDKError
 {
-    public EngineError(string? message = null, Exception? innerException = null)
-        : base(message, "engine_error", "preserve Engine evidence and classify the concrete error",
+    public InstanceError(string? message = null, Exception? innerException = null)
+        : base(message, "engine_error", "preserve LeanCTX instance evidence and classify the concrete error",
             innerException: innerException)
     { }
 
-    protected EngineError(
+    protected InstanceError(
         string? message,
         string code = "engine_error",
-        string guidance = "preserve Engine evidence and classify the concrete error",
+        string guidance = "preserve LeanCTX instance evidence and classify the concrete error",
         bool retryable = false,
         bool degradeAllowed = false,
         bool abortRequired = true,
@@ -109,22 +120,71 @@ public class EngineError : SDKError
     { }
 }
 
-public class EngineUnavailable : EngineError
+#pragma warning disable CS0618 // Until 2.0 the hierarchy runs through the deprecated Engine names.
+
+/// <summary>Deprecated name of <see cref="InstanceError"/>; every SDK instance error derives from it until 2.0.</summary>
+[Obsolete("Use InstanceError; removed in 2.0")]
+public class EngineError : InstanceError
 {
-    public EngineUnavailable(string? message = null, Exception? innerException = null)
-        : base(message, "engine_unavailable", "restore the configured Engine binary or use explicit bounded fail-open", true, true, false, true, false, innerException) { }
+    public EngineError(string? message = null, Exception? innerException = null)
+        : base(message, innerException)
+    { }
+
+    protected EngineError(
+        string? message,
+        string code = "engine_error",
+        string guidance = "preserve LeanCTX instance evidence and classify the concrete error",
+        bool retryable = false,
+        bool degradeAllowed = false,
+        bool abortRequired = true,
+        bool configurationFix = false,
+        bool versionChange = false,
+        Exception? innerException = null)
+        : base(message, code, guidance, retryable, degradeAllowed, abortRequired,
+            configurationFix, versionChange, innerException)
+    { }
 }
 
-public class EngineTimeout : EngineError
+public class InstanceUnavailable : EngineError
 {
-    public EngineTimeout(string? message = null, Exception? innerException = null)
+    public InstanceUnavailable(string? message = null, Exception? innerException = null)
+        : base(message, "engine_unavailable", "restore the configured LeanCTX instance binary or use explicit bounded fail-open", true, true, false, true, false, innerException) { }
+}
+
+/// <summary>Deprecated name of <see cref="InstanceUnavailable"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceUnavailable; removed in 2.0")]
+public class EngineUnavailable : InstanceUnavailable
+{
+    public EngineUnavailable(string? message = null, Exception? innerException = null)
+        : base(message, innerException) { }
+}
+
+public class InstanceTimeout : EngineError
+{
+    public InstanceTimeout(string? message = null, Exception? innerException = null)
         : base(message, "engine_timeout", "retry within host policy or use explicit bounded fail-open", true, true, false, false, false, innerException) { }
 }
 
-public class EngineCrashed : EngineError
+/// <summary>Deprecated name of <see cref="InstanceTimeout"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceTimeout; removed in 2.0")]
+public class EngineTimeout : InstanceTimeout
+{
+    public EngineTimeout(string? message = null, Exception? innerException = null)
+        : base(message, innerException) { }
+}
+
+public class InstanceCrashed : EngineError
+{
+    public InstanceCrashed(string? message = null, Exception? innerException = null)
+        : base(message, "engine_crashed", "create a new AgentContext; mutation and execution calls are never retried", innerException: innerException) { }
+}
+
+/// <summary>Deprecated name of <see cref="InstanceCrashed"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceCrashed; removed in 2.0")]
+public class EngineCrashed : InstanceCrashed
 {
     public EngineCrashed(string? message = null, Exception? innerException = null)
-        : base(message, "engine_crashed", "create a new AgentContext; mutation and execution calls are never retried", innerException: innerException) { }
+        : base(message, innerException) { }
 }
 
 public class AgentPermissionError : EngineError
@@ -136,13 +196,21 @@ public class AgentPermissionError : EngineError
 public class UnsupportedCapabilityError : EngineError
 {
     public UnsupportedCapabilityError(string? message = null, Exception? innerException = null)
-        : base(message, "unsupported_capability", "install a compatible Engine or choose a negotiated capability", versionChange: true, innerException: innerException) { }
+        : base(message, "unsupported_capability", "install a compatible LeanCTX instance or choose a negotiated capability", versionChange: true, innerException: innerException) { }
 }
 
-public class EngineProtocolError : EngineError
+public class InstanceProtocolError : EngineError
+{
+    public InstanceProtocolError(string? message = null, Exception? innerException = null)
+        : base(message, "engine_protocol_error", "fail closed and verify the Engine Interface, schema, and transport", innerException: innerException) { }
+}
+
+/// <summary>Deprecated name of <see cref="InstanceProtocolError"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceProtocolError; removed in 2.0")]
+public class EngineProtocolError : InstanceProtocolError
 {
     public EngineProtocolError(string? message = null, Exception? innerException = null)
-        : base(message, "engine_protocol_error", "fail closed and verify Engine interface, schema, and transport", innerException: innerException) { }
+        : base(message, innerException) { }
 }
 
 public class CompatibilityError : EngineProtocolError
@@ -157,24 +225,32 @@ public class CompatibilityError : EngineProtocolError
     }
 }
 
-public class UnsupportedEngineError : CompatibilityError
+public class UnsupportedInstanceError : CompatibilityError
 {
-    public UnsupportedEngineError(string? message = null, Exception? innerException = null)
+    public UnsupportedInstanceError(string? message = null, Exception? innerException = null)
         : base(message, innerException)
     {
         Code = "unsupported_engine";
-        Guidance = "install an Engine identity and capability supported by this SDK";
+        Guidance = "install a LeanCTX instance identity and capability supported by this SDK";
     }
 }
 
-public class EngineRejected : EngineError
+/// <summary>Deprecated name of <see cref="UnsupportedInstanceError"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use UnsupportedInstanceError; removed in 2.0")]
+public class UnsupportedEngineError : UnsupportedInstanceError
 {
-    public EngineRejected(
+    public UnsupportedEngineError(string? message = null, Exception? innerException = null)
+        : base(message, innerException) { }
+}
+
+public class InstanceRejected : EngineError
+{
+    public InstanceRejected(
         string? message = null,
         ContextFailure? failure = null,
         ContextView? view = null,
         Exception? innerException = null)
-        : base(message, "engine_rejected", "fail closed and satisfy the reported Engine policy",
+        : base(message, "engine_rejected", "fail closed and satisfy the reported LeanCTX instance policy",
             retryable: failure?.RetryableByHost ?? false, innerException: innerException)
     {
         Failure = failure;
@@ -183,6 +259,18 @@ public class EngineRejected : EngineError
 
     public ContextFailure? Failure { get; }
     public ContextView? View { get; }
+}
+
+/// <summary>Deprecated name of <see cref="InstanceRejected"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceRejected; removed in 2.0")]
+public class EngineRejected : InstanceRejected
+{
+    public EngineRejected(
+        string? message = null,
+        ContextFailure? failure = null,
+        ContextView? view = null,
+        Exception? innerException = null)
+        : base(message, failure, view, innerException) { }
 }
 
 public class PolicyAdmissionError : EngineRejected
@@ -195,19 +283,19 @@ public class PolicyAdmissionError : EngineRejected
         : base(message, failure, view, innerException)
     {
         Code = "policy_admission_rejected";
-        Guidance = "abort or change the request to satisfy the reported Engine policy";
+        Guidance = "abort or change the request to satisfy the reported LeanCTX instance policy";
         ConfigurationFix = true;
     }
 }
 
-public class EngineExecutionError : EngineError
+public class InstanceExecutionError : EngineError
 {
-    public EngineExecutionError(
+    public InstanceExecutionError(
         string? message = null,
         ContextFailure? failure = null,
         ContextView? view = null,
         Exception? innerException = null)
-        : base(message, "engine_execution_error", "fail closed and retain the factual Engine failure evidence",
+        : base(message, "engine_execution_error", "fail closed and retain the factual LeanCTX instance failure evidence",
             retryable: failure?.RetryableByHost ?? false, innerException: innerException)
     {
         Failure = failure;
@@ -216,6 +304,18 @@ public class EngineExecutionError : EngineError
 
     public ContextFailure? Failure { get; }
     public ContextView? View { get; }
+}
+
+/// <summary>Deprecated name of <see cref="InstanceExecutionError"/>; the type the SDK throws until 2.0.</summary>
+[Obsolete("Use InstanceExecutionError; removed in 2.0")]
+public class EngineExecutionError : InstanceExecutionError
+{
+    public EngineExecutionError(
+        string? message = null,
+        ContextFailure? failure = null,
+        ContextView? view = null,
+        Exception? innerException = null)
+        : base(message, failure, view, innerException) { }
 }
 
 public class SourceUnavailableError : EngineExecutionError
@@ -238,6 +338,18 @@ public class RecoveryUnavailableError : EngineExecutionError
     }
 }
 
+public class ArtifactIntegrityError : EngineExecutionError
+{
+    public ArtifactIntegrityError(string? message = null, ContextView? view = null, Exception? innerException = null)
+        : base(message, null, view, innerException)
+    {
+        Code = "artifact_integrity_error";
+        Guidance = "abort and replace the artifact with a digest-verified copy";
+    }
+}
+
+#pragma warning restore CS0618
+
 public class FrameworkIntegrationError : SDKError
 {
     public FrameworkIntegrationError(string? message = null, Exception? innerException = null)
@@ -252,15 +364,5 @@ public class FrameworkCompatibilityError : FrameworkIntegrationError
         Code = "framework_compatibility_error";
         Guidance = "install the exact certified framework version";
         VersionChange = true;
-    }
-}
-
-public class ArtifactIntegrityError : EngineExecutionError
-{
-    public ArtifactIntegrityError(string? message = null, ContextView? view = null, Exception? innerException = null)
-        : base(message, null, view, innerException)
-    {
-        Code = "artifact_integrity_error";
-        Guidance = "abort and replace the artifact with a digest-verified copy";
     }
 }

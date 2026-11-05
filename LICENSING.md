@@ -2,7 +2,7 @@
 
 LeanCTX has two deliberately separate products:
 
-- LeanCTX Engine is open source under Apache-2.0 and remains independently
+- LeanCTX | OSS (lean-ctx) is open source under Apache-2.0 and remains independently
   useful.
 - LeanCTX SDK is source-available under the included LeanCTX SDK Source
   License 1.0.

@@ -30,18 +30,18 @@ const (
 
 var enterpriseTimestampPattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$`)
 
-// EnginePlanningRequest is the canonical, non-executing Engine planning request.
-type EnginePlanningRequest struct {
+// InstancePlanningRequest is the canonical, non-executing Engine planning request.
+type InstancePlanningRequest struct {
 	TaskID        string
 	Query         string
 	BudgetTokens  uint64
 	MaxCandidates uint64
 }
 
-// NewEnginePlanningRequest validates and returns a canonical planning request.
+// NewInstancePlanningRequest validates and returns a canonical planning request.
 // A zero MaxCandidates selects the protocol default of 64.
-func NewEnginePlanningRequest(taskID, query string, budgetTokens, maxCandidates uint64) (EnginePlanningRequest, error) {
-	request := EnginePlanningRequest{
+func NewInstancePlanningRequest(taskID, query string, budgetTokens, maxCandidates uint64) (InstancePlanningRequest, error) {
+	request := InstancePlanningRequest{
 		TaskID:        taskID,
 		Query:         query,
 		BudgetTokens:  budgetTokens,
@@ -51,19 +51,19 @@ func NewEnginePlanningRequest(taskID, query string, budgetTokens, maxCandidates 
 		request.MaxCandidates = 64
 	}
 	if err := request.validate(); err != nil {
-		return EnginePlanningRequest{}, err
+		return InstancePlanningRequest{}, err
 	}
 	return request, nil
 }
 
-func (r EnginePlanningRequest) normalized() EnginePlanningRequest {
+func (r InstancePlanningRequest) normalized() InstancePlanningRequest {
 	if r.MaxCandidates == 0 {
 		r.MaxCandidates = 64
 	}
 	return r
 }
 
-func (r EnginePlanningRequest) validate() error {
+func (r InstancePlanningRequest) validate() error {
 	r = r.normalized()
 	if err := enterpriseText(r.TaskID, "task_id", enterpriseMaxIdentifierBytes, true, true); err != nil {
 		return err
@@ -81,7 +81,7 @@ func (r EnginePlanningRequest) validate() error {
 }
 
 // ToDict returns the detached canonical wire projection.
-func (r EnginePlanningRequest) ToDict() map[string]any {
+func (r InstancePlanningRequest) ToDict() map[string]any {
 	r = r.normalized()
 	return map[string]any{
 		"schema_version":           int64(enterpriseSchemaVersion),
@@ -94,10 +94,10 @@ func (r EnginePlanningRequest) ToDict() map[string]any {
 	}
 }
 
-// EngineSourcePlanResponse is a validated tenant-bound source plan.
+// InstanceSourcePlanResponse is a validated tenant-bound source plan.
 // RawResponse is the detached strict-JSON response map; it is not a receipt or
 // execution proof and must not be treated as an authorization decision.
-type EngineSourcePlanResponse struct {
+type InstanceSourcePlanResponse struct {
 	SchemaVersion      uint64
 	TenantID           string
 	GovernanceRevision uint64
@@ -105,15 +105,15 @@ type EngineSourcePlanResponse struct {
 	RawResponse        map[string]any
 }
 
-// EnterpriseEngineClient calls the authenticated Enterprise source-planning API.
-type EnterpriseEngineClient struct {
-	transport *EngineContextClient
+// EnterpriseInstanceClient calls the authenticated Enterprise source-planning API.
+type EnterpriseInstanceClient struct {
+	transport *InstanceContextClient
 	tenantID  string
 }
 
-// NewEnterpriseEngineClient constructs a bounded authenticated Enterprise client.
-func NewEnterpriseEngineClient(baseURL, credential, tenantID string, options ...EngineContextClientOptions) (*EnterpriseEngineClient, error) {
-	transport, err := NewEngineContextClient(baseURL, credential, options...)
+// NewEnterpriseInstanceClient constructs a bounded authenticated Enterprise client.
+func NewEnterpriseInstanceClient(baseURL, credential, tenantID string, options ...InstanceContextClientOptions) (*EnterpriseInstanceClient, error) {
+	transport, err := NewInstanceContextClient(baseURL, credential, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +121,11 @@ func NewEnterpriseEngineClient(baseURL, credential, tenantID string, options ...
 	if err != nil {
 		return nil, err
 	}
-	return &EnterpriseEngineClient{transport: transport, tenantID: checkedTenant}, nil
+	return &EnterpriseInstanceClient{transport: transport, tenantID: checkedTenant}, nil
 }
 
 // TenantID returns the normalized configured tenant identifier.
-func (c *EnterpriseEngineClient) TenantID() string {
+func (c *EnterpriseInstanceClient) TenantID() string {
 	if c == nil {
 		return ""
 	}
@@ -133,14 +133,14 @@ func (c *EnterpriseEngineClient) TenantID() string {
 }
 
 // ContextPlanSources executes one bounded authenticated source-plan request.
-func (c *EnterpriseEngineClient) ContextPlanSources(request EnginePlanningRequest, sourceIDs []string) (*EngineSourcePlanResponse, error) {
+func (c *EnterpriseInstanceClient) ContextPlanSources(request InstancePlanningRequest, sourceIDs []string) (*InstanceSourcePlanResponse, error) {
 	return c.ContextPlanSourcesContext(context.Background(), request, sourceIDs)
 }
 
 // ContextPlanSourcesContext is the cancellable form of ContextPlanSources.
-func (c *EnterpriseEngineClient) ContextPlanSourcesContext(parent context.Context, request EnginePlanningRequest, sourceIDs []string) (*EngineSourcePlanResponse, error) {
+func (c *EnterpriseInstanceClient) ContextPlanSourcesContext(parent context.Context, request InstancePlanningRequest, sourceIDs []string) (*InstanceSourcePlanResponse, error) {
 	if c == nil || c.transport == nil {
-		return nil, NewConfigurationError("EnterpriseEngineClient is not initialized")
+		return nil, NewConfigurationError("EnterpriseInstanceClient is not initialized")
 	}
 	request = request.normalized()
 	if err := request.validate(); err != nil {
@@ -155,33 +155,33 @@ func (c *EnterpriseEngineClient) ContextPlanSourcesContext(parent context.Contex
 		"source_ids": normalizedIDs,
 	})
 	if err != nil {
-		return nil, NewValidationError("Enterprise Engine planning request is not canonical JSON")
+		return nil, NewValidationError("Enterprise instance planning request is not canonical JSON")
 	}
 	if len(payload) > enterpriseMaxRequestBytes {
-		return nil, NewValidationError("Enterprise Engine planning request exceeds its byte bound")
+		return nil, NewValidationError("Enterprise instance planning request exceeds its byte bound")
 	}
-	raw, err := c.transport.postJSONContext(parent, enterpriseContextPlanPath, payload, enterpriseMaxResponseBytes, "Enterprise Engine context-plan", "planning request")
+	raw, err := c.transport.postJSONContext(parent, enterpriseContextPlanPath, payload, enterpriseMaxResponseBytes, "Enterprise instance context-plan", "planning request")
 	if err != nil {
 		return nil, err
 	}
 	return c.parseResponse(raw, request, normalizedIDs)
 }
 
-func (c *EnterpriseEngineClient) parseResponse(raw []byte, request EnginePlanningRequest, sourceIDs []string) (*EngineSourcePlanResponse, error) {
+func (c *EnterpriseInstanceClient) parseResponse(raw []byte, request InstancePlanningRequest, sourceIDs []string) (*InstanceSourcePlanResponse, error) {
 	if !contextReadUnicodeEscapesValid(raw) {
-		return nil, enterpriseProtocol("Enterprise Engine context-plan response has an unpaired Unicode surrogate")
+		return nil, enterpriseProtocol("Enterprise instance context-plan response has an unpaired Unicode surrogate")
 	}
-	decoded, err := strictJSONLoads(raw, "Enterprise Engine context-plan response")
+	decoded, err := strictJSONLoads(raw, "Enterprise instance context-plan response")
 	if err != nil {
-		return nil, NewEngineProtocolError("Enterprise Engine context-plan response is not valid JSON")
+		return nil, NewInstanceProtocolError("Enterprise instance context-plan response is not valid JSON")
 	}
-	wrapper, err := enterpriseObject(decoded, "Enterprise Engine context-plan response")
+	wrapper, err := enterpriseObject(decoded, "Enterprise instance context-plan response")
 	if err != nil {
 		return nil, err
 	}
 	if err := enterpriseExactKeys(wrapper, map[string]bool{
 		"schema_version": true, "tenant_id": true, "governance_revision": true, "plan": true,
-	}, "Enterprise Engine context-plan response"); err != nil {
+	}, "Enterprise instance context-plan response"); err != nil {
 		return nil, err
 	}
 	schemaVersion, err := enterpriseU64(wrapper["schema_version"], "response.schema_version")
@@ -193,7 +193,7 @@ func (c *EnterpriseEngineClient) parseResponse(raw []byte, request EnginePlannin
 		return nil, err
 	}
 	if tenantID != c.tenantID {
-		return nil, enterpriseProtocol("Enterprise Engine response tenant binding does not match")
+		return nil, enterpriseProtocol("Enterprise instance response tenant binding does not match")
 	}
 	governanceRevision, err := enterpriseU64(wrapper["governance_revision"], "response.governance_revision")
 	if err != nil {
@@ -210,7 +210,7 @@ func (c *EnterpriseEngineClient) parseResponse(raw []byte, request EnginePlannin
 	if err := enterpriseSourceScope(plan, sourceIDs); err != nil {
 		return nil, err
 	}
-	return &EngineSourcePlanResponse{
+	return &InstanceSourcePlanResponse{
 		SchemaVersion:      schemaVersion,
 		TenantID:           tenantID,
 		GovernanceRevision: governanceRevision,
@@ -221,7 +221,7 @@ func (c *EnterpriseEngineClient) parseResponse(raw []byte, request EnginePlannin
 
 func enterpriseSourceIDs(values []string) ([]string, error) {
 	if len(values) > 64 {
-		return nil, NewValidationError("source_ids exceeds the Engine source bound")
+		return nil, NewValidationError("source_ids exceeds the instance source bound")
 	}
 	result := make([]string, len(values))
 	seen := make(map[string]bool, len(values))
@@ -298,7 +298,7 @@ func enterpriseText(value, field string, maximum int, controls, nonblank bool) e
 }
 
 func enterpriseProtocol(message string) error {
-	return NewEngineProtocolError(message)
+	return NewInstanceProtocolError(message)
 }
 
 func enterpriseObject(value any, field string) (map[string]any, error) {
@@ -931,20 +931,20 @@ func enterpriseHeader(value map[string]any, field string) error {
 	return nil
 }
 
-func enterpriseSourcePlan(value map[string]any, request EnginePlanningRequest) (map[string]any, error) {
-	if err := enterpriseExactKeys(value, map[string]bool{"result": true, "source_bindings": true, "binding_digest": true}, "Engine source-plan response"); err != nil {
+func enterpriseSourcePlan(value map[string]any, request InstancePlanningRequest) (map[string]any, error) {
+	if err := enterpriseExactKeys(value, map[string]bool{"result": true, "source_bindings": true, "binding_digest": true}, "LeanCTX instance source-plan response"); err != nil {
 		return nil, err
 	}
-	resultRaw, err := enterpriseObject(value["result"], "Engine source-plan result")
+	resultRaw, err := enterpriseObject(value["result"], "LeanCTX instance source-plan result")
 	if err != nil {
 		return nil, err
 	}
 	if err := enterpriseExactKeys(resultRaw, map[string]bool{
 		"schema_version": true, "transport_version": true, "engine_interface_version": true, "plan": true,
-	}, "Engine context-plan result"); err != nil {
+	}, "LeanCTX instance context-plan result"); err != nil {
 		return nil, err
 	}
-	if err := enterpriseHeader(resultRaw, "Engine context-plan result"); err != nil {
+	if err := enterpriseHeader(resultRaw, "LeanCTX instance context-plan result"); err != nil {
 		return nil, err
 	}
 	plan, err := enterprisePlan(resultRaw["plan"])
@@ -952,13 +952,13 @@ func enterpriseSourcePlan(value map[string]any, request EnginePlanningRequest) (
 		return nil, err
 	}
 	if _, present := plan["projection_digest"]; !present {
-		return nil, enterpriseProtocol("Engine source-plan response requires projection_digest")
+		return nil, enterpriseProtocol("LeanCTX instance source-plan response requires projection_digest")
 	}
 	if plan["task_id"] != request.TaskID {
-		return nil, enterpriseProtocol("Engine context-plan response task_id does not bind the request")
+		return nil, enterpriseProtocol("LeanCTX instance context-plan response task_id does not bind the request")
 	}
 	if plan["budget_tokens"].(uint64) > request.BudgetTokens {
-		return nil, enterpriseProtocol("Engine context-plan response budget exceeds the request")
+		return nil, enterpriseProtocol("LeanCTX instance context-plan response budget exceeds the request")
 	}
 	result := map[string]any{
 		"schema_version": enterpriseSchemaVersion, "transport_version": enterpriseTransportVersion,
@@ -1028,16 +1028,16 @@ func enterpriseSourceScope(plan map[string]any, sourceIDs []string) error {
 	for _, item := range resultPlan["selections"].([]any) {
 		selection := item.(map[string]any)
 		if !requested[selection["source_ref"].(string)] || !requested[selection["provider"].(string)] {
-			return enterpriseProtocol("Enterprise Engine selection is outside requested sources")
+			return enterpriseProtocol("Enterprise instance selection is outside requested sources")
 		}
 	}
 	for _, item := range plan["source_bindings"].([]any) {
 		binding := item.(map[string]any)
 		if !requested[binding["object_ref"].(string)] || !requested[binding["source_id"].(string)] {
-			return enterpriseProtocol("Enterprise Engine source binding is outside requested sources")
+			return enterpriseProtocol("Enterprise instance source binding is outside requested sources")
 		}
 		if binding["permission"] != "permitted" {
-			return enterpriseProtocol("Enterprise Engine selected source is not permitted")
+			return enterpriseProtocol("Enterprise instance selected source is not permitted")
 		}
 	}
 	return nil

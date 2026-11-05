@@ -33,11 +33,30 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Persistent JSONL Agent Tools 1.1 client with fail-closed protocol handling. */
+@SuppressWarnings("removal")
 public final class AgentContext implements AutoCloseable {
     public static final String AGENT_TOOLS_INTERFACE_VERSION = "1.0.0";
     public static final int AGENT_TOOLS_SCHEMA_VERSION = 1;
     public static final int AGENT_TOOLS_TRANSPORT_VERSION = 1;
-    public static final String SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.11.4";
+    // Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+    public static final String SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.2";
+
+    private record EnginePair(String iface, int schema, int transport, String engine) {}
+
+    // The (interface, schema, transport, engine) pairs a hello is accepted for: the
+    // rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
+    // equal to it by scripts/check_language_versions.py. A pair that is not a row
+    // is refused, whatever the LeanCTX instance says about itself.
+    // agent-tools-compatibility: begin
+    private static final List<EnginePair> ADMITTED_ENGINE_PAIRS = List.of(
+            new EnginePair("1.0.0", 1, 1, "3.11.0"),
+            new EnginePair("1.0.0", 1, 1, "3.11.3"),
+            new EnginePair("1.0.0", 1, 1, "3.11.4"),
+            new EnginePair("1.0.0", 1, 1, "3.11.5"),
+            new EnginePair("1.0.0", 1, 1, "3.12.0"),
+            new EnginePair("1.0.0", 1, 1, "3.12.1"),
+            new EnginePair("1.0.0", 1, 1, "3.12.2"));
+    // agent-tools-compatibility: end
 
     private static final int MAX_REQUEST_BYTES = 1024 * 1024;
     private static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -65,7 +84,7 @@ public final class AgentContext implements AutoCloseable {
     private final String task;
     private final AgentPermissions permissions;
     private final ExecutionPolicy executionPolicy;
-    private final String engineBinary;
+    private final String instanceBinary;
     private final double timeout;
     private final GitLabSource gitlabSource;
     private final AtomicLong nextId = new AtomicLong();
@@ -73,6 +92,10 @@ public final class AgentContext implements AutoCloseable {
     private final Object writeLock = new Object();
     private final Object lifecycleLock = new Object();
     private final Object metricsLock = new Object();
+    private final Object policyLock = new Object();
+    private final java.util.concurrent.CountDownLatch cleanupDone =
+            new java.util.concurrent.CountDownLatch(1);
+    private volatile InstanceExecutionError cleanupFailure;
     private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     private volatile Process process;
     private volatile Thread stdoutReader;
@@ -81,6 +104,7 @@ public final class AgentContext implements AutoCloseable {
     private volatile Path policyPath;
     private volatile Path policyDirectory;
     private volatile List<String> capabilities = List.of();
+    private volatile SessionContainment sessionContainment = SessionContainment.UNAVAILABLE;
     private volatile AgentMetrics metrics = new AgentMetrics();
 
     public AgentContext(String projectRoot) {
@@ -92,12 +116,12 @@ public final class AgentContext implements AutoCloseable {
     }
 
     public AgentContext(String projectRoot, String task, AgentPermissions permissions,
-                        ExecutionPolicy executionPolicy, String engineBinary, double timeout) {
-        this(projectRoot, task, permissions, executionPolicy, engineBinary, timeout, null);
+                        ExecutionPolicy executionPolicy, String instanceBinary, double timeout) {
+        this(projectRoot, task, permissions, executionPolicy, instanceBinary, timeout, null);
     }
 
     public AgentContext(String projectRoot, String task, AgentPermissions permissions,
-                        ExecutionPolicy executionPolicy, String engineBinary, double timeout,
+                        ExecutionPolicy executionPolicy, String instanceBinary, double timeout,
                         GitLabSource gitlabSource) {
         this.projectRoot = canonicalRoot(projectRoot);
         this.task = boundedTask(task);
@@ -106,29 +130,29 @@ public final class AgentContext implements AutoCloseable {
         if (this.permissions.execute() && this.executionPolicy.allowedExecutables().isEmpty()) {
             throw new ConfigurationError("execute permission requires at least one allowed executable");
         }
-        if (engineBinary == null || engineBinary.isEmpty()) {
-            throw new ConfigurationError("engine_binary must not be empty");
+        if (instanceBinary == null || instanceBinary.isEmpty()) {
+            throw new ConfigurationError("instance_binary must not be empty");
         }
         if (!Double.isFinite(timeout) || timeout < 0.1 || timeout > 120.0) {
             throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
         }
-        this.engineBinary = engineBinary;
+        this.instanceBinary = instanceBinary;
         this.timeout = timeout;
         this.gitlabSource = gitlabSource;
         startTransactional();
     }
 
     public AgentContext(Path projectRoot, String task, AgentPermissions permissions,
-                        ExecutionPolicy executionPolicy, Path engineBinary, double timeout) {
+                        ExecutionPolicy executionPolicy, Path instanceBinary, double timeout) {
         this(projectRoot == null ? null : projectRoot.toString(), task, permissions,
-                executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout);
+                executionPolicy, instanceBinary == null ? null : instanceBinary.toString(), timeout);
     }
 
     public AgentContext(Path projectRoot, String task, AgentPermissions permissions,
-                        ExecutionPolicy executionPolicy, Path engineBinary, double timeout,
+                        ExecutionPolicy executionPolicy, Path instanceBinary, double timeout,
                         GitLabSource gitlabSource) {
         this(projectRoot == null ? null : projectRoot.toString(), task, permissions,
-                executionPolicy, engineBinary == null ? null : engineBinary.toString(), timeout,
+                executionPolicy, instanceBinary == null ? null : instanceBinary.toString(), timeout,
                 gitlabSource);
     }
 
@@ -152,9 +176,9 @@ public final class AgentContext implements AutoCloseable {
     public static AgentContext open(String projectRoot, String task,
                                     AgentPermissions permissions,
                                     ExecutionPolicy executionPolicy,
-                                    String engineBinary, double timeout) {
+                                    String instanceBinary, double timeout) {
         return new AgentContext(projectRoot.toString(), task, permissions, executionPolicy,
-                engineBinary, timeout);
+                instanceBinary, timeout);
     }
 
     public Path projectRoot() {
@@ -193,12 +217,24 @@ public final class AgentContext implements AutoCloseable {
         return executionPolicy;
     }
 
-    public String engineBinary() {
-        return engineBinary;
+    public String instanceBinary() {
+        return instanceBinary;
     }
 
+    public String getInstanceBinary() {
+        return instanceBinary;
+    }
+
+    /** @deprecated since 1.3.0, use {@link #instanceBinary()}. */
+    @Deprecated(since = "1.3.0", forRemoval = true)
+    public String engineBinary() {
+        return instanceBinary;
+    }
+
+    /** @deprecated since 1.3.0, use {@link #getInstanceBinary()}. */
+    @Deprecated(since = "1.3.0", forRemoval = true)
     public String getEngineBinary() {
-        return engineBinary;
+        return instanceBinary;
     }
 
     public double timeout() {
@@ -219,6 +255,19 @@ public final class AgentContext implements AutoCloseable {
 
     public List<String> capabilities() {
         return capabilities;
+    }
+
+    /**
+     * How the LeanCTX instance's process tree is contained; see {@link SessionContainment}.
+     * Final once the context is open: the acknowledgement precedes the LeanCTX instance's
+     * first response.
+     */
+    public SessionContainment sessionContainment() {
+        return sessionContainment;
+    }
+
+    public SessionContainment getSessionContainment() {
+        return sessionContainment;
     }
 
     public List<String> getCapabilities() {
@@ -409,13 +458,21 @@ public final class AgentContext implements AutoCloseable {
     /** Terminates the process group and rejects all pending calls. */
     public void cancel() {
         terminate(new EngineCrashed("AgentContext cancelled"));
+        requireCleanup();
+    }
+
+    /** A cleanup failure never passes as a clean termination. */
+    private void requirePolicyRemoved() {
+        if (!removePolicy()) {
+            throw new EngineExecutionError("Agent Tools policy could not be removed");
+        }
     }
 
     /** Reconnects with the same immutable policy and task. */
     public AgentContext reconnect() {
         close();
         return new AgentContext(projectRoot.toString(), task, permissions, executionPolicy,
-                engineBinary, timeout, gitlabSource);
+                instanceBinary, timeout, gitlabSource);
     }
 
     @Override
@@ -428,8 +485,11 @@ public final class AgentContext implements AutoCloseable {
             }
         }
         terminate(new EngineCrashed("AgentContext closed"));
-        reapReader();
-        removePolicy();
+        if (cleanupFailure == null) {
+            // After a failed cleanup there is nothing left to wait for.
+            reapReader();
+        }
+        requireCleanup();
     }
 
     private void startTransactional() {
@@ -448,11 +508,19 @@ public final class AgentContext implements AutoCloseable {
             environment.put("LC_ALL", "C");
             environment.put("TZ", "UTC");
             environment.put("PYTHONHASHSEED", "0");
-            // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+            // Host-selected LeanCTX instance stores/privacy only; shell execution keeps its own policy.
             for (String name : List.of("LEAN_CTX_CONFIG_DIR", "LEAN_CTX_DATA_DIR", "LEAN_CTX_STATE_DIR", "LEAN_CTX_CACHE_DIR", "DO_NOT_TRACK")) {
                 String value = System.getenv(name);
                 if (value != null) environment.put(name, value);
             }
+            // Executable resolution needs a search path; forward it only under the execute permission.
+            if (permissions.execute()) {
+                for (String name : List.of("PATH", "TMPDIR", "TEMP", "TMP")) {
+                    String value = System.getenv(name);
+                    if (value != null) environment.put(name, value);
+                }
+            }
+            SessionContainment.request(environment);
             process = builder.start();
             stdoutReader = Thread.ofVirtual().name("leanctx-agent-stdout").start(this::readLoop);
             Map<String, Object> hello = new LinkedHashMap<>();
@@ -467,11 +535,11 @@ public final class AgentContext implements AutoCloseable {
             removePolicy();
         } catch (RuntimeException | IOException exception) {
             removePolicy();
-            terminate(new EngineUnavailable("Agent Tools Engine could not be started", exception));
+            terminate(new EngineUnavailable("Agent Tools instance could not be started", exception));
             if (exception instanceof SDKError error) {
                 throw error;
             }
-            throw new EngineUnavailable("Agent Tools Engine could not be started", exception);
+            throw new EngineUnavailable("Agent Tools instance could not be started", exception);
         }
     }
 
@@ -520,7 +588,7 @@ public final class AgentContext implements AutoCloseable {
             if (pending.remove(id, call)) {
                 call.cancelDeadline();
             }
-            EngineCrashed failure = new EngineCrashed("Agent Tools Engine input failed", exception);
+            InstanceCrashed failure = new EngineCrashed("Agent Tools instance input failed", exception);
             future.completeExceptionally(failure);
             terminate(failure);
         }
@@ -532,7 +600,7 @@ public final class AgentContext implements AutoCloseable {
                                                          double responseTimeout) {
         if (!capabilities.contains(tool)) {
             throw new UnsupportedCapabilityError(
-                    "Engine did not negotiate capability: " + tool);
+                    "LeanCTX instance did not negotiate capability: " + tool);
         }
         Map<String, Object> checkedArguments = copyObject(arguments, "arguments");
         try {
@@ -563,7 +631,7 @@ public final class AgentContext implements AutoCloseable {
                             current.savedTokens() + parsed.savedTokens());
                 }
                 result.complete(parsed);
-            } catch (EngineProtocolError exception) {
+            } catch (InstanceProtocolError exception) {
                 result.completeExceptionally(exception);
                 protocolViolation(exception);
             } catch (RuntimeException exception) {
@@ -611,15 +679,29 @@ public final class AgentContext implements AutoCloseable {
 
     private void acceptHello(Map<String, Object> value) {
         Json.exactKeys(value, HELLO_KEYS, "Agent Tools hello");
+        // The parser reads an integer lexeme as BigInteger and everything with a
+        // fraction or an exponent as BigDecimal: only the former is a version.
+        // Json.integer alone would take 1.0 and 1e0 for 1.
+        if (!(value.get("schema_version") instanceof java.math.BigInteger)
+                || !(value.get("transport_version") instanceof java.math.BigInteger)) {
+            throw new EngineProtocolError("Agent Tools hello is incompatible");
+        }
         long schemaVersion = Json.integer(value.get("schema_version"), "schema_version");
         long transportVersion = Json.integer(value.get("transport_version"), "transport_version");
         if (!AGENT_TOOLS_INTERFACE_VERSION.equals(value.get("agent_tools_interface_version"))
                 || schemaVersion != AGENT_TOOLS_SCHEMA_VERSION
                 || transportVersion != AGENT_TOOLS_TRANSPORT_VERSION
-                || !SUPPORTED_AGENT_TOOLS_ENGINE_VERSION.equals(value.get("engine_version"))
                 || !Boolean.valueOf(permissions.write()).equals(value.get("allow_write"))
                 || !Boolean.valueOf(permissions.execute()).equals(value.get("allow_exec"))) {
             throw new EngineProtocolError("Agent Tools hello is incompatible");
+        }
+        Object engineVersion = value.get("engine_version");
+        if (!(engineVersion instanceof String) || ADMITTED_ENGINE_PAIRS.stream().noneMatch(pair ->
+                pair.iface().equals(AGENT_TOOLS_INTERFACE_VERSION)
+                        && pair.schema() == AGENT_TOOLS_SCHEMA_VERSION
+                        && pair.transport() == AGENT_TOOLS_TRANSPORT_VERSION
+                        && pair.engine().equals(engineVersion))) {
+            throw new EngineProtocolError("Agent Tools instance pair is unsupported");
         }
         Object rawCapabilities = value.get("capabilities");
         if (!(rawCapabilities instanceof List<?> list)) {
@@ -662,7 +744,9 @@ public final class AgentContext implements AutoCloseable {
             Thread stderrReader = Thread.ofVirtual().name("leanctx-agent-stderr").start(
                     () -> readStderr(error));
             readResponses(input);
-            stderrReader.join();
+            // A closed stdout is terminal even when the LeanCTX instance keeps running and
+            // holds stderr open: wait briefly for diagnostics, never indefinitely.
+            stderrReader.join(200);
             if (!closed) {
                 protocolOrCrash(new EngineCrashed(crashMessage()));
             }
@@ -679,10 +763,22 @@ public final class AgentContext implements AutoCloseable {
 
     private void readResponses(InputStream input) throws IOException, OutputLimitExceeded {
         ByteArrayOutputStream line = new ByteArrayOutputStream(Math.min(MAX_RESPONSE_BYTES, 8192));
+        // Only the very first line can be the session starter's acknowledgement: it is
+        // written before the LeanCTX instance exists. It is recorded and is not a response.
+        boolean first = true;
         int next;
         while ((next = input.read()) >= 0) {
             if (next == '\n') {
-                dispatch(line.toByteArray());
+                byte[] complete = line.toByteArray();
+                line.reset();
+                if (first) {
+                    first = false;
+                    if (SessionContainment.isAck(complete)) {
+                        sessionContainment = SessionContainment.ENGINE_STARTER;
+                        continue;
+                    }
+                }
+                dispatch(complete);
                 line.reset();
                 continue;
             }
@@ -717,7 +813,7 @@ public final class AgentContext implements AutoCloseable {
         Object parsed;
         try {
             parsed = Json.parse(line, "Agent Tools response");
-        } catch (EngineProtocolError exception) {
+        } catch (InstanceProtocolError exception) {
             protocolViolation(new EngineProtocolError("Agent Tools response is invalid JSON", exception));
             return;
         }
@@ -749,7 +845,7 @@ public final class AgentContext implements AutoCloseable {
                 String message = Json.string(error.get("message"), "error.message", MAX_TEXT_BYTES);
                 call.future.completeExceptionally(errorFromWire(code, message));
             }
-        } catch (EngineProtocolError exception) {
+        } catch (InstanceProtocolError exception) {
             if (call != null) {
                 call.cancelDeadline();
                 call.future.completeExceptionally(exception);
@@ -774,8 +870,8 @@ public final class AgentContext implements AutoCloseable {
         };
     }
 
-    private void protocolOrCrash(EngineError error) {
-        if (error instanceof EngineProtocolError protocol) {
+    private void protocolOrCrash(InstanceError error) {
+        if (error instanceof InstanceProtocolError protocol) {
             protocolViolation(protocol);
         } else {
             terminate(error);
@@ -783,11 +879,11 @@ public final class AgentContext implements AutoCloseable {
     }
 
     /** Protocol violations are terminal and reject every pending call. */
-    private void protocolViolation(EngineProtocolError error) {
+    private void protocolViolation(InstanceProtocolError error) {
         terminate(error);
     }
 
-    private void terminate(EngineError reason) {
+    private void terminate(InstanceError reason) {
         Process child;
         synchronized (lifecycleLock) {
             if (closed) {
@@ -798,17 +894,46 @@ public final class AgentContext implements AutoCloseable {
             failPending(reason);
             child = process;
         }
+        // This caller owns the one cleanup. Its failure is stored for every
+        // later caller, and cleanupDone releases those that wait for it.
         try {
             if (child != null && child.isAlive()) {
                 ProcessTreeTermination.terminate(child);
             }
+        } catch (InstanceExecutionError failure) {
+            cleanupFailure = failure;
+            throw failure;
         } finally {
             reapReader();
             removePolicy();
+            cleanupDone.countDown();
         }
     }
 
-    private void failPending(EngineError error) {
+    /**
+     * Shared outcome of the one cleanup for {@link #cancel()} and {@link #close()}:
+     * waits, bounded, for the owner and reports its stored failure. Success is
+     * reported only for a confirmed cleanup; a failed cleanup stays failed.
+     */
+    private void requireCleanup() {
+        boolean finished;
+        try {
+            finished = cleanupDone.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            finished = false;
+        }
+        if (!finished) {
+            throw new EngineExecutionError("Agent Tools cleanup is still pending");
+        }
+        InstanceExecutionError failure = cleanupFailure;
+        if (failure != null) {
+            throw failure;
+        }
+        requirePolicyRemoved();
+    }
+
+    private void failPending(InstanceError error) {
         for (Map.Entry<String, PendingCall> entry : pending.entrySet()) {
             PendingCall call = pending.remove(entry.getKey());
             if (call != null) {
@@ -875,30 +1000,39 @@ public final class AgentContext implements AutoCloseable {
         setPermissions(policyDirectory, true);
     }
 
-    private void removePolicy() {
-        Path path = policyPath;
-        Path directory = policyDirectory;
-        policyPath = null;
-        policyDirectory = null;
-        if (path != null) {
-            try {
-                Files.deleteIfExists(path);
-            } catch (IOException ignored) {
-                // Best effort cleanup after process termination.
+    /**
+     * Removes exactly the policy file and directory this context created; the
+     * directory is never removed recursively. Idempotent. Returns false, and
+     * keeps the path for the next attempt, when either cannot be removed.
+     */
+    private boolean removePolicy() {
+        synchronized (policyLock) {
+            boolean removed = true;
+            Path path = policyPath;
+            if (path != null) {
+                try {
+                    Files.deleteIfExists(path);
+                    policyPath = null;
+                } catch (IOException | RuntimeException exception) {
+                    removed = false;
+                }
             }
-        }
-        if (directory != null) {
-            try {
-                Files.deleteIfExists(directory);
-            } catch (IOException ignored) {
-                // Directory is SDK-owned and contains no user files.
+            Path directory = policyDirectory;
+            if (directory != null) {
+                try {
+                    Files.deleteIfExists(directory);
+                    policyDirectory = null;
+                } catch (IOException | RuntimeException exception) {
+                    removed = false;
+                }
             }
+            return removed;
         }
     }
 
     private Path resolveBinary() {
         Path candidate;
-        if (!engineBinary.contains("/") && !engineBinary.contains("\\")) {
+        if (!instanceBinary.contains("/") && !instanceBinary.contains("\\")) {
             String path = System.getenv("PATH");
             candidate = null;
             if (path != null) {
@@ -909,7 +1043,7 @@ public final class AgentContext implements AutoCloseable {
                     }
                     Path item;
                     try {
-                        item = Path.of(entry).resolve(engineBinary).toAbsolutePath().normalize();
+                        item = Path.of(entry).resolve(instanceBinary).toAbsolutePath().normalize();
                     } catch (InvalidPathException exception) {
                         continue;
                     }
@@ -920,16 +1054,16 @@ public final class AgentContext implements AutoCloseable {
                 }
             }
             if (candidate == null) {
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
             }
         } else {
             try {
-                candidate = Path.of(engineBinary).toAbsolutePath().normalize();
+                candidate = Path.of(instanceBinary).toAbsolutePath().normalize();
             } catch (InvalidPathException exception) {
-                throw new EngineUnavailable("configured Engine binary is unavailable", exception);
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable", exception);
             }
             if (!Files.isRegularFile(candidate) || !Files.isExecutable(candidate)) {
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
             }
         }
         try {
@@ -939,7 +1073,7 @@ public final class AgentContext implements AutoCloseable {
             }
             return canonical;
         } catch (IOException exception) {
-            throw new EngineUnavailable("configured Engine binary is unavailable", exception);
+            throw new EngineUnavailable("configured LeanCTX instance binary is unavailable", exception);
         }
     }
 
@@ -1075,8 +1209,8 @@ public final class AgentContext implements AutoCloseable {
             detail = stderr.toString(StandardCharsets.UTF_8);
         }
         detail = detail.trim();
-        return detail.isEmpty() ? "Agent Tools Engine exited" :
-                "Agent Tools Engine exited: " + detail.substring(0, Math.min(4096, detail.length()));
+        return detail.isEmpty() ? "Agent Tools instance exited" :
+                "Agent Tools instance exited: " + detail.substring(0, Math.min(4096, detail.length()));
     }
 
     private static <T> T join(CompletableFuture<T> future) {

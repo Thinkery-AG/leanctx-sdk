@@ -14,7 +14,7 @@ public final class ContextSession {
     private final String sessionId;
     private final String taskId;
     private final boolean failOpen;
-    private final EngineClient engine;
+    private final InstanceClient engine;
     private SessionState state = SessionState.CREATED;
     private ContextPlan plan;
     private ContextView view;
@@ -26,17 +26,17 @@ public final class ContextSession {
         this(task, null, null, null, false, null);
     }
 
-    public ContextSession(String task, EngineClient engine) {
+    public ContextSession(String task, InstanceClient engine) {
         this(task, null, null, null, false, engine);
     }
 
     public ContextSession(String task, String projectRoot, boolean failOpen,
-                          EngineClient engine) {
+                          InstanceClient engine) {
         this(task, projectRoot, null, null, failOpen, engine);
     }
 
     public ContextSession(String task, String projectRoot, String sessionId, String taskId,
-                          boolean failOpen, EngineClient engine) {
+                          boolean failOpen, InstanceClient engine) {
         this.task = Protocol.text(task, "task", Protocol.MAX_TASK_BYTES, false);
         this.projectRoot = projectRoot;
         this.sessionId = sessionId == null ? runtimeId("session")
@@ -44,7 +44,7 @@ public final class ContextSession {
         this.taskId = taskId == null ? runtimeId("task")
                 : Protocol.text(taskId, "task_id", Protocol.MAX_REF_BYTES);
         this.failOpen = failOpen;
-        this.engine = engine == null ? new SubprocessEngineClient() : engine;
+        this.engine = engine == null ? new SubprocessInstanceClient() : engine;
     }
 
     public static ContextSession open(String task) {
@@ -111,11 +111,23 @@ public final class ContextSession {
         return failOpen;
     }
 
-    public EngineClient engine() {
+    public InstanceClient instance() {
         return engine;
     }
 
-    public EngineClient getEngine() {
+    public InstanceClient getInstance() {
+        return engine;
+    }
+
+    /** @deprecated since 1.3.0, use {@link #instance()}. */
+    @Deprecated(since = "1.3.0", forRemoval = true)
+    public InstanceClient engine() {
+        return engine;
+    }
+
+    /** @deprecated since 1.3.0, use {@link #getInstance()}. */
+    @Deprecated(since = "1.3.0", forRemoval = true)
+    public InstanceClient getEngine() {
         return engine;
     }
 
@@ -204,11 +216,11 @@ public final class ContextSession {
         try {
             view = engine.contextView(plan);
             prepared = true;
-            if (view != null && EngineStatus.DEGRADED.value().equals(view.status())) {
+            if (view != null && InstanceStatus.DEGRADED.value().equals(view.status())) {
                 addDegradation("engine:degraded");
             }
             return view;
-        } catch (EngineUnavailable | EngineTimeout exception) {
+        } catch (InstanceUnavailable | InstanceTimeout exception) {
             if (failOpen) {
                 addDegradation("engine:" + exception.code());
                 prepared = true;
@@ -339,12 +351,12 @@ public final class ContextSession {
     }
 
     private void abortEngineFailure(Throwable error) {
-        if (error instanceof EngineRejected rejected && rejected.view() != null) {
+        if (error instanceof InstanceRejected rejected && rejected.view() != null) {
             view = rejected.view();
-        } else if (error instanceof EngineExecutionError execution && execution.view() != null) {
+        } else if (error instanceof InstanceExecutionError execution && execution.view() != null) {
             view = execution.view();
         }
-        String code = error instanceof EngineError engineError
+        String code = error instanceof InstanceError engineError
                 ? engineError.code() : "engine_error";
         addDegradation("engine:" + code);
         receipt = makeReceipt(HostOutcome.ABORTED.value(), null, null, null, null);

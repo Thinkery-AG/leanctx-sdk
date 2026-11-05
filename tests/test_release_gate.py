@@ -18,7 +18,7 @@ from scripts.public_release_guard import PublicReleaseGuardError, check_files
 from scripts.source_secret_scan import SecretScanError, scan_files
 
 
-DIST_INFO = "thinkery_leanctx_sdk-1.2.0.dist-info"
+DIST_INFO = "thinkery_leanctx_sdk-1.3.0.dist-info"
 
 
 def _record_hash(data):
@@ -29,15 +29,15 @@ def _record_hash(data):
 def _wheel(path, *, extra=None, python_requires=">=3.9,<3.15"):
     metadata = f"""Metadata-Version: 2.1
 Name: thinkery-leanctx-sdk
-Version: 1.2.0
+Version: 1.3.0
 Requires-Python: {python_requires}
 Provides-Extra: openai-agents
 Provides-Extra: agent
-Requires-Dist: thinkery-leanctx-engine (==3.11.4) ; extra == 'agent'
+Requires-Dist: thinkery-leanctx-engine (==3.12.2) ; extra == 'agent'
 Provides-Extra: agent-cuda
-Requires-Dist: thinkery-leanctx-engine-cuda (==3.11.4) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
+Requires-Dist: thinkery-leanctx-engine-cuda (==3.12.2) ; (platform_system == "Linux" and platform_machine == "x86_64") and extra == 'agent-cuda'
 Provides-Extra: agent-windows-gnu
-Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.11.4) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
+Requires-Dist: thinkery-leanctx-engine-windows-gnu (==3.12.2) ; (platform_system == "Windows" and platform_machine == "AMD64") and extra == 'agent-windows-gnu'
 Requires-Dist: openai-agents (==0.8.4) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: openai (==2.19.0) ; (python_version >= "3.10") and extra == 'openai-agents'
 Requires-Dist: pydantic (==2.12.3) ; (python_version >= "3.10") and extra == 'openai-agents'
@@ -59,7 +59,7 @@ Requires-Dist: urllib3 (==2.8.0) ; (python_version >= "3.10") and extra == 'open
             b"Terms require an executed agreement with Thinkery AG.\n"
         ),
         f"{DIST_INFO}/licenses/THIRD_PARTY_NOTICES": (
-            "LeanCTX SDK v1.2.0 — Third-Party Notices\n"
+            "LeanCTX SDK v1.3.0 — Third-Party Notices\n"
             "The exact 41-wheel audit includes openai-agents 0.8.4 — MIT.\n"
         ).encode("utf-8"),
     }
@@ -115,7 +115,7 @@ class ReleaseGateTests(unittest.TestCase):
 
         readme = (repository / "README.md").read_text(encoding="utf-8")
         self.assertRegex(readme, r"source[- ]available")
-        self.assertIn("LeanCTX Engine", readme)
+        self.assertIn("LeanCTX | OSS", readme)
         self.assertIn("Apache-2.0", readme)
 
         runtime = "\n".join(
@@ -331,22 +331,22 @@ class ReleaseGateTests(unittest.TestCase):
         for action_ref in action_refs:
             self.assertRegex(action_ref, r"^[0-9a-f]{40}$")
         for required in (
-            "ENGINE_COMMIT: 3afe2bbffe0834ec58517ffd493e5a51c5c1ca57",
-            "AGENT_TOOLS_ENGINE_VERSION: 3.11.4",
-            "ENGINE_VERSION: 3.11.4",
-            "ENGINE_TAG: v3.11.4",
+            "ENGINE_COMMIT: ffe6e95c34babc2d42a6a1cd60833c352e928b52",
+            "AGENT_TOOLS_ENGINE_VERSION: 3.12.2",
+            "ENGINE_VERSION: 3.12.2",
+            "ENGINE_TAG: v3.12.2",
             "ENGINE_RELEASE_REPOSITORY: yvgude/lean-ctx",
-            "ENGINE_LINUX_ARCHIVE_SHA256: 5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a",
-            "ENGINE_MACOS_ARCHIVE_SHA256: d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f",
-            "ENGINE_CHECKSUMS_SHA256: beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff",
-            "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.11.4",
+            "ENGINE_LINUX_ARCHIVE_SHA256: 501a4c209e92e6e2345ef875440944aa046d86b16a8c2f2df8099f234a75a078",
+            "ENGINE_MACOS_ARCHIVE_SHA256: 74fdf707eca87761c818c2caae2805b990c83a5fb459d7e7de541e525b2afadc",
+            "ENGINE_CHECKSUMS_SHA256: 28df17cced3d34afccc55d73bd9f3eb77646c2a942ee6d7361af1f596a245d0f",
+            "ENGINE_COSIGN_IDENTITY: https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.2",
             "PYTHONPATH: src:.",
             "static-quality:",
             "source-secret-scan:",
             "engine-artifact:",
             "engine-macos-artifact:",
-            "ENGINE_LINUX_X86_64_SHA256: c803039798201a5a03843bb4f0ec59ad796bb0964eb270a394d1006cc1d0229c",
-            "ENGINE_MACOS_ARM64_SHA256: c20fc2afa50205c20fb227c985feb30bf94055cc9381c5a3276bcbc8f14fef8c",
+            "ENGINE_LINUX_X86_64_SHA256: ddcad2c7cd7c8ee595fb2cfd899974cb94490257d8d1e8388ddabb905a475a92",
+            "ENGINE_MACOS_ARM64_SHA256: 5770e479816db8fc70136a8ef0aa53546420f7b0492b7a926e3816bc17e76824",
             "cosign verify-blob",
             "runs-on: macos-26",
             "engine-linux-x86_64-",
@@ -411,7 +411,7 @@ class ReleaseGateTests(unittest.TestCase):
         )[0]
         self.assertIn("path: download", publication)
         self.assertIn(
-            "cp download/thinkery_leanctx_sdk-1.2.0-py3-none-any.whl",
+            "cp download/thinkery_leanctx_sdk-1.3.0-py3-none-any.whl",
             publication,
         )
         self.assertNotIn("path: dist", publication)
@@ -491,25 +491,25 @@ class ReleaseGateTests(unittest.TestCase):
     def test_release_evidence_generator_emits_complete_required_index(self):
         values = {
             "sdk_commit": "a" * 40,
-            "sdk_version": "1.2.0",
+            "sdk_version": "1.3.0",
             "wheel_sha256": "b" * 64,
-            "engine_commit": "3afe2bbffe0834ec58517ffd493e5a51c5c1ca57",
-            "engine_version": "3.11.4",
-            "engine_tag": "v3.11.4",
-            "engine_linux_sha256": "c803039798201a5a03843bb4f0ec59ad796bb0964eb270a394d1006cc1d0229c",
-            "engine_macos_sha256": "c20fc2afa50205c20fb227c985feb30bf94055cc9381c5a3276bcbc8f14fef8c",
+            "engine_commit": "ffe6e95c34babc2d42a6a1cd60833c352e928b52",
+            "engine_version": "3.12.2",
+            "engine_tag": "v3.12.2",
+            "engine_linux_sha256": "ddcad2c7cd7c8ee595fb2cfd899974cb94490257d8d1e8388ddabb905a475a92",
+            "engine_macos_sha256": "5770e479816db8fc70136a8ef0aa53546420f7b0492b7a926e3816bc17e76824",
             "engine_release_repository": "yvgude/lean-ctx",
             "engine_release_url": (
-                "https://github.com/yvgude/lean-ctx/releases/tag/v3.11.4"
+                "https://github.com/yvgude/lean-ctx/releases/tag/v3.12.2"
             ),
             "engine_linux_asset": "lean-ctx-x86_64-unknown-linux-gnu.tar.gz",
             "engine_macos_asset": "lean-ctx-aarch64-apple-darwin.tar.gz",
-            "engine_linux_archive_sha256": "5044d0393f7b51bbb861435bd9d98694339678b4f827a690216d870b6719d56a",
-            "engine_macos_archive_sha256": "d0bc4b1b91715436e6b400dedbdfb1eaeba9dafa575d1d6c9a2f3296d040245f",
-            "engine_checksums_sha256": "beea46217036ca2470d8de59799711c5a457b7d80be30f4a115b0da2bc29ffff",
+            "engine_linux_archive_sha256": "501a4c209e92e6e2345ef875440944aa046d86b16a8c2f2df8099f234a75a078",
+            "engine_macos_archive_sha256": "74fdf707eca87761c818c2caae2805b990c83a5fb459d7e7de541e525b2afadc",
+            "engine_checksums_sha256": "28df17cced3d34afccc55d73bd9f3eb77646c2a942ee6d7361af1f596a245d0f",
             "engine_cosign_identity": (
                 "https://github.com/yvgude/lean-ctx/.github/workflows/"
-                "release.yml@refs/tags/v3.11.4"
+                "release.yml@refs/tags/v3.12.2"
             ),
             "dependency_manifest_sha256": "f" * 64,
             "dependency_policy_sha256": "1" * 64,
@@ -552,7 +552,7 @@ class ReleaseGateTests(unittest.TestCase):
             )
             self.assertNotIn("All ten authority rows remain", decision_gate)
             publish_status = (output / "PUBLISH-STATUS.md").read_text(encoding="utf-8")
-            self.assertIn("exact `v1.2.0` tag", publish_status)
+            self.assertIn("exact `v1.3.0` tag", publish_status)
             self.assertNotIn("v1.0.0", publish_status)
 
             blocked = dict(values, publication_authorization="PENDING")

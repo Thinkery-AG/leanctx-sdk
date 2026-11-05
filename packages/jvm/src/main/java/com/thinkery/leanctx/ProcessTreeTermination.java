@@ -6,7 +6,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** Shared bounded cleanup of an Engine process and its captured descendants. */
+/** Shared bounded cleanup of a LeanCTX instance process and its captured descendants. */
+@SuppressWarnings("removal")
 final class ProcessTreeTermination {
     private ProcessTreeTermination() {}
 
@@ -33,13 +34,13 @@ final class ProcessTreeTermination {
             try {
                 process.destroyForcibly();
             } catch (RuntimeException exception) {
-                throw new EngineExecutionError("Engine process could not be terminated",
+                throw new EngineExecutionError("LeanCTX instance process could not be terminated",
                         null, null, exception);
             }
             for (;;) {
                 try {
                     if (!process.waitFor(remaining(deadline), TimeUnit.NANOSECONDS)) {
-                        throw new EngineExecutionError("Engine process could not be reaped");
+                        throw new EngineExecutionError("LeanCTX instance process could not be reaped");
                     }
                     for (ProcessHandle descendant : descendants) {
                         if (descendant.isAlive()) {
@@ -50,17 +51,17 @@ final class ProcessTreeTermination {
                 } catch (InterruptedException exception) {
                     interrupted = true;
                 } catch (ExecutionException | TimeoutException exception) {
-                    throw new EngineExecutionError("Engine process tree could not be reaped",
+                    throw new EngineExecutionError("LeanCTX instance process tree could not be reaped",
                             null, null, exception);
-                } catch (EngineExecutionError exception) {
+                } catch (InstanceExecutionError exception) {
                     throw exception;
                 } catch (RuntimeException exception) {
-                    throw new EngineExecutionError("Engine process tree reaping could not be verified",
+                    throw new EngineExecutionError("LeanCTX instance process tree reaping could not be verified",
                             null, null, exception);
                 }
             }
             if (signalFailure != null) {
-                throw new EngineExecutionError("Engine process tree termination could not be verified",
+                throw new EngineExecutionError("LeanCTX instance process tree termination could not be verified",
                         null, null, signalFailure);
             }
         } finally {
@@ -73,7 +74,7 @@ final class ProcessTreeTermination {
     private static long remaining(long deadline) throws TimeoutException {
         long nanos = deadline - System.nanoTime();
         if (nanos <= 0) {
-            throw new TimeoutException("Engine process cleanup deadline exceeded");
+            throw new TimeoutException("LeanCTX instance process cleanup deadline exceeded");
         }
         return nanos;
     }

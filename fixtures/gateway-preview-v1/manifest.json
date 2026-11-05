@@ -13,8 +13,11 @@
     "invalid-reason-code",
     "known-principal-without-id",
     "malformed-object-digest",
+    "malformed-receipt-key-id",
     "negative-count",
     "non-allow-without-reason",
+    "receipt-v1-with-object-digest",
+    "receipt-v2-without-object-digest",
     "refused-with-body",
     "schema-version",
     "source-counts-inconsistent",
@@ -23,6 +26,7 @@
     "unknown-disposition",
     "unknown-locality",
     "unknown-mode",
+    "unknown-object-digest-algorithm",
     "unknown-principal-with-id",
     "unknown-severity",
     "unknown-signal-category",
@@ -31,10 +35,27 @@
     "unknown-transformation",
     "withheld-with-final-context"
   ],
+  "keyed_v2": {
+    "fixture": "keyed-v2",
+    "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "key_id": "rk-d9dc58b396ceb54bb5f4ae02d2bcb002",
+    "keyed_object": "sha256:f0bba5eded0463a0091123d2479ab779ecd3fa3fc78eec5d7551979f3dda4729",
+    "object_text": "deploy fails on host build-7",
+    "source": "lean-ctx engine egress-admit, <data>/gateway/receipt.key = bytes 0..31 (real Engine output, 2026-10-19)"
+  },
   "source": "lean-ctx engine egress-admit (real Engine output, 2026-10-03)",
   "valid": {
     "confidential": {
       "classification": "confidential",
+      "decisions": 1,
+      "denied": 0,
+      "disposition": "forward",
+      "outcome": "delivered",
+      "redactions": 0,
+      "signals": 4
+    },
+    "keyed-v2": {
+      "classification": "public",
       "decisions": 1,
       "denied": 0,
       "disposition": "forward",

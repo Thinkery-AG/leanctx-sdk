@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
-use crate::engine::{EngineClient, SubprocessEngineClient};
+use crate::engine::{InstanceClient, SubprocessInstanceClient};
 use crate::errors::{
-    boxed, ArtifactIntegrityError, EngineExecutionError, EngineRejected, EngineTimeout,
-    EngineUnavailable, RecoveryUnavailableError, SdkResult, SessionStateError, ValidationError,
+    boxed, ArtifactIntegrityError, InstanceExecutionError, InstanceRejected, InstanceTimeout,
+    InstanceUnavailable, RecoveryUnavailableError, SdkResult, SessionStateError, ValidationError,
 };
 use crate::protocol::{
     canonical_bytes, validate_text, ContextPlan, ContextSource, ContextView, HostOutcome,
@@ -22,7 +22,7 @@ pub struct ContextSession {
     session_id: String,
     task_id: String,
     fail_open: bool,
-    engine: Box<dyn EngineClient>,
+    engine: Box<dyn InstanceClient>,
     state: SessionState,
     plan: Option<ContextPlan>,
     view: Option<ContextView>,
@@ -52,20 +52,37 @@ impl std::fmt::Debug for ContextSession {
 
 impl ContextSession {
     pub fn new(task: impl AsRef<str>) -> SdkResult<Self> {
-        let engine = SubprocessEngineClient::default_client()?;
+        let engine = SubprocessInstanceClient::default_client()?;
         Self::new_with_configuration(task, None, None, None, false, Box::new(engine))
     }
 
-    pub fn with_engine(task: impl AsRef<str>, engine: Box<dyn EngineClient>) -> SdkResult<Self> {
+    pub fn with_instance(
+        task: impl AsRef<str>,
+        engine: Box<dyn InstanceClient>,
+    ) -> SdkResult<Self> {
         Self::new_with_configuration(task, None, None, None, false, engine)
     }
 
+    pub fn new_with_instance(
+        task: impl AsRef<str>,
+        project_root: Option<PathBuf>,
+        engine: impl InstanceClient + 'static,
+    ) -> SdkResult<Self> {
+        Self::new_with_configuration(task, project_root, None, None, false, Box::new(engine))
+    }
+
+    #[deprecated(since = "1.3.0", note = "use with_instance")]
+    pub fn with_engine(task: impl AsRef<str>, engine: Box<dyn InstanceClient>) -> SdkResult<Self> {
+        Self::with_instance(task, engine)
+    }
+
+    #[deprecated(since = "1.3.0", note = "use new_with_instance")]
     pub fn new_with_engine(
         task: impl AsRef<str>,
         project_root: Option<PathBuf>,
-        engine: impl EngineClient + 'static,
+        engine: impl InstanceClient + 'static,
     ) -> SdkResult<Self> {
-        Self::new_with_configuration(task, project_root, None, None, false, Box::new(engine))
+        Self::new_with_instance(task, project_root, engine)
     }
 
     pub fn new_with_configuration(
@@ -74,7 +91,7 @@ impl ContextSession {
         session_id: Option<String>,
         task_id: Option<String>,
         fail_open: bool,
-        engine: Box<dyn EngineClient>,
+        engine: Box<dyn InstanceClient>,
     ) -> SdkResult<Self> {
         let task = validate_text(task.as_ref(), "task", MAX_TASK_BYTES, false)?;
         if let Some(root) = &project_root {
@@ -218,7 +235,7 @@ impl ContextSession {
         self.state = SessionState::Executing;
         match self.engine.context_view(plan) {
             Ok(view) => {
-                if view.status() == crate::protocol::EngineStatus::Degraded {
+                if view.status() == crate::protocol::InstanceStatus::Degraded {
                     self.add_degradation("engine:degraded");
                 }
                 self.view = Some(view);
@@ -463,13 +480,13 @@ fn same_json(left: Option<&Value>, right: Option<&Value>) -> bool {
 }
 
 fn error_code(error: &(dyn Error + 'static)) -> Option<&'static str> {
-    if error.is::<EngineUnavailable>() {
+    if error.is::<InstanceUnavailable>() {
         Some("engine_unavailable")
-    } else if error.is::<EngineTimeout>() {
+    } else if error.is::<InstanceTimeout>() {
         Some("engine_timeout")
-    } else if error.is::<EngineRejected>() {
+    } else if error.is::<InstanceRejected>() {
         Some("engine_rejected")
-    } else if error.is::<EngineExecutionError>() {
+    } else if error.is::<InstanceExecutionError>() {
         Some("engine_execution_error")
     } else {
         None
@@ -477,5 +494,5 @@ fn error_code(error: &(dyn Error + 'static)) -> Option<&'static str> {
 }
 
 fn is_fail_open_error(error: &(dyn Error + 'static)) -> bool {
-    error.is::<EngineUnavailable>() || error.is::<EngineTimeout>()
+    error.is::<InstanceUnavailable>() || error.is::<InstanceTimeout>()
 }

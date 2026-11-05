@@ -72,14 +72,21 @@ class ProductConformanceTest {
 
     @Test
     void optionalRealEngineV1RoundTrip() {
-        String binary = System.getenv("LEANCTX_ENGINE_BIN");
+        String binary = TestEnv.get(TestEnv.INSTANCE_BIN);
         Assumptions.assumeTrue(binary != null && !binary.isBlank());
         String root = System.getenv("LEANCTX_TEST_ROOT");
         Assumptions.assumeTrue(root != null && !root.isBlank());
         ContextSource source = new ContextSource("README.md", Path.of(root));
         ContextPlan plan = new ContextPlan("jvm-real-engine", "jvm-real-task", "inspect", source);
-        ContextView view = new SubprocessEngineClient(binary, 30.0).contextView(plan);
+        SubprocessInstanceClient client = new SubprocessInstanceClient(binary, 30.0);
+        ContextView view = client.contextView(plan);
         assertEquals(Integrity.SEALED.value(), view.integrityStatus().value());
+        // B16: a real Engine on POSIX starts the one-shot behind its session
+        // starter and says so on the first line. (On Windows the Engine answers
+        // from a job of its own, which a host job may forbid: not asserted.)
+        if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            assertEquals(SessionContainment.ENGINE_STARTER, client.lastSessionContainment());
+        }
     }
 
     private static String digest(Object value) {

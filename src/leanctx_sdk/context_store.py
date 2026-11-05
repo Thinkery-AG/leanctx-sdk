@@ -1,4 +1,4 @@
-"""Preview: read-only access to the local Engine's Context Store.
+"""Preview: read-only access to the local instance's Context Store.
 
 `read_policy_evidence` returns the scope's content-free read-strategy evidence
 (`lean-ctx engine context-policy-evidence`): per workload, strategy and UTC day
@@ -9,7 +9,7 @@ context-lineage`): ledger steps joined with its Decision Receipts, the outcome,
 and every missing link named as a gap.
 
 Both reads are confined to one tenant/project scope. Parsing is strict and
-mirrors the Engine's validation: unknown fields or values and inconsistent
+mirrors the instance's validation: unknown fields or values and inconsistent
 counts are rejected, and "unmeasured" never reads as a passing measurement.
 Preview contract `leanctx-context-store-preview` 0.1; it may change in minor
 releases.
@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
-from .errors import EngineProtocolError, ValidationError
+from .errors import InstanceProtocolError, ValidationError
 from .protocol import strict_json_loads
 
 CONTEXT_STORE_PREVIEW_CONTRACT = "leanctx-context-store-preview"
@@ -67,8 +67,8 @@ _FIELD = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MAX_SAFE = 2**53 - 1
 
 
-def _bad(message: str) -> EngineProtocolError:
-    return EngineProtocolError("context store: " + message)
+def _bad(message: str) -> InstanceProtocolError:
+    return InstanceProtocolError("context store: " + message)
 
 
 def _object(value: Any, label: str) -> Mapping[str, Any]:
@@ -91,6 +91,12 @@ def _int(value: Any, label: str, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= _MAX_SAFE:
         raise _bad(f"{label} must be an integer in {minimum}..{_MAX_SAFE}")
     return value
+
+
+def _is_version(value: Any, expected: int) -> bool:
+    # `True == 1` and `1.0 == 1` hold in Python: a version is that integer, not
+    # a value that compares equal to it.
+    return not isinstance(value, bool) and isinstance(value, int) and value == expected
 
 
 def _signed(value: Any, label: str) -> int:
@@ -329,7 +335,7 @@ def _record(value: Any, label: str) -> StrategyOutcomeRecord:
     _keys(value, {"workload", "strategy", "quality", "security", *_COUNTS}, set(_SIGNAL_COUNTS),
           label)
     counts = {key: _int(value[key], f"{label}.{key}") for key in _COUNTS}
-    # Signal counts default to zero, like the Engine's own deserializer.
+    # Signal counts default to zero, like the instance's own deserializer.
     counts.update({key: _int(value.get(key, 0), f"{label}.{key}") for key in _SIGNAL_COUNTS})
     record = StrategyOutcomeRecord(
         workload=_workload(value["workload"], label + ".workload"),
@@ -390,7 +396,7 @@ def parse_policy_evidence(value: Any) -> ContextPolicyEvidence:
     """Parse and validate a `ContextPolicyEvidenceV1` document."""
     value = _object(value, "evidence")
     _keys(value, {"schema_version", "records"}, {"evaluations"}, "evidence")
-    if value["schema_version"] != EVIDENCE_SCHEMA_VERSION:
+    if not _is_version(value["schema_version"], EVIDENCE_SCHEMA_VERSION):
         raise _bad("unsupported evidence schema_version")
     records = tuple(
         _record(item, f"records[{index}]")
@@ -468,7 +474,7 @@ def parse_task_lineage(value: Any) -> TaskLineage:
     value = _object(value, "lineage")
     _keys(value, {"schema_version", "task_id", "steps", "deliveries", "outcome", "gaps"},
           {"scope", "ledger_error"}, "lineage")
-    if value["schema_version"] != LINEAGE_SCHEMA_VERSION:
+    if not _is_version(value["schema_version"], LINEAGE_SCHEMA_VERSION):
         raise _bad("unsupported lineage schema_version")
     gaps = tuple(
         _enum(item, GAPS, "gaps") for item in _list(value["gaps"], "gaps", len(GAPS))
@@ -538,8 +544,8 @@ def _read(engine, operation: str, project_root: str, request: Mapping[str, Any],
     _keys(document, {"schema_version", "transport_version", "engine_interface_version", body},
           set(), "response")
     if (
-        document["schema_version"] != 1
-        or document["transport_version"] != TRANSPORT_VERSION
+        not _is_version(document["schema_version"], 1)
+        or not _is_version(document["transport_version"], TRANSPORT_VERSION)
         or document["engine_interface_version"] != ENGINE_INTERFACE_VERSION
     ):
         raise _bad("unsupported response versions")
@@ -553,9 +559,9 @@ def read_policy_evidence(
     project_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
 ) -> ContextPolicyEvidence:
-    """The scope's read-strategy evidence. `engine` is a `SubprocessEngineClient`.
+    """The scope's read-strategy evidence. `engine` is a `SubprocessInstanceClient`.
 
-    Without `project_id` the Engine uses `project_root`, as `lean-ctx autopilot`
+    Without `project_id` the instance uses `project_root`, as `lean-ctx autopilot`
     does by default.
     """
     request = store_request(project_id=project_id, tenant_id=tenant_id)
@@ -572,7 +578,7 @@ def read_task_lineage(
     project_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
 ) -> TaskLineage:
-    """One task's lineage within the scope. `engine` is a `SubprocessEngineClient`."""
+    """One task's lineage within the scope. `engine` is a `SubprocessInstanceClient`."""
     if not isinstance(task_id, str) or not task_id.strip():
         raise ValidationError("task_id must be a non-empty string")
     request = store_request(project_id=project_id, tenant_id=tenant_id, task_id=task_id)

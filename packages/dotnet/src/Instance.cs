@@ -1,3 +1,6 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 using System.Collections;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -7,7 +10,7 @@ using System.Text;
 namespace Thinkery.LeanCtx;
 
 /// <summary>Engine Interface v1 adapter.</summary>
-public interface EngineClient
+public interface InstanceClient
 {
     ContextView ContextView(ContextPlan plan) =>
         ContextViewAsync(plan).GetAwaiter().GetResult();
@@ -36,18 +39,61 @@ public interface EngineClient
         Task.FromResult(Recover(projectRoot, path, recoveryRef, sourceRef, sourceDigest));
 }
 
-internal sealed record ParsedEngineResponse(
-    EngineViewValue View,
+/// <summary>Deprecated name of <see cref="InstanceClient"/>; removed in 2.0.</summary>
+[Obsolete("Use InstanceClient; removed in 2.0")]
+public interface EngineClient : InstanceClient
+{
+}
+
+/// <summary>
+/// Environment configuration of the LeanCTX instance binary. The 1.3 names are read
+/// first; the deprecated Engine names are honoured until 2.0 with a one-time warning.
+/// </summary>
+internal static class InstanceEnvironment
+{
+    private static int warned;
+
+    internal static string? Read(string name, string deprecatedName)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        if (!string.IsNullOrEmpty(value))
+            return value;
+        value = Environment.GetEnvironmentVariable(deprecatedName);
+        if (!string.IsNullOrEmpty(value) && Interlocked.Exchange(ref warned, 1) == 0)
+            Console.Error.WriteLine(
+                $"Thinkery.LeanCtx: {deprecatedName} is deprecated and removed in 2.0; use {name}.");
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    internal static string Binary(string? explicitBinary) =>
+        explicitBinary ?? Read("LEANCTX_INSTANCE_BIN", "LEANCTX_ENGINE_BIN") ?? "lean-ctx";
+}
+
+internal sealed record ParsedInstanceResponse(
+    InstanceViewValue View,
     IReadOnlyDictionary<string, object?>? Invocation,
     IReadOnlyDictionary<string, object?>? Observation,
     RecoveryValue Recovery);
 
-internal sealed record EngineViewValue(string Text, string? OutputRef, string? OutputDigest);
+internal sealed record InstanceViewValue(string Text, string? OutputRef, string? OutputDigest);
 internal sealed record RecoveryValue(string RecoveryRef, string SourceRef, string SourceDigest);
 
 /// <summary>Strict, shell-free Engine Interface v1 subprocess client.</summary>
-public sealed class SubprocessEngineClient : EngineClient
+public class SubprocessInstanceClient : InstanceClient
 {
+    private volatile bool lastSessionContained;
+
+    /// <summary>
+    /// How the process tree of the most recent completed LeanCTX instance run was
+    /// contained; see <see cref="SessionContainment"/>. Rule: it is set
+    /// whenever a run reached its end and its output was read, also when the
+    /// LeanCTX instance exited with a failure; a run ended before that (deadline,
+    /// cancellation, output bound) leaves it unchanged. With concurrent calls
+    /// it is the state of whichever finished last.
+    /// </summary>
+    public SessionContainment LastSessionContainment =>
+        lastSessionContained ? SessionContainment.InstanceStarter : SessionContainment.Unavailable;
+
     private static readonly IReadOnlySet<string> TopLevelKeys = SetOf(
         "schema_version", "transport_version", "engine_interface_version", "view",
         "invocation", "observation", "recovery");
@@ -71,17 +117,24 @@ public sealed class SubprocessEngineClient : EngineClient
     private static readonly IReadOnlySet<string> ReceiptLinkKeys = SetOf(
         "schema_version", "receipt_id", "receipt_ref", "receipt_digest", "invocation_id");
 
-    public SubprocessEngineClient(string? engineBinary = null, double timeout = 30)
+    /// <param name="instanceBinary">The LeanCTX instance executable.</param>
+    /// <param name="timeout">Deadline per run in seconds.</param>
+    /// <param name="engineBinary">Deprecated name of <paramref name="instanceBinary"/>; removed in 2.0.</param>
+    public SubprocessInstanceClient(string? instanceBinary = null, double timeout = 30, string? engineBinary = null)
     {
         if (!double.IsFinite(timeout) || timeout < 0.1 || timeout > 120)
             throw new ConfigurationError("timeout must be between 0.1 and 120 seconds");
-        EngineBinary = engineBinary ?? Environment.GetEnvironmentVariable("LEANCTX_ENGINE_BIN") ?? "lean-ctx";
-        if (string.IsNullOrWhiteSpace(EngineBinary) || EngineBinary.Contains('\0'))
-            throw new ConfigurationError("engine_binary must be a non-empty path");
+        InstanceBinary = InstanceEnvironment.Binary(instanceBinary ?? engineBinary);
+        if (string.IsNullOrWhiteSpace(InstanceBinary) || InstanceBinary.Contains('\0'))
+            throw new ConfigurationError("instance_binary must be a non-empty path");
         Timeout = timeout;
     }
 
-    public string EngineBinary { get; }
+    public string InstanceBinary { get; }
+
+    /// <summary>Deprecated name of <see cref="InstanceBinary"/>; removed in 2.0.</summary>
+    [Obsolete("Use InstanceBinary; removed in 2.0")]
+    public string EngineBinary => InstanceBinary;
     public double Timeout { get; }
 
     internal static object ParseForTest(byte[] response) => ParseResponse(response);
@@ -114,9 +167,9 @@ public sealed class SubprocessEngineClient : EngineClient
         if (!sourceRefs.Contains(response.Recovery.SourceRef, StringComparer.Ordinal))
             throw Protocol("recovery source_ref is not admitted by invocation");
         if (source.SourceRef is not null && source.SourceRef != response.Recovery.SourceRef)
-            throw Protocol("Engine source_ref differs from requested binding");
+            throw Protocol("LeanCTX instance source_ref differs from requested binding");
         if (source.SourceDigest is not null && source.SourceDigest != response.Recovery.SourceDigest)
-            throw Protocol("Engine source_digest differs from requested binding");
+            throw Protocol("LeanCTX instance source_digest differs from requested binding");
         ContextView result;
         try
         {
@@ -126,26 +179,26 @@ public sealed class SubprocessEngineClient : EngineClient
         {
             throw Protocol(error.Message, error);
         }
-        if (result.Status == EngineStatus.Rejected)
+        if (result.Status == InstanceStatus.Rejected)
         {
             var failure = result.Failure;
             if (failure?.Code == FailureCode.PolicyRejected)
-                throw new PolicyAdmissionError("Engine rejected request: policy_rejected", failure, result);
+                throw new PolicyAdmissionError("LeanCTX instance rejected request: policy_rejected", failure, result);
             if (failure?.Code == FailureCode.SourceUnavailable)
-                throw new SourceUnavailableError("Engine rejected request: source_unavailable", result);
-            throw new EngineRejected($"Engine rejected request: {failure?.code ?? "rejected"}", failure, result);
+                throw new SourceUnavailableError("LeanCTX instance rejected request: source_unavailable", result);
+            throw new EngineRejected($"LeanCTX instance rejected request: {failure?.code ?? "rejected"}", failure, result);
         }
-        if (result.Status == EngineStatus.Failed)
+        if (result.Status == InstanceStatus.Failed)
         {
             var failure = result.Failure;
             if (failure?.Code == FailureCode.UnsupportedOperation)
-                throw new UnsupportedEngineError("Engine execution failed: unsupported_operation");
+                throw new UnsupportedEngineError("LeanCTX instance execution failed: unsupported_operation");
             if (failure?.Code == FailureCode.SourceIntegrityMismatch)
-                throw new ArtifactIntegrityError("Engine execution failed: source_integrity_mismatch", result);
+                throw new ArtifactIntegrityError("LeanCTX instance execution failed: source_integrity_mismatch", result);
             if (failure?.Code == FailureCode.SourceUnavailable)
-                throw new SourceUnavailableError("Engine execution failed: source_unavailable", result);
+                throw new SourceUnavailableError("LeanCTX instance execution failed: source_unavailable", result);
             throw new EngineExecutionError(
-                $"Engine execution failed: {failure?.code ?? "failed"}", failure, result);
+                $"LeanCTX instance execution failed: {failure?.code ?? "failed"}", failure, result);
         }
         return result;
     }
@@ -204,7 +257,7 @@ public sealed class SubprocessEngineClient : EngineClient
         }
     }
 
-    private async Task<ParsedEngineResponse> InvokeAsync(
+    private async Task<ParsedInstanceResponse> InvokeAsync(
         string operation,
         string projectRoot,
         IReadOnlyDictionary<string, object?> request,
@@ -212,7 +265,7 @@ public sealed class SubprocessEngineClient : EngineClient
     {
         var payload = WireJson.CanonicalBytes(request);
         if (payload.Length > WireJson.MaxRequestBytes)
-            throw new EngineProtocolError("Engine request exceeds the bound");
+            throw new EngineProtocolError("LeanCTX instance request exceeds the bound");
         var responseBytes = await RunPayloadAsync(operation, projectRoot, payload, cancellationToken)
             .ConfigureAwait(false);
         return ParseResponse(responseBytes);
@@ -275,6 +328,7 @@ public sealed class SubprocessEngineClient : EngineClient
         process.StartInfo.Environment["LC_ALL"] = "C";
         process.StartInfo.Environment["PYTHONHASHSEED"] = "0";
         process.StartInfo.Environment["TZ"] = "UTC";
+        SessionContainmentProtocol.Request(process.StartInfo);
         try
         {
             if (!process.Start())
@@ -282,7 +336,7 @@ public sealed class SubprocessEngineClient : EngineClient
         }
         catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            throw new EngineUnavailable("Engine process could not be started", error);
+            throw new EngineUnavailable("LeanCTX instance process could not be started", error);
         }
 
         using var timeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(Timeout));
@@ -297,22 +351,27 @@ public sealed class SubprocessEngineClient : EngineClient
             await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
             var stdout = await stdoutTask.ConfigureAwait(false);
             var stderr = await stderrTask.ConfigureAwait(false);
+            // The session starter's acknowledgement precedes everything the
+            // LeanCTX instance wrote. It is recorded — for a failed run too — and is not
+            // output.
+            var ack = SessionContainmentProtocol.AckPrefixLength(stdout);
+            lastSessionContained = ack > 0;
             if (process.ExitCode != 0)
                 throw MapNonZero(process.ExitCode, stderr);
-            return stdout;
+            return ack > 0 ? stdout[ack..] : stdout;
         }
         catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested &&
             !cancellationToken.IsCancellationRequested)
         {
             KillAndReap(process);
-            throw new EngineTimeout("Engine process exceeded its deadline");
+            throw new EngineTimeout("LeanCTX instance process exceeded its deadline");
         }
         catch (OperationCanceledException)
         {
             KillAndReap(process);
             throw;
         }
-        catch (EngineProtocolError)
+        catch (InstanceProtocolError)
         {
             KillAndReap(process);
             throw;
@@ -340,7 +399,7 @@ public sealed class SubprocessEngineClient : EngineClient
                 if (count == 0)
                     break;
                 if (output.Length + count > maximum)
-                    throw new EngineProtocolError("Engine process output exceeds its bound");
+                    throw new EngineProtocolError("LeanCTX instance process output exceeds its bound");
                 output.Write(buffer, 0, count);
             }
             return output.ToArray();
@@ -350,41 +409,45 @@ public sealed class SubprocessEngineClient : EngineClient
     private static Exception MapNonZero(int exitCode, byte[] stderrBytes)
     {
         var stderr = Encoding.UTF8.GetString(stderrBytes).Trim();
-        var code = stderr.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
-            .Select(item => item.TrimEnd(':', ';', ','))
-            .FirstOrDefault(item => item.Length <= 128);
+        // LeanCTX instance diagnostics may contain paths or source material. Only retain
+        // the bounded machine-readable code on an explicit LeanCTX instance error line.
+        var code = stderr.Split('\n')
+            .Where(line => line.StartsWith("engine:", StringComparison.Ordinal))
+            .Select(line => line["engine:".Length..].Trim())
+            .FirstOrDefault(value => value.Length is > 0 and <= 128 &&
+                value.All(character => character is >= 'a' and <= 'z' or '_'));
         return code switch
         {
             "unsafe_root" or "source_outside_root" or "source_symlink" or "policy_rejected" =>
-                new PolicyAdmissionError($"Engine rejected request: {code}"),
-            "source_unavailable" => new SourceUnavailableError("Engine source is unavailable"),
-            "unsupported_mode" => new UnsupportedEngineError("Engine operation is unsupported"),
+                new PolicyAdmissionError($"LeanCTX instance rejected request: {code}"),
+            "source_unavailable" => new SourceUnavailableError("LeanCTX instance source is unavailable"),
+            "unsupported_mode" => new UnsupportedEngineError("LeanCTX instance operation is unsupported"),
             _ => new EngineExecutionError(
-                $"Engine process failed: {code ?? $"nonzero_exit_{exitCode}"}"),
+                $"LeanCTX instance process failed: {code ?? $"nonzero_exit_{exitCode}"}"),
         };
     }
 
     private static void KillAndReap(Process process)
     {
-        ProcessTree.KillAndReap(process, "Engine");
+        ProcessTree.KillAndReap(process, "LeanCTX instance");
     }
 
     private string ResolveBinary()
     {
-        var candidate = EngineBinary;
+        var candidate = InstanceBinary;
         if (!Path.IsPathRooted(candidate) && !candidate.Contains('/') && !candidate.Contains('\\'))
         {
             var paths = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
                 .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
             candidate = paths.Select(path => Path.GetFullPath(Path.Combine(path, candidate)))
                 .FirstOrDefault(IsExecutableFile) ??
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
         }
         else
         {
             candidate = Path.GetFullPath(candidate);
             if (!IsExecutableFile(candidate))
-                throw new EngineUnavailable("configured Engine binary is unavailable");
+                throw new EngineUnavailable("configured LeanCTX instance binary is unavailable");
         }
         try
         {
@@ -392,7 +455,7 @@ public sealed class SubprocessEngineClient : EngineClient
         }
         catch (Exception error)
         {
-            throw new EngineUnavailable("configured Engine binary is unavailable", error);
+            throw new EngineUnavailable("configured LeanCTX instance binary is unavailable", error);
         }
     }
 
@@ -441,7 +504,7 @@ public sealed class SubprocessEngineClient : EngineClient
         if (!ContextSource.Contained(candidate, root))
             throw new PolicyAdmissionError("source path escapes project_root");
         if (!File.Exists(candidate))
-            throw new SourceUnavailableError("Engine source is unavailable");
+            throw new SourceUnavailableError("LeanCTX instance source is unavailable");
         try
         {
             var current = root;
@@ -463,7 +526,7 @@ public sealed class SubprocessEngineClient : EngineClient
         catch (PolicyAdmissionError) { throw; }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            throw new SourceUnavailableError("Engine source is unavailable", innerException: error);
+            throw new SourceUnavailableError("LeanCTX instance source is unavailable", innerException: error);
         }
     }
 
@@ -485,13 +548,13 @@ public sealed class SubprocessEngineClient : EngineClient
         return relative;
     }
 
-    private static ContextView BuildView(ContextSource source, ParsedEngineResponse parsed)
+    private static ContextView BuildView(ContextSource source, ParsedInstanceResponse parsed)
     {
         if (parsed.Invocation is null || parsed.Observation is null)
             throw Protocol("context-view response omitted invocation/observation");
         var observation = parsed.Observation;
         var statusText = observation.GetValueOrDefault("status") as string ?? "";
-        if (!ProtocolText.TryEngineStatus(statusText, out var status))
+        if (!ProtocolText.TryInstanceStatus(statusText, out var status))
             throw Protocol("unknown observation status");
         return new ContextView(
             source,
@@ -511,12 +574,12 @@ public sealed class SubprocessEngineClient : EngineClient
             observation);
     }
 
-    private static ParsedEngineResponse ParseResponse(byte[] bytes)
+    private static ParsedInstanceResponse ParseResponse(byte[] bytes)
     {
         Dictionary<string, object?> item;
-        try { item = WireJson.ParseObject(bytes, "Engine response", WireJson.MaxResponseBytes); }
-        catch (EngineProtocolError) { throw; }
-        WireJson.RequireExactKeys(item, TopLevelKeys, "Engine response");
+        try { item = WireJson.ParseObject(bytes, "LeanCTX instance response", WireJson.MaxResponseBytes); }
+        catch (InstanceProtocolError) { throw; }
+        WireJson.RequireExactKeys(item, TopLevelKeys, "LeanCTX instance response");
         if (WireJson.RequiredInteger(item, "schema_version") != Constants.SCHEMA_VERSION)
             throw new CompatibilityError("unsupported schema version");
         if (WireJson.RequiredInteger(item, "transport_version") != Constants.TRANSPORT_VERSION)
@@ -531,7 +594,7 @@ public sealed class SubprocessEngineClient : EngineClient
         {
             if (invocationValue is not null || observationValue is not null)
                 throw Protocol("invocation and observation must both be null or present");
-            return new ParsedEngineResponse(view, null, null, recovery);
+            return new ParsedInstanceResponse(view, null, null, recovery);
         }
         var invocation = ParseInvocation(AsObject(invocationValue, "invocation"));
         var invocationId = WireJson.RequiredString(invocation, "invocation_id");
@@ -543,10 +606,10 @@ public sealed class SubprocessEngineClient : EngineClient
         if (!Equals(observation.GetValueOrDefault("output_ref"), view.OutputRef) ||
             !Equals(observation.GetValueOrDefault("output_digest"), view.OutputDigest))
             throw Protocol("view and observation output binding mismatch");
-        return new ParsedEngineResponse(view, invocation, observation, recovery);
+        return new ParsedInstanceResponse(view, invocation, observation, recovery);
     }
 
-    private static EngineViewValue ParseView(IReadOnlyDictionary<string, object?> item)
+    private static InstanceViewValue ParseView(IReadOnlyDictionary<string, object?> item)
     {
         WireJson.RequireExactKeys(item, ViewKeys, "view");
         var text = WireJson.RequiredString(item, "text", WireJson.MaxTextBytes, allowEmpty: true);
@@ -555,7 +618,7 @@ public sealed class SubprocessEngineClient : EngineClient
         ValidatePair(outputRef, outputDigest, "view");
         if (outputDigest is not null && WireJson.Sha256Digest(text) != outputDigest)
             throw Protocol("view output digest mismatch");
-        return new EngineViewValue(text, outputRef, outputDigest);
+        return new InstanceViewValue(text, outputRef, outputDigest);
     }
 
     private static RecoveryValue ParseRecovery(IReadOnlyDictionary<string, object?> item)
@@ -583,11 +646,11 @@ public sealed class SubprocessEngineClient : EngineClient
         var engineVersion = WireJson.RequiredString(engine, "engine_version");
         if (engineId != "lean-ctx-local" || !IsSemVer(engineVersion) ||
             !engineVersion.StartsWith("3.", StringComparison.Ordinal))
-            throw new UnsupportedEngineError("unsupported Engine identity");
+            throw new UnsupportedEngineError("unsupported LeanCTX instance identity");
         var capabilityId = WireJson.RequiredString(operation, "capability_id");
         var capabilityVersion = WireJson.RequiredString(operation, "capability_version");
         if (capabilityId != "capability://leanctx/context-optimization" || capabilityVersion != "1.0.0")
-            throw new UnsupportedEngineError("unsupported Engine capability");
+            throw new UnsupportedEngineError("unsupported LeanCTX instance capability");
         var decision = WireJson.RequiredString(policy, "decision");
         if (decision is not "admitted" and not "rejected")
             throw Protocol("unknown policy decision");
@@ -636,7 +699,7 @@ public sealed class SubprocessEngineClient : EngineClient
         if (WireJson.RequiredInteger(item, "schema_version") != Constants.SCHEMA_VERSION)
             throw Protocol("unsupported observation schema version");
         var statusText = WireJson.RequiredString(item, "status");
-        if (!ProtocolText.TryEngineStatus(statusText, out _))
+        if (!ProtocolText.TryInstanceStatus(statusText, out _))
             throw Protocol("unknown observation status");
         var outputRef = OptionalOutputRef(item.GetValueOrDefault("output_ref"), "observation.output_ref");
         var outputDigest = OptionalDigest(item.GetValueOrDefault("output_digest"), "observation.output_digest");
@@ -696,7 +759,7 @@ public sealed class SubprocessEngineClient : EngineClient
         WireJson.RequireExactKeys(item, FailureKeys, "failure");
         var codeText = WireJson.RequiredString(item, "code");
         if (!ProtocolText.TryFailureCode(codeText, out var code))
-            throw Protocol("unknown Engine failure code");
+            throw Protocol("unknown LeanCTX instance failure code");
         var recoveryRef = item.GetValueOrDefault("recovery_ref") is null
             ? null : WireJson.RequiredRef(item, "recovery_ref");
         try

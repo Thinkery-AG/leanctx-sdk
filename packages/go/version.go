@@ -1,24 +1,25 @@
 package leanctx
 
 // Stable SDK and protocol versions.  The Agent Tools contract is deliberately
-// separate from the Product/Engine Interface v1 contract.
+// separate from the Product/engine interface v1 contract.
 const (
-	Version                          = "1.2.0"
-	EngineInterfaceVersion           = "1.0.0"
-	SchemaVersion                    = 1
-	TransportVersion                 = 1
-	AgentToolsInterfaceVersion       = "1.0.0"
-	AgentToolsSchemaVersion          = 1
-	AgentToolsTransportVersion       = 1
-	SupportedAgentToolsEngineVersion = "3.11.4"
+	Version                    = "1.3.0"
+	EngineInterfaceVersion     = "1.0.0"
+	SchemaVersion              = 1
+	TransportVersion           = 1
+	AgentToolsInterfaceVersion = "1.0.0"
+	AgentToolsSchemaVersion    = 1
+	AgentToolsTransportVersion = 1
+	// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+	SupportedAgentToolsInstanceVersion = "3.12.2"
 
 	// Contract-spelling aliases keep generated integrations source-compatible
 	// with the other SDKs, whose constants use uppercase names.
-	ENGINE_INTERFACE_VERSION             = EngineInterfaceVersion
-	SCHEMA_VERSION                       = SchemaVersion
-	TRANSPORT_VERSION                    = TransportVersion
-	AGENT_TOOLS_INTERFACE_VERSION        = AgentToolsInterfaceVersion
-	AGENT_TOOLS_SCHEMA_VERSION           = AgentToolsSchemaVersion
-	AGENT_TOOLS_TRANSPORT_VERSION        = AgentToolsTransportVersion
-	SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = SupportedAgentToolsEngineVersion
+	ENGINE_INTERFACE_VERSION               = EngineInterfaceVersion
+	SCHEMA_VERSION                         = SchemaVersion
+	TRANSPORT_VERSION                      = TransportVersion
+	AGENT_TOOLS_INTERFACE_VERSION          = AgentToolsInterfaceVersion
+	AGENT_TOOLS_SCHEMA_VERSION             = AgentToolsSchemaVersion
+	AGENT_TOOLS_TRANSPORT_VERSION          = AgentToolsTransportVersion
+	SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION = SupportedAgentToolsInstanceVersion
 )

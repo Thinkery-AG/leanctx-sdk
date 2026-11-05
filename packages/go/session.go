@@ -17,7 +17,9 @@ type SessionOptions struct {
 	SessionID   string
 	TaskID      string
 	FailOpen    bool
-	Engine      EngineClient
+	Instance    InstanceClient
+	// Deprecated: use Instance. Used only when Instance is nil.
+	Engine InstanceClient
 }
 
 // CompletionOptions carries explicit host outcome and deterministic usage.
@@ -34,7 +36,7 @@ type ContextSession struct {
 	sessionID    string
 	taskID       string
 	failOpen     bool
-	engine       EngineClient
+	engine       InstanceClient
 	state        SessionState
 	plan         *ContextPlan
 	view         *ContextView
@@ -67,9 +69,12 @@ func NewContextSession(task string, options ...SessionOptions) (*ContextSession,
 	if err := boundedText(option.TaskID, "task_id", maxRefBytes, true); err != nil {
 		return nil, err
 	}
-	var engine EngineClient = option.Engine
+	var engine InstanceClient = option.Instance
 	if engine == nil {
-		created, err := NewSubprocessEngineClient()
+		engine = option.Engine
+	}
+	if engine == nil {
+		created, err := NewSubprocessInstanceClient()
 		if err != nil {
 			return nil, err
 		}
@@ -182,13 +187,13 @@ func (s *ContextSession) Prepare(source *ContextSource, options ...ContextPlanOp
 	if err == nil {
 		s.view = view
 		s.prepared = true
-		if view != nil && view.Status == EngineStatusDegraded {
+		if view != nil && view.Status == InstanceStatusDegraded {
 			s.addDegradation("engine:degraded")
 		}
 		return view, nil
 	}
-	var unavailable *EngineUnavailable
-	var timeout *EngineTimeout
+	var unavailable *InstanceUnavailable
+	var timeout *InstanceTimeout
 	if s.failOpen && (errors.As(err, &unavailable) || errors.As(err, &timeout)) {
 		code := "engine_error"
 		if unavailable != nil {
@@ -200,14 +205,14 @@ func (s *ContextSession) Prepare(source *ContextSource, options ...ContextPlanOp
 		s.prepared = true
 		return nil, nil
 	}
-	s.abortEngineFailure(err)
+	s.abortInstanceFailure(err)
 	return nil, err
 }
 
 // PrepareContext adds cancellation for the concrete subprocess adapter while
-// preserving the synchronous EngineClient seam for fakes.
+// preserving the synchronous InstanceClient seam for fakes.
 func (s *ContextSession) PrepareContext(ctx context.Context, source *ContextSource, options ...ContextPlanOptions) (*ContextView, error) {
-	if client, ok := s.engine.(*SubprocessEngineClient); ok {
+	if client, ok := s.engine.(*SubprocessInstanceClient); ok {
 		return s.prepareWithContext(ctx, client, source, options...)
 	}
 	select {
@@ -218,7 +223,7 @@ func (s *ContextSession) PrepareContext(ctx context.Context, source *ContextSour
 	}
 }
 
-func (s *ContextSession) prepareWithContext(ctx context.Context, client *SubprocessEngineClient, source *ContextSource, options ...ContextPlanOptions) (*ContextView, error) {
+func (s *ContextSession) prepareWithContext(ctx context.Context, client *SubprocessInstanceClient, source *ContextSource, options ...ContextPlanOptions) (*ContextView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state == SessionStateCompleted || s.state == SessionStateAborted || s.state == SessionStateClosed {
@@ -245,14 +250,14 @@ func (s *ContextSession) prepareWithContext(ctx context.Context, client *Subproc
 		s.view, s.prepared = view, true
 		return view, nil
 	}
-	var unavailable *EngineUnavailable
-	var timeout *EngineTimeout
+	var unavailable *InstanceUnavailable
+	var timeout *InstanceTimeout
 	if s.failOpen && (errors.As(err, &unavailable) || errors.As(err, &timeout)) {
 		s.addDegradation("engine:" + errCode(err))
 		s.prepared = true
 		return nil, nil
 	}
-	s.abortEngineFailure(err)
+	s.abortInstanceFailure(err)
 	return nil, err
 }
 
@@ -407,15 +412,15 @@ func (s *ContextSession) addDegradation(value string) {
 	s.degradations = append(s.degradations, value)
 }
 
-func (s *ContextSession) abortEngineFailure(err error) {
+func (s *ContextSession) abortInstanceFailure(err error) {
 	s.firstError = err
 	var view *ContextView
 	switch value := err.(type) {
-	case *EngineRejected:
+	case *InstanceRejected:
 		view = value.View
 	case *PolicyAdmissionError:
 		view = value.View
-	case *EngineExecutionError:
+	case *InstanceExecutionError:
 		view = value.View
 	case *SourceUnavailableError:
 		view = value.View
@@ -438,27 +443,27 @@ func errCode(err error) string {
 		return "engine_error"
 	}
 	switch value := err.(type) {
-	case *EngineUnavailable:
+	case *InstanceUnavailable:
 		return value.Code
-	case *EngineTimeout:
+	case *InstanceTimeout:
 		return value.Code
-	case *EngineCrashed:
+	case *InstanceCrashed:
 		return value.Code
 	case *AgentPermissionError:
 		return value.Code
 	case *UnsupportedCapabilityError:
 		return value.Code
-	case *EngineProtocolError:
+	case *InstanceProtocolError:
 		return value.Code
 	case *CompatibilityError:
 		return value.Code
-	case *UnsupportedEngineError:
+	case *UnsupportedInstanceError:
 		return value.Code
-	case *EngineRejected:
+	case *InstanceRejected:
 		return value.Code
 	case *PolicyAdmissionError:
 		return value.Code
-	case *EngineExecutionError:
+	case *InstanceExecutionError:
 		return value.Code
 	case *SourceUnavailableError:
 		return value.Code

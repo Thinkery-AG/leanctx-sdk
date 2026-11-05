@@ -16,14 +16,14 @@ public sealed class ContextSession : IDisposable
         string? sessionId = null,
         string? taskId = null,
         bool failOpen = false,
-        EngineClient? engine = null)
+        InstanceClient? engine = null)
     {
         Task = WireJson.Text(task, "task", WireJson.MaxTaskBytes, controls: false);
         ProjectRoot = projectRoot;
         SessionId = sessionId ?? RuntimeId("session");
         TaskId = taskId ?? RuntimeId("task");
         FailOpen = failOpen;
-        Engine = engine ?? new SubprocessEngineClient();
+        Instance = engine ?? new SubprocessInstanceClient();
     }
 
     public string Task { get; }
@@ -31,7 +31,11 @@ public sealed class ContextSession : IDisposable
     public string SessionId { get; }
     public string TaskId { get; }
     public bool FailOpen { get; }
-    public EngineClient Engine { get; }
+    public InstanceClient Instance { get; }
+
+    /// <summary>Deprecated alias of <see cref="Instance"/>; removed in 2.0.</summary>
+    [Obsolete("Use Instance; removed in 2.0")]
+    public InstanceClient Engine => Instance;
     public SessionState State => state;
     public ContextPlan? CurrentPlan => plan;
     public ContextPlan? current_plan => CurrentPlan;
@@ -110,20 +114,20 @@ public sealed class ContextSession : IDisposable
         state = SessionState.Executing;
         try
         {
-            view = await Engine.ContextViewAsync(plan, cancellationToken).ConfigureAwait(false);
+            view = await Instance.ContextViewAsync(plan, cancellationToken).ConfigureAwait(false);
             prepared = true;
-            if (view.Status == EngineStatus.Degraded)
+            if (view.Status == InstanceStatus.Degraded)
                 AddDegradation("engine:degraded");
             return view;
         }
-        catch (EngineUnavailable error) when (FailOpen)
+        catch (InstanceUnavailable error) when (FailOpen)
         {
             AddDegradation($"engine:{error.Code}");
             prepared = true;
             view = null;
             return null;
         }
-        catch (EngineTimeout error) when (FailOpen)
+        catch (InstanceTimeout error) when (FailOpen)
         {
             AddDegradation($"engine:{error.Code}");
             prepared = true;
@@ -132,7 +136,7 @@ public sealed class ContextSession : IDisposable
         }
         catch (Exception error)
         {
-            AbortEngineFailure(error);
+            AbortInstanceFailure(error);
             throw;
         }
     }
@@ -211,7 +215,7 @@ public sealed class ContextSession : IDisposable
             (sourceView.RecoveryRef != view.RecoveryRef || sourceView.SourceRef != view.SourceRef ||
              sourceView.SourceDigest != view.SourceDigest))
             throw new RecoveryUnavailableError("recovery view is not bound to this session", selected);
-        return await Engine.RecoverAsync(
+        return await Instance.RecoverAsync(
             plan.Source.ProjectRoot,
             selected.Source.RelativePath,
             selected.RecoveryRef,
@@ -252,11 +256,11 @@ public sealed class ContextSession : IDisposable
             hostException);
     }
 
-    private void AbortEngineFailure(Exception error)
+    private void AbortInstanceFailure(Exception error)
     {
         if (state is SessionState.Completed or SessionState.Aborted or SessionState.Closed)
             return;
-        if (error is EngineExecutionError execution && execution.View is not null)
+        if (error is InstanceExecutionError execution && execution.View is not null)
             view = execution.View;
         if (error is SDKError sdkError)
             AddDegradation($"engine:{sdkError.Code}");

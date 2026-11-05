@@ -6,10 +6,10 @@ import { test } from "node:test";
 import { parseContextReadResponse } from "../dist/context.js";
 import { strictJsonLoads } from "../dist/protocol.js";
 import {
-  EngineContextClient,
-  EngineProtocolError,
-  EngineRejected,
-  EngineTimeout,
+  InstanceContextClient,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceTimeout,
   PolicyAdmissionError,
   ValidationError,
 } from "../dist/index.js";
@@ -24,11 +24,11 @@ test("guarded context read matches shared cross-language receipt fixtures", () =
     if (override.schema_version === 1) continue;
     const candidate = structuredClone(fixture.response);
     Object.assign(candidate.result._meta.canonical_receipt, override);
-    assert.throws(() => parseContextReadResponse(JSON.stringify(candidate)), EngineProtocolError);
+    assert.throws(() => parseContextReadResponse(JSON.stringify(candidate)), InstanceProtocolError);
   }
   for (const literal of ["1.0", "1e0"]) {
     const candidate = JSON.stringify(fixture.response).replace('"schema_version":1', `"schema_version":${literal}`);
-    assert.throws(() => parseContextReadResponse(candidate), EngineProtocolError);
+    assert.throws(() => parseContextReadResponse(candidate), InstanceProtocolError);
   }
 });
 
@@ -40,7 +40,7 @@ test("strict parser preserves prototype-named data without inheriting authority"
   const candidate = JSON.parse(wireResponse());
   const receipt = candidate.result._meta.canonical_receipt;
   candidate.result._meta.canonical_receipt = JSON.parse(`{"__proto__":${JSON.stringify(receipt)}}`);
-  assert.throws(() => parseContextReadResponse(JSON.stringify(candidate)), EngineProtocolError);
+  assert.throws(() => parseContextReadResponse(JSON.stringify(candidate)), InstanceProtocolError);
   const extension = JSON.parse(wireResponse());
   extension.result.extension = JSON.parse('{"__proto__":{"schema_version":1.5}}');
   assert.deepEqual(parseContextReadResponse(JSON.stringify(extension)).rawResponse, extension);
@@ -48,10 +48,10 @@ test("strict parser preserves prototype-named data without inheriting authority"
 
 test("guarded context read rejects malformed Unicode and duplicate keys", () => {
   for (const text of ["\ud800", "\udfff"]) {
-    assert.throws(() => parseContextReadResponse(wireResponse({ content: [{ type: "text", text }] })), EngineProtocolError);
+    assert.throws(() => parseContextReadResponse(wireResponse({ content: [{ type: "text", text }] })), InstanceProtocolError);
     assert.throws(() => strictJsonLoads(text), /UTF-8|invalid/);
   }
-  assert.throws(() => parseContextReadResponse(wireResponse().replace('"schema_version":1', '"schema_version":1,"schema_version":1')), EngineProtocolError);
+  assert.throws(() => parseContextReadResponse(wireResponse().replace('"schema_version":1', '"schema_version":1,"schema_version":1')), InstanceProtocolError);
 });
 
 test("guarded context read enforces deadline and declared response limit", async () => {
@@ -59,14 +59,14 @@ test("guarded context read enforces deadline and declared response limit", async
   await new Promise((resolve) => stalled.listen(0, "127.0.0.1", resolve));
   try {
     const url = `http://127.0.0.1:${stalled.address().port}`;
-    await assert.rejects(new EngineContextClient(url, "credential-test", { allowLoopbackHttp: true, timeout: 0.1 }).contextRead("file"), EngineTimeout);
+    await assert.rejects(new InstanceContextClient(url, "credential-test", { allowLoopbackHttp: true, timeout: 0.1 }).contextRead("file"), InstanceTimeout);
   } finally {
     stalled.closeAllConnections();
     await new Promise((resolve) => stalled.close(resolve));
   }
   const oversized = await serverFor("", 200, { "content-length": 16777217 });
   try {
-    await assert.rejects(new EngineContextClient(oversized.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("file"), EngineProtocolError);
+    await assert.rejects(new InstanceContextClient(oversized.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("file"), InstanceProtocolError);
   } finally {
     await new Promise((resolve) => oversized.server.close(resolve));
   }
@@ -117,7 +117,7 @@ async function serverFor(body, status = 200, headers = {}, host = "127.0.0.1") {
 test("guarded context read sends the canonical request and preserves extensions", async () => {
   const fixture = await serverFor(wireResponse());
   try {
-    const result = await new EngineContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md");
+    const result = await new InstanceContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md");
     assert.equal(result.text, "guarded context text\n");
     assert.deepEqual(result.rawResponse.result.extension, [1, 2, 3]);
     assert.equal(fixture.requests.length, 1);
@@ -136,7 +136,7 @@ test("guarded context read sends the canonical request and preserves extensions"
 test("guarded context read rejects path controls before network", async () => {
   const fixture = await serverFor(wireResponse());
   try {
-    const client = new EngineContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true });
+    const client = new InstanceContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true });
     for (const path of ["", "\x00", "\x7f", "\x80", "\ud800"]) {
       await assert.rejects(client.contextRead(path), ValidationError);
     }
@@ -155,7 +155,7 @@ test("guarded context read accepts literal IPv6 loopback when available", async 
     return;
   }
   try {
-    const result = await new EngineContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md");
+    const result = await new InstanceContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md");
     assert.equal(result.text, "guarded context text\n");
   } finally {
     await new Promise((resolve) => fixture.server.close(resolve));
@@ -164,16 +164,16 @@ test("guarded context read accepts literal IPv6 loopback when available", async 
 
 test("guarded context read maps status and malformed receipt failures", async (t) => {
   const cases = [
-    [401, EngineRejected],
+    [401, InstanceRejected],
     [403, PolicyAdmissionError],
-    [307, EngineProtocolError],
+    [307, InstanceProtocolError],
   ];
   for (const [status, errorType] of cases) {
     await t.test(`status ${status}`, async () => {
       const fixture = await serverFor("", status, status === 307 ? { location: "/redirect" } : {});
       try {
         await assert.rejects(
-          new EngineContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md"),
+          new InstanceContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md"),
           errorType,
         );
       } finally {
@@ -184,8 +184,8 @@ test("guarded context read maps status and malformed receipt failures", async (t
   const fixture = await serverFor(wireResponse({ _meta: {} }));
   try {
     await assert.rejects(
-      new EngineContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md"),
-      EngineProtocolError,
+      new InstanceContextClient(fixture.baseUrl, "credential-test", { allowLoopbackHttp: true }).contextRead("src/context.md"),
+      InstanceProtocolError,
     );
   } finally {
     await new Promise((resolve) => fixture.server.close(resolve));

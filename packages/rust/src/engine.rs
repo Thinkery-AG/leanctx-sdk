@@ -11,22 +11,23 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value};
 
 use crate::errors::{
-    boxed, ArtifactIntegrityError, CompatibilityError, EngineExecutionError, EngineProtocolError,
-    EngineRejected, EngineTimeout, EngineUnavailable, PolicyAdmissionError, SdkResult,
-    SourceUnavailableError, UnsupportedEngineError, ValidationError,
+    boxed, ArtifactIntegrityError, CompatibilityError, InstanceExecutionError,
+    InstanceProtocolError, InstanceRejected, InstanceTimeout, InstanceUnavailable,
+    PolicyAdmissionError, SdkResult, SourceUnavailableError, UnsupportedInstanceError,
+    ValidationError,
 };
 use crate::process::terminate_process_tree;
 use crate::protocol::{
     canonical_bytes, exact_keys, existing_directory, json_integer, json_string, normalize_path,
     sha256_digest, strict_json_loads, validate_digest, validate_output_ref, validate_ref,
     ContextFailure, ContextMeasurement, ContextPlan, ContextReceiptLink, ContextSource,
-    ContextView, EngineStatus, FailureCode, RecoveredSource, ENGINE_INTERFACE_VERSION,
+    ContextView, FailureCode, InstanceStatus, RecoveredSource, ENGINE_INTERFACE_VERSION,
     MAX_MEASUREMENTS, MAX_PATH_BYTES, MAX_REFS, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
     MAX_STDERR_BYTES, MAX_TEXT_BYTES, SCHEMA_VERSION, TRANSPORT_VERSION,
 };
 
 /// The transport seam used by the Product lifecycle.
-pub trait EngineClient: Send + Sync {
+pub trait InstanceClient: Send + Sync {
     fn context_view(&self, plan: &ContextPlan) -> SdkResult<ContextView>;
 
     fn recover(
@@ -40,18 +41,30 @@ pub trait EngineClient: Send + Sync {
 }
 
 #[derive(Clone, Debug)]
-pub struct SubprocessEngineClient {
-    engine_binary: Option<PathBuf>,
+pub struct SubprocessInstanceClient {
+    instance_binary: Option<PathBuf>,
     timeout: Duration,
+    /// Whether the most recent completed instance run was started through the
+    /// instance's session starter. Shared by the clones of one client.
+    last_contained: Arc<AtomicBool>,
 }
 
-impl SubprocessEngineClient {
-    pub fn new(engine_binary: Option<PathBuf>, timeout: Duration) -> SdkResult<Self> {
+impl SubprocessInstanceClient {
+    pub fn new(instance_binary: Option<PathBuf>, timeout: Duration) -> SdkResult<Self> {
         validate_timeout(timeout)?;
         Ok(Self {
-            engine_binary,
+            instance_binary,
             timeout,
+            last_contained: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// How the process tree of the most recent completed instance run was
+    /// contained (see [`crate::SessionContainment`]). A run that was ended
+    /// early by a deadline or an output bound does not change it; with
+    /// concurrent calls it is the state of whichever finished last.
+    pub fn last_session_containment(&self) -> crate::agent::SessionContainment {
+        crate::agent::SessionContainment::from_ack(self.last_contained.load(Ordering::Acquire))
     }
 
     pub fn with_binary(path: impl AsRef<Path>) -> SdkResult<Self> {
@@ -62,8 +75,13 @@ impl SubprocessEngineClient {
         Self::new(None, Duration::from_secs(30))
     }
 
+    pub fn instance_binary(&self) -> Option<&Path> {
+        self.instance_binary.as_deref()
+    }
+
+    #[deprecated(since = "1.3.0", note = "use instance_binary")]
     pub fn engine_binary(&self) -> Option<&Path> {
-        self.engine_binary.as_deref()
+        self.instance_binary()
     }
 
     pub fn timeout(&self) -> Duration {
@@ -77,7 +95,7 @@ impl SubprocessEngineClient {
 
     fn resolve_binary(&self) -> SdkResult<PathBuf> {
         let requested = self
-            .engine_binary
+            .instance_binary
             .clone()
             .unwrap_or_else(|| PathBuf::from("lean-ctx"));
         let has_separator = requested
@@ -86,8 +104,8 @@ impl SubprocessEngineClient {
             .any(|byte| byte == b'/' || byte == b'\\');
         let candidate = if requested.is_absolute() || has_separator {
             fs::canonicalize(&requested).map_err(|_| {
-                boxed(EngineUnavailable::new(
-                    "configured Engine binary is unavailable",
+                boxed(InstanceUnavailable::new(
+                    "configured instance binary is unavailable",
                 ))
             })?
         } else {
@@ -106,14 +124,14 @@ impl SubprocessEngineClient {
                 }
             }
             resolved.ok_or_else(|| {
-                boxed(EngineUnavailable::new(
-                    "configured Engine binary is unavailable",
+                boxed(InstanceUnavailable::new(
+                    "configured instance binary is unavailable",
                 ))
             })?
         };
         if !candidate.is_file() || !is_executable(&candidate) {
-            return Err(boxed(EngineUnavailable::new(
-                "configured Engine binary is unavailable",
+            return Err(boxed(InstanceUnavailable::new(
+                "configured instance binary is unavailable",
             )));
         }
         Ok(candidate)
@@ -128,8 +146,8 @@ impl SubprocessEngineClient {
         let root = self.validate_root(project_root)?;
         let payload = canonical_bytes(request).map_err(boxed)?;
         if payload.len() > MAX_REQUEST_BYTES {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine request exceeds the bound",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance request exceeds the bound",
             )));
         }
         let request_path = create_request_file(&root, &payload)?;
@@ -167,19 +185,25 @@ impl SubprocessEngineClient {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        // Ask the instance to contain its session: on Unix it runs as its own
+        // session starter, on Windows it joins a kill-on-close job. An instance
+        // without the mode ignores the variable and acknowledges nothing.
+        command.env(crate::agent_io::SESSION_CONTAINMENT_ENV, "1");
         let mut child = command.spawn().map_err(|_| {
-            boxed(EngineUnavailable::new(
-                "Engine process could not be started",
+            boxed(InstanceUnavailable::new(
+                "LeanCTX instance process could not be started",
             ))
         })?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| boxed(EngineProtocolError::new("Engine stdout is unavailable")))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| boxed(EngineProtocolError::new("Engine stderr is unavailable")))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            boxed(InstanceProtocolError::new(
+                "LeanCTX instance stdout is unavailable",
+            ))
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            boxed(InstanceProtocolError::new(
+                "LeanCTX instance stderr is unavailable",
+            ))
+        })?;
         let overflow = Arc::new(AtomicBool::new(false));
         let stdout_overflow = Arc::clone(&overflow);
         let stdout_reader =
@@ -191,90 +215,135 @@ impl SubprocessEngineClient {
         let status = loop {
             if overflow.load(Ordering::Acquire) {
                 kill_and_reap(&mut child)?;
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(boxed(EngineProtocolError::new(
-                    "Engine process output exceeds its bound",
+                let joined = Instant::now() + READER_JOIN_BUDGET;
+                let _ = join_until(stdout_reader, joined);
+                let _ = join_until(stderr_reader, joined);
+                return Err(boxed(InstanceProtocolError::new(
+                    "LeanCTX instance process output exceeds its bound",
                 )));
             }
+            // The instance is not asked for its exit status — which would reap
+            // it — before both of its outputs are at their end. Until then an
+            // exited instance stays unreaped, its group number stays this
+            // client's own, and a child it left holding the pipes is ended
+            // with the group at the deadline.
+            if !(stdout_reader.is_finished() && stderr_reader.is_finished()) {
+                if Instant::now() >= deadline {
+                    kill_and_reap(&mut child)?;
+                    let joined = Instant::now() + READER_JOIN_BUDGET;
+                    let _ = join_until(stdout_reader, joined);
+                    let _ = join_until(stderr_reader, joined);
+                    return Err(boxed(InstanceTimeout::new(
+                        "LeanCTX instance process exceeded its deadline",
+                    )));
+                }
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+            // Outputs closed. `try_wait` either reaps an exited instance (and
+            // then nothing is signalled any more) or says it still runs; in
+            // that case it is still unreaped and may be ended as a group.
             match child.try_wait() {
                 Ok(Some(status)) => break status,
                 Ok(None) if Instant::now() >= deadline => {
                     kill_and_reap(&mut child)?;
-                    let _ = stdout_reader.join();
-                    let _ = stderr_reader.join();
-                    return Err(boxed(EngineTimeout::new(
-                        "Engine process exceeded its deadline",
+                    let joined = Instant::now() + READER_JOIN_BUDGET;
+                    let _ = join_until(stdout_reader, joined);
+                    let _ = join_until(stderr_reader, joined);
+                    return Err(boxed(InstanceTimeout::new(
+                        "LeanCTX instance process exceeded its deadline",
                     )));
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(2)),
                 Err(_) => {
-                    kill_and_reap(&mut child)?;
-                    let _ = stdout_reader.join();
-                    let _ = stderr_reader.join();
-                    return Err(boxed(EngineExecutionError::new(
-                        "Engine process status could not be read",
+                    // The status could not be read, so it is not known whether
+                    // the instance is still unreaped. Nothing is signalled.
+                    return Err(boxed(InstanceExecutionError::new(
+                        "LeanCTX instance process status could not be read; it was not signalled",
                     )));
                 }
             }
         };
-        let (stdout, stdout_overflowed) =
-            stdout_reader.join().unwrap_or_else(|_| (Vec::new(), true));
-        let (stderr, stderr_overflowed) =
-            stderr_reader.join().unwrap_or_else(|_| (Vec::new(), true));
+        // Both readers had finished before the instance was reaped; this only
+        // collects their results.
+        let joined = deadline.max(Instant::now() + Duration::from_millis(100));
+        let (Some(stdout_joined), Some(stderr_joined)) = (
+            join_until(stdout_reader, joined),
+            join_until(stderr_reader, joined),
+        ) else {
+            return Err(boxed(InstanceTimeout::new(
+                "LeanCTX instance output was not closed within its deadline",
+            )));
+        };
+        let (stdout, stdout_overflowed) = stdout_joined.unwrap_or_else(|_| (Vec::new(), true));
+        let (stderr, stderr_overflowed) = stderr_joined.unwrap_or_else(|_| (Vec::new(), true));
         if stdout_overflowed || stderr_overflowed || overflow.load(Ordering::Acquire) {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine process output exceeds its bound",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance process output exceeds its bound",
             )));
         }
+        // The session starter's acknowledgement precedes everything the
+        // instance wrote. It is recorded and is not output.
+        let ack = crate::agent_io::SESSION_CONTAINMENT_ACK_LINE;
+        let contained = stdout.starts_with(ack);
+        let stdout = if contained {
+            stdout[ack.len()..].to_vec()
+        } else {
+            stdout
+        };
+        self.last_contained.store(contained, Ordering::Release);
         if !status.success() {
             return Err(map_process_failure(&stderr));
         }
         if stdout.is_empty() {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine returned empty stdout",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance returned empty stdout",
             )));
         }
         if std::str::from_utf8(&stdout).is_err() {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine returned invalid UTF-8",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance returned invalid UTF-8",
             )));
         }
         Ok(stdout)
     }
 
     fn build_view(&self, source: &ContextSource, parsed: ParsedResponse) -> SdkResult<ContextView> {
-        let invocation = parsed
-            .invocation
-            .ok_or_else(|| boxed(EngineProtocolError::new("context-view omitted invocation")))?;
-        let observation = parsed
-            .observation
-            .ok_or_else(|| boxed(EngineProtocolError::new("context-view omitted observation")))?;
+        let invocation = parsed.invocation.ok_or_else(|| {
+            boxed(InstanceProtocolError::new(
+                "context-view omitted invocation",
+            ))
+        })?;
+        let observation = parsed.observation.ok_or_else(|| {
+            boxed(InstanceProtocolError::new(
+                "context-view omitted observation",
+            ))
+        })?;
         if !invocation
             .source_refs
             .iter()
             .any(|value| value == &parsed.recovery.source_ref)
         {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "recovery source_ref is not admitted by invocation",
             )));
         }
         if source.source_ref() != Some(parsed.recovery.source_ref.as_str())
             && source.source_ref().is_some()
         {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine source_ref differs from requested binding",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance source_ref differs from requested binding",
             )));
         }
         if source.source_digest() != Some(parsed.recovery.source_digest.as_str())
             && source.source_digest().is_some()
         {
-            return Err(boxed(EngineProtocolError::new(
-                "Engine source_digest differs from requested binding",
+            return Err(boxed(InstanceProtocolError::new(
+                "LeanCTX instance source_digest differs from requested binding",
             )));
         }
         if observation.source_lineage != invocation.source_refs {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "observation lineage mismatch",
             )));
         }
@@ -293,16 +362,16 @@ impl SubprocessEngineClient {
             invocation.value,
             observation.value,
         )?;
-        if matches!(view.status(), EngineStatus::Succeeded) && !view.verify() {
+        if matches!(view.status(), InstanceStatus::Succeeded) && !view.verify() {
             return Err(boxed(ArtifactIntegrityError::new(
-                "succeeded Engine evidence is not sealed",
+                "succeeded instance evidence is not sealed",
             )));
         }
         Ok(view)
     }
 }
 
-impl EngineClient for SubprocessEngineClient {
+impl InstanceClient for SubprocessInstanceClient {
     fn context_view(&self, plan: &ContextPlan) -> SdkResult<ContextView> {
         let source = plan.source();
         let mut request = Map::new();
@@ -324,7 +393,7 @@ impl EngineClient for SubprocessEngineClient {
         )?;
         let view = self.build_view(source, parsed)?;
         match view.status() {
-            EngineStatus::Rejected => {
+            InstanceStatus::Rejected => {
                 let code = view
                     .failure()
                     .map(ContextFailure::code)
@@ -332,17 +401,17 @@ impl EngineClient for SubprocessEngineClient {
                     .unwrap_or("rejected");
                 match code {
                     "policy_rejected" => Err(boxed(PolicyAdmissionError::new(format!(
-                        "Engine rejected request: {code}"
+                        "LeanCTX instance rejected request: {code}"
                     )))),
                     "source_unavailable" => Err(boxed(SourceUnavailableError::new(format!(
-                        "Engine rejected request: {code}"
+                        "LeanCTX instance rejected request: {code}"
                     )))),
-                    _ => Err(boxed(EngineRejected::new(format!(
-                        "Engine rejected request: {code}"
+                    _ => Err(boxed(InstanceRejected::new(format!(
+                        "LeanCTX instance rejected request: {code}"
                     )))),
                 }
             }
-            EngineStatus::Failed => {
+            InstanceStatus::Failed => {
                 let code = view
                     .failure()
                     .map(ContextFailure::code)
@@ -350,20 +419,20 @@ impl EngineClient for SubprocessEngineClient {
                     .unwrap_or("failed");
                 match code {
                     "source_unavailable" => Err(boxed(SourceUnavailableError::new(format!(
-                        "Engine execution failed: {code}"
+                        "LeanCTX instance execution failed: {code}"
                     )))),
                     "source_integrity_mismatch" => Err(boxed(ArtifactIntegrityError::new(
-                        format!("Engine execution failed: {code}"),
+                        format!("LeanCTX instance execution failed: {code}"),
                     ))),
-                    "unsupported_operation" => Err(boxed(UnsupportedEngineError::new(format!(
-                        "Engine execution failed: {code}"
+                    "unsupported_operation" => Err(boxed(UnsupportedInstanceError::new(format!(
+                        "LeanCTX instance execution failed: {code}"
                     )))),
-                    _ => Err(boxed(EngineExecutionError::new(format!(
-                        "Engine execution failed: {code}"
+                    _ => Err(boxed(InstanceExecutionError::new(format!(
+                        "LeanCTX instance execution failed: {code}"
                     )))),
                 }
             }
-            EngineStatus::Succeeded | EngineStatus::Degraded => Ok(view),
+            InstanceStatus::Succeeded | InstanceStatus::Degraded => Ok(view),
         }
     }
 
@@ -380,7 +449,7 @@ impl EngineClient for SubprocessEngineClient {
         let recovery_ref = required_ref(recovery_ref, "recovery_ref")?;
         let source_ref = required_ref(source_ref, "source_ref")?;
         let source_digest = validate_digest(source_digest, "source_digest")
-            .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))?;
+            .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))?;
         let mut request = Map::new();
         request.insert("schema_version".to_owned(), Value::from(SCHEMA_VERSION));
         request.insert(
@@ -403,7 +472,7 @@ impl EngineClient for SubprocessEngineClient {
         );
         let parsed = self.invoke("recover", &root, &Value::Object(request))?;
         if parsed.invocation.is_some() || parsed.observation.is_some() {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "recover response must have null invocation/observation",
             )));
         }
@@ -432,15 +501,16 @@ impl EngineClient for SubprocessEngineClient {
             )));
         }
         RecoveredSource::new(parsed.view.text, source_ref, source_digest, recovery_ref)
-            .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+            .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
     }
 }
 
-impl Default for SubprocessEngineClient {
+impl Default for SubprocessInstanceClient {
     fn default() -> Self {
         Self {
-            engine_binary: None,
+            instance_binary: None,
             timeout: Duration::from_secs(30),
+            last_contained: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -462,7 +532,7 @@ struct WireInvocation {
 #[derive(Debug)]
 struct WireObservation {
     value: Value,
-    status: EngineStatus,
+    status: InstanceStatus,
     source_lineage: Vec<String>,
     measurements: Vec<ContextMeasurement>,
     failure: Option<ContextFailure>,
@@ -486,12 +556,12 @@ struct ParsedResponse {
 
 fn parse_response(raw: &[u8]) -> SdkResult<ParsedResponse> {
     if raw.len() > MAX_RESPONSE_BYTES {
-        return Err(boxed(EngineProtocolError::new(
-            "Engine response exceeds the bound",
+        return Err(boxed(InstanceProtocolError::new(
+            "LeanCTX instance response exceeds the bound",
         )));
     }
-    let decoded = strict_json_loads(raw, "Engine response")
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))?;
+    let decoded = strict_json_loads(raw, "LeanCTX instance response")
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))?;
     exact_keys(
         &decoded,
         &[
@@ -503,11 +573,13 @@ fn parse_response(raw: &[u8]) -> SdkResult<ParsedResponse> {
             "observation",
             "recovery",
         ],
-        "Engine response",
+        "LeanCTX instance response",
     )?;
-    let object = decoded
-        .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("Engine response is not an object")))?;
+    let object = decoded.as_object().ok_or_else(|| {
+        boxed(InstanceProtocolError::new(
+            "LeanCTX instance response is not an object",
+        ))
+    })?;
     let schema = json_integer(
         object.get("schema_version").unwrap_or(&Value::Null),
         "response.schema_version",
@@ -539,7 +611,7 @@ fn parse_response(raw: &[u8]) -> SdkResult<ParsedResponse> {
     let observation_value = object.get("observation").unwrap_or(&Value::Null);
     if invocation_value.is_null() || observation_value.is_null() {
         if !invocation_value.is_null() || !observation_value.is_null() {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "invocation and observation must both be null or present",
             )));
         }
@@ -553,14 +625,14 @@ fn parse_response(raw: &[u8]) -> SdkResult<ParsedResponse> {
     let invocation = parse_invocation(invocation_value)?;
     let observation = parse_observation(observation_value, &invocation.invocation_id)?;
     if observation.source_lineage != invocation.source_refs {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "observation source lineage does not match invocation",
         )));
     }
     if observation.value.get("output_ref") != Some(&option_to_value(&view.output_ref))
         || observation.value.get("output_digest") != Some(&option_to_value(&view.output_digest))
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "view and observation output binding mismatch",
         )));
     }
@@ -576,7 +648,7 @@ fn parse_view(value: &Value) -> SdkResult<WireView> {
     exact_keys(value, &["text", "output_ref", "output_digest"], "view")?;
     let object = value
         .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("view must be an object")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("view must be an object")))?;
     let text = json_string(
         object.get("text").unwrap_or(&Value::Null),
         "view.text",
@@ -587,7 +659,7 @@ fn parse_view(value: &Value) -> SdkResult<WireView> {
     validate_output_pair(&output_ref, &output_digest, "view")?;
     if let Some(digest) = &output_digest {
         if sha256_digest(text.as_bytes()) != *digest {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "view output digest mismatch",
             )));
         }
@@ -607,7 +679,7 @@ fn parse_recovery(value: &Value) -> SdkResult<WireRecovery> {
     )?;
     let object = value
         .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("recovery must be an object")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("recovery must be an object")))?;
     Ok(WireRecovery {
         recovery_ref: required_ref_value(object.get("recovery_ref"), "recovery.recovery_ref")?,
         source_ref: required_ref_value(object.get("source_ref"), "recovery.source_ref")?,
@@ -635,13 +707,13 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
     )?;
     let object = value
         .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("invocation must be an object")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("invocation must be an object")))?;
     if json_integer(
         object.get("schema_version").unwrap_or(&Value::Null),
         "invocation.schema_version",
     )? != SCHEMA_VERSION
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "unsupported invocation schema version",
         )));
     }
@@ -654,7 +726,7 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
         .get("engine")
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "invocation.engine must be an object",
             ))
         })?;
@@ -674,20 +746,20 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
         crate::protocol::MAX_REF_BYTES,
     )?;
     if engine_id != "lean-ctx-local" || !is_semver(&engine_version) {
-        return Err(boxed(UnsupportedEngineError::new(
-            "unsupported Engine identity",
+        return Err(boxed(UnsupportedInstanceError::new(
+            "unsupported instance identity",
         )));
     }
     if engine_version.split('.').next() != Some("3") {
-        return Err(boxed(UnsupportedEngineError::new(
-            "unsupported Engine major version",
+        return Err(boxed(UnsupportedInstanceError::new(
+            "unsupported instance major version",
         )));
     }
     let operation = object
         .get("operation")
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "invocation.operation must be an object",
             ))
         })?;
@@ -708,15 +780,15 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
     )?;
     if capability_id != "capability://leanctx/context-optimization" || capability_version != "1.0.0"
     {
-        return Err(boxed(UnsupportedEngineError::new(
-            "unsupported Engine capability",
+        return Err(boxed(UnsupportedInstanceError::new(
+            "unsupported instance capability",
         )));
     }
     let policy = object
         .get("policy_admission")
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "invocation.policy_admission must be an object",
             ))
         })?;
@@ -732,16 +804,16 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
     let decision = policy
         .get("decision")
         .and_then(Value::as_str)
-        .ok_or_else(|| boxed(EngineProtocolError::new("unknown policy decision")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("unknown policy decision")))?;
     if !matches!(decision, "admitted" | "rejected") {
-        return Err(boxed(EngineProtocolError::new("unknown policy decision")));
+        return Err(boxed(InstanceProtocolError::new("unknown policy decision")));
     }
     let input_ref = required_ref_value(object.get("input_ref"), "invocation.input_ref")?;
     let input_digest =
         required_digest_value(object.get("input_digest"), "invocation.input_digest")?;
     let source_refs = required_refs(object.get("source_refs"), "invocation.source_refs")?;
     if !source_refs.iter().any(|value| value == &input_ref) {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "invocation input_ref is not in source_refs",
         )));
     }
@@ -803,7 +875,7 @@ fn parse_invocation(value: &Value) -> SdkResult<WireInvocation> {
 fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObservation> {
     let object = value
         .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("observation must be an object")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("observation must be an object")))?;
     let allowed = [
         "schema_version",
         "invocation_id",
@@ -825,7 +897,7 @@ fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObserv
     if object.keys().any(|key| !allowed.contains(&key.as_str()))
         || required.iter().any(|key| !object.contains_key(*key))
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "observation fields do not match the v1 contract",
         )));
     }
@@ -834,7 +906,7 @@ fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObserv
         "observation.schema_version",
     )? != SCHEMA_VERSION
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "unsupported observation schema version",
         )));
     }
@@ -844,16 +916,16 @@ fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObserv
         crate::protocol::MAX_REF_BYTES,
     )?;
     if observed_invocation_id != invocation_id {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "observation invocation binding mismatch",
         )));
     }
     let status = object
         .get("status")
         .and_then(Value::as_str)
-        .ok_or_else(|| boxed(EngineProtocolError::new("unknown observation status")))?
-        .parse::<EngineStatus>()
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("unknown observation status")))?
+        .parse::<InstanceStatus>()
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))?;
     let output_ref = optional_output_ref(object.get("output_ref"), "observation.output_ref")?;
     let output_digest = optional_digest(object.get("output_digest"), "observation.output_digest")?;
     validate_output_pair(&output_ref, &output_digest, "observation")?;
@@ -862,12 +934,12 @@ fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObserv
         .get("measurements")
         .and_then(Value::as_array)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "observation.measurements must be an array",
             ))
         })?;
     if measurement_values.len() > MAX_MEASUREMENTS {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "observation.measurements exceeds its bound",
         )));
     }
@@ -877,18 +949,18 @@ fn parse_observation(value: &Value, invocation_id: &str) -> SdkResult<WireObserv
         .collect::<SdkResult<Vec<_>>>()?;
     let failure = parse_failure(object.get("failure"))?;
     let receipt_link = parse_receipt_link(object.get("receipt_link"), invocation_id)?;
-    if matches!(status, EngineStatus::Succeeded | EngineStatus::Degraded) && failure.is_some() {
-        return Err(boxed(EngineProtocolError::new(
+    if matches!(status, InstanceStatus::Succeeded | InstanceStatus::Degraded) && failure.is_some() {
+        return Err(boxed(InstanceProtocolError::new(
             "successful/degraded observation cannot contain failure",
         )));
     }
-    if matches!(status, EngineStatus::Failed | EngineStatus::Rejected) && failure.is_none() {
-        return Err(boxed(EngineProtocolError::new(
+    if matches!(status, InstanceStatus::Failed | InstanceStatus::Rejected) && failure.is_none() {
+        return Err(boxed(InstanceProtocolError::new(
             "failed/rejected observation requires failure",
         )));
     }
-    if matches!(status, EngineStatus::Succeeded) && receipt_link.is_none() {
-        return Err(boxed(EngineProtocolError::new(
+    if matches!(status, InstanceStatus::Succeeded) && receipt_link.is_none() {
+        return Err(boxed(InstanceProtocolError::new(
             "succeeded observation requires receipt_link",
         )));
     }
@@ -944,7 +1016,7 @@ fn parse_measurement(value: &Value) -> SdkResult<ContextMeasurement> {
     )?;
     let object = value
         .as_object()
-        .ok_or_else(|| boxed(EngineProtocolError::new("measurement must be an object")))?;
+        .ok_or_else(|| boxed(InstanceProtocolError::new("measurement must be an object")))?;
     let name = json_string(
         object.get("name").unwrap_or(&Value::Null),
         "measurement.name",
@@ -967,7 +1039,7 @@ fn parse_measurement(value: &Value) -> SdkResult<ContextMeasurement> {
         Some(json_integer(measurement_value, "measurement.value")?)
     };
     ContextMeasurement::new(name, unit, classification, number)
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
 }
 
 fn parse_failure(value: Option<&Value>) -> SdkResult<Option<ContextFailure>> {
@@ -983,28 +1055,28 @@ fn parse_failure(value: Option<&Value>) -> SdkResult<Option<ContextFailure>> {
         "failure",
     )?;
     let object = value.as_object().ok_or_else(|| {
-        boxed(EngineProtocolError::new(
+        boxed(InstanceProtocolError::new(
             "failure must be an object or null",
         ))
     })?;
     let code = object
         .get("code")
         .and_then(Value::as_str)
-        .ok_or_else(|| boxed(EngineProtocolError::new("unknown Engine failure code")))?
+        .ok_or_else(|| boxed(InstanceProtocolError::new("unknown instance failure code")))?
         .parse::<FailureCode>()
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))?;
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))?;
     let retryable = object
         .get("retryable_by_host")
         .and_then(Value::as_bool)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "retryable_by_host must be boolean",
             ))
         })?;
     let recovery_ref = optional_ref(object.get("recovery_ref"), "failure.recovery_ref")?;
     ContextFailure::new(code, retryable, recovery_ref)
         .map(Some)
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
 }
 
 fn parse_receipt_link(
@@ -1029,7 +1101,7 @@ fn parse_receipt_link(
         "receipt_link",
     )?;
     let object = value.as_object().ok_or_else(|| {
-        boxed(EngineProtocolError::new(
+        boxed(InstanceProtocolError::new(
             "receipt_link must be an object or null",
         ))
     })?;
@@ -1042,7 +1114,7 @@ fn parse_receipt_link(
     let receipt_digest =
         required_digest_value(object.get("receipt_digest"), "receipt_link.receipt_digest")?;
     if receipt_ref != format!("receipt:{receipt_digest}") {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "receipt_link.receipt_ref does not match digest",
         )));
     }
@@ -1052,7 +1124,7 @@ fn parse_receipt_link(
         crate::protocol::MAX_REF_BYTES,
     )?;
     if linked_invocation != invocation_id {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "receipt_link invocation binding mismatch",
         )));
     }
@@ -1064,17 +1136,17 @@ fn parse_receipt_link(
         linked_invocation,
     )
     .map(Some)
-    .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+    .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
 }
 
 fn required_refs(value: Option<&Value>, field_name: &str) -> SdkResult<Vec<String>> {
     let values = value.and_then(Value::as_array).ok_or_else(|| {
-        boxed(EngineProtocolError::new(format!(
+        boxed(InstanceProtocolError::new(format!(
             "{field_name} must be an array"
         )))
     })?;
     if values.is_empty() || values.len() > MAX_REFS {
-        return Err(boxed(EngineProtocolError::new(format!(
+        return Err(boxed(InstanceProtocolError::new(format!(
             "{field_name} exceeds its bound"
         ))));
     }
@@ -1084,7 +1156,7 @@ fn required_refs(value: Option<&Value>, field_name: &str) -> SdkResult<Vec<Strin
     }
     let unique: BTreeSet<&str> = result.iter().map(String::as_str).collect();
     if unique.len() != result.len() {
-        return Err(boxed(EngineProtocolError::new(format!(
+        return Err(boxed(InstanceProtocolError::new(format!(
             "{field_name} contains duplicates"
         ))));
     }
@@ -1093,7 +1165,7 @@ fn required_refs(value: Option<&Value>, field_name: &str) -> SdkResult<Vec<Strin
 
 fn required_ref_value(value: Option<&Value>, field_name: &str) -> SdkResult<String> {
     let value = value.and_then(Value::as_str).ok_or_else(|| {
-        boxed(EngineProtocolError::new(format!(
+        boxed(InstanceProtocolError::new(format!(
             "{field_name} must be a ref"
         )))
     })?;
@@ -1102,24 +1174,24 @@ fn required_ref_value(value: Option<&Value>, field_name: &str) -> SdkResult<Stri
 
 fn required_ref(value: &str, field_name: &str) -> SdkResult<String> {
     validate_ref(value, field_name)
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
 }
 
 fn required_digest_value(value: Option<&Value>, field_name: &str) -> SdkResult<String> {
     let value = value.and_then(Value::as_str).ok_or_else(|| {
-        boxed(EngineProtocolError::new(format!(
+        boxed(InstanceProtocolError::new(format!(
             "{field_name} is required"
         )))
     })?;
     validate_digest(value, field_name)
-        .map_err(|error| boxed(EngineProtocolError::new(error.to_string())))
+        .map_err(|error| boxed(InstanceProtocolError::new(error.to_string())))
 }
 
 fn optional_ref(value: Option<&Value>, field_name: &str) -> SdkResult<Option<String>> {
     match value {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => required_ref(value, field_name).map(Some),
-        Some(_) => Err(boxed(EngineProtocolError::new(format!(
+        Some(_) => Err(boxed(InstanceProtocolError::new(format!(
             "{field_name} must be a ref or null"
         )))),
     }
@@ -1130,8 +1202,8 @@ fn optional_digest(value: Option<&Value>, field_name: &str) -> SdkResult<Option<
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => validate_digest(value, field_name)
             .map(Some)
-            .map_err(|error| boxed(EngineProtocolError::new(error.to_string()))),
-        Some(_) => Err(boxed(EngineProtocolError::new(format!(
+            .map_err(|error| boxed(InstanceProtocolError::new(error.to_string()))),
+        Some(_) => Err(boxed(InstanceProtocolError::new(format!(
             "{field_name} must be a digest or null"
         )))),
     }
@@ -1142,8 +1214,8 @@ fn optional_output_ref(value: Option<&Value>, field_name: &str) -> SdkResult<Opt
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => validate_output_ref(value, field_name)
             .map(Some)
-            .map_err(|error| boxed(EngineProtocolError::new(error.to_string()))),
-        Some(_) => Err(boxed(EngineProtocolError::new(format!(
+            .map_err(|error| boxed(InstanceProtocolError::new(error.to_string()))),
+        Some(_) => Err(boxed(InstanceProtocolError::new(format!(
             "{field_name} must be an output ref or null"
         )))),
     }
@@ -1155,13 +1227,13 @@ fn validate_output_pair(
     label: &str,
 ) -> SdkResult<()> {
     if output_ref.is_some() && output_digest.is_none() {
-        return Err(boxed(EngineProtocolError::new(format!(
+        return Err(boxed(InstanceProtocolError::new(format!(
             "{label} output reference requires a digest"
         ))));
     }
     if let (Some(output_ref), Some(output_digest)) = (output_ref, output_digest) {
         if output_ref != &format!("output:{}", &output_digest[7..]) {
-            return Err(boxed(EngineProtocolError::new(format!(
+            return Err(boxed(InstanceProtocolError::new(format!(
                 "{label} output reference does not match digest"
             ))));
         }
@@ -1200,7 +1272,7 @@ fn safe_relative_path(path: &str) -> SdkResult<String> {
         || path.chars().any(|character| character < '\u{20}')
         || Path::new(path).is_absolute()
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "path must be a rooted relative path",
         )));
     }
@@ -1210,7 +1282,9 @@ fn safe_relative_path(path: &str) -> SdkResult<String> {
         || normalized.starts_with("../")
         || normalized.is_absolute()
     {
-        return Err(boxed(EngineProtocolError::new("path escapes project root")));
+        return Err(boxed(InstanceProtocolError::new(
+            "path escapes project root",
+        )));
     }
     Ok(normalized.to_string_lossy().replace('\\', "/"))
 }
@@ -1234,22 +1308,22 @@ pub(crate) fn create_request_file(root: &Path, payload: &[u8]) -> SdkResult<Path
             Ok(mut file) => {
                 if let Err(error) = write_sync(&mut file, payload) {
                     let _ = fs::remove_file(&path);
-                    return Err(boxed(EngineUnavailable::new(format!(
-                        "Engine request file could not be written: {error}"
+                    return Err(boxed(InstanceUnavailable::new(format!(
+                        "LeanCTX instance request file could not be written: {error}"
                     ))));
                 }
                 return Ok(path);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(_) => {
-                return Err(boxed(EngineUnavailable::new(
-                    "Engine request file could not be created",
+                return Err(boxed(InstanceUnavailable::new(
+                    "LeanCTX instance request file could not be created",
                 )))
             }
         }
     }
-    Err(boxed(EngineUnavailable::new(
-        "Engine request file could not be created",
+    Err(boxed(InstanceUnavailable::new(
+        "LeanCTX instance request file could not be created",
     )))
 }
 
@@ -1285,18 +1359,37 @@ fn kill_and_reap(child: &mut Child) -> SdkResult<()> {
     terminate_process_tree(child)
 }
 
+/// How long the output readers of a terminated instance are waited for.
+const READER_JOIN_BUDGET: Duration = Duration::from_secs(2);
+
+/// Joins a reader thread until `deadline`. The standard library has no timed
+/// join, so completion is polled. `None` means the thread is still blocked —
+/// some process still holds the pipe — and is left behind; it ends when that
+/// pipe closes.
+fn join_until<T>(handle: thread::JoinHandle<T>, deadline: Instant) -> Option<thread::Result<T>> {
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    Some(handle.join())
+}
+
 fn map_process_failure(stderr: &[u8]) -> Box<dyn std::error::Error + Send + Sync> {
     let code = stderr_code(stderr).unwrap_or("nonzero_exit");
     match code {
         "unsafe_root" | "source_outside_root" | "source_symlink" | "policy_rejected" => boxed(
-            PolicyAdmissionError::new(format!("Engine rejected request: {code}")),
+            PolicyAdmissionError::new(format!("LeanCTX instance rejected request: {code}")),
         ),
-        "source_unavailable" => boxed(SourceUnavailableError::new("Engine source is unavailable")),
-        "unsupported_mode" => boxed(UnsupportedEngineError::new(
-            "Engine operation is unsupported",
+        "source_unavailable" => boxed(SourceUnavailableError::new(
+            "LeanCTX instance source is unavailable",
         )),
-        _ => boxed(EngineExecutionError::new(format!(
-            "Engine process failed: {code}"
+        "unsupported_mode" => boxed(UnsupportedInstanceError::new(
+            "LeanCTX instance operation is unsupported",
+        )),
+        _ => boxed(InstanceExecutionError::new(format!(
+            "LeanCTX instance process failed: {code}"
         ))),
     }
 }

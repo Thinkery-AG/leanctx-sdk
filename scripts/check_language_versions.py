@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -50,8 +52,8 @@ def agent_tools_versions(root: Path) -> dict[str, str]:
             "packages/typescript/src/agent.ts",
             "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
         ),
-        "go": ("packages/go/version.go", "SupportedAgentToolsEngineVersion"),
-        "rust": ("packages/rust/src/agent.rs", "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION"),
+        "go": ("packages/go/version.go", "SupportedAgentToolsInstanceVersion"),
+        "rust": ("packages/rust/src/agent.rs", "SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION"),
         "jvm": (
             "packages/jvm/src/main/java/com/thinkery/leanctx/AgentContext.java",
             "SUPPORTED_AGENT_TOOLS_ENGINE_VERSION",
@@ -81,21 +83,96 @@ def agent_tools_versions(root: Path) -> dict[str, str]:
     return found
 
 
+def _engine_binary_version(binary: Path) -> str:
+    try:
+        executable = binary.resolve(strict=True)
+        if not executable.is_file():
+            raise ValueError(f"Engine candidate is not a file: {binary}")
+        result = subprocess.run(
+            [str(executable), "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError(
+            f"could not inspect Engine candidate {binary}: {error}"
+        ) from error
+    if result.returncode != 0:
+        raise ValueError(
+            f"Engine candidate --version exited {result.returncode}: {binary}"
+        )
+    output = result.stdout.strip()
+    match = re.fullmatch(
+        r"lean-ctx\s+v?(\d+\.\d+\.\d+)"
+        r"(?: \(official(?:, https://github\.com/yvgude/lean-ctx)?\))?",
+        output,
+    )
+    if match is None:
+        raise ValueError(
+            f"Engine candidate returned an unrecognized --version value: {output!r}"
+        )
+    return match.group(1)
+
+
 def check_agent_tools_versions(
-    root: Path, engine_manifest: Path | None = None
+    root: Path,
+    engine_manifest: Path | None = None,
+    engine_binary: Path | None = None,
+    configured_engine_version: str | None = None,
+    configured_agent_tools_version: str | None = None,
 ) -> dict[str, str]:
     found = agent_tools_versions(root)
+    expected = found["contract"]
     if engine_manifest is not None:
-        found["engine_candidate"] = _match(
+        found["engine_manifest"] = _match(
             engine_manifest, r'(?ms)^\[package\].*?^version\s*=\s*"([^"]+)"'
         )
         found["engine_lock"] = _match(
             engine_manifest.with_name("Cargo.lock"),
-            r'(?ms)^\[\[package\]\]\s*name\s*=\s*"lean-ctx"\s*version\s*=\s*"([^"]+)"',
+            r'(?ms)^\[\[package\]\]\s*'
+            r'name\s*=\s*"lean-ctx"\s*version\s*=\s*"([^"]+)"',
         )
-    if len(set(found.values())) != 1:
-        raise ValueError(f"Agent Tools Engine pairing mismatch: {found}")
+    if engine_binary is not None:
+        found["engine_binary"] = _engine_binary_version(engine_binary)
+    if configured_engine_version is not None:
+        found["release_engine"] = configured_engine_version
+    if configured_agent_tools_version is not None:
+        found["release_agent_tools"] = configured_agent_tools_version
+    if any(version != expected for version in found.values()):
+        raise ValueError(
+            f"Agent Tools Engine pairing mismatch: contract requires {expected}; "
+            f"found {found}"
+        )
     return found
+
+
+def _compatibility():
+    """The one matrix validator (`agent_tools_compatibility.py`, next to this
+    file), loaded by path: this script runs both as a file and as a module."""
+    spec = importlib.util.spec_from_file_location(
+        "agent_tools_compatibility",
+        Path(__file__).with_name("agent_tools_compatibility.py"),
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_compatibility_matrix(
+    root: Path, sdk_version: str, engine_version: str | None = None
+) -> dict[str, object]:
+    """Hold the matrix, the six mirrors and the Agent Tools contract together.
+
+    Nothing about the matrix is decided here: the shared validator does it,
+    the same one the Engine's release gate uses.
+    """
+    return _compatibility().check(
+        root, sdk_version=sdk_version, engine_version=engine_version
+    )
 
 
 def main() -> None:
@@ -106,7 +183,26 @@ def main() -> None:
     parser.add_argument(
         "--engine-manifest",
         type=Path,
-        help="optional local Engine Cargo.toml to pair before building",
+        help="optional local Engine Cargo.toml; its adjacent Cargo.lock is also checked",
+    )
+    parser.add_argument(
+        "--engine-binary",
+        type=Path,
+        help=(
+            "optional exact Engine candidate whose --version output "
+            "must match the contract"
+        ),
+    )
+    parser.add_argument(
+        "--configured-engine-version",
+        help=(
+            "release workflow Engine version pin, checked against "
+            "the Agent Tools contract"
+        ),
+    )
+    parser.add_argument(
+        "--configured-agent-tools-version",
+        help="release workflow Agent Tools version pin, checked against the contract",
     )
     args = parser.parse_args()
     found = versions(args.repository.resolve(strict=True))
@@ -120,9 +216,20 @@ def main() -> None:
         )
     try:
         engine_versions = check_agent_tools_versions(
-            args.repository.resolve(strict=True), args.engine_manifest
+            args.repository.resolve(strict=True),
+            engine_manifest=args.engine_manifest,
+            engine_binary=args.engine_binary,
+            configured_engine_version=args.configured_engine_version,
+            configured_agent_tools_version=args.configured_agent_tools_version,
         )
-    except ValueError as error:
+        # The Engine a release pins forms a pair with what the contract
+        # speaks; that whole pair has to be a row of the matrix.
+        compatibility = check_compatibility_matrix(
+            args.repository.resolve(strict=True),
+            version,
+            engine_version=args.configured_engine_version,
+        )
+    except (OSError, ValueError, KeyError) as error:
         raise SystemExit(str(error)) from error
     if args.github_output is not None:
         with args.github_output.open("a", encoding="utf-8") as handle:
@@ -134,6 +241,7 @@ def main() -> None:
                 "version": version,
                 "packages": found,
                 "agent_tools_engines": engine_versions,
+                "agent_tools_compatibility": compatibility,
             },
             sort_keys=True,
         )

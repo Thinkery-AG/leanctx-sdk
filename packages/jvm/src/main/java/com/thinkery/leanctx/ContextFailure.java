@@ -3,7 +3,7 @@ package com.thinkery.leanctx;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Typed Engine failure evidence. */
+/** Typed LeanCTX instance failure evidence. */
 public final class ContextFailure {
     private final FailureCode code;
     private final boolean retryableByHost;

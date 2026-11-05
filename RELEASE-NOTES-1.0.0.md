@@ -59,7 +59,7 @@ The old staging identity `leanctx-product-sdk-local` and import
 
 ## Licensing
 
-LeanCTX Engine remains Apache-2.0. LeanCTX SDK uses a separate source-available
+LeanCTX | OSS remains Apache-2.0. LeanCTX SDK uses a separate source-available
 license; commercial Production Use requires a written commercial agreement.
 There is no automatic open-source conversion date.
 

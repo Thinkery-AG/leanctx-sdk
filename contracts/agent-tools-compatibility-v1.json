@@ -1,0 +1,93 @@
+{
+  "contract": "leanctx-agent-tools-compatibility",
+  "schema_version": 1,
+  "sdk_version": "1.3.0",
+  "rule": "A hello is accepted only if its interface, schema and transport are the ones this SDK speaks and its (interface, schema, transport, engine) is a row of `pairs`. A pair that is not a row is unsupported, even if it would handshake. Nothing else of the hello check is replaced: field set, permission mirror and required capabilities are checked as before.",
+  "declared_interfaces": [
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1
+    }
+  ],
+  "basis": {
+    "exact_legacy": "The pair the previous Engine-version equality admitted, carried over unchanged. No compatibility run of the negotiated matrix is claimed for it; `evidence` is null.",
+    "tested_pair": "A pair with a retained compatibility run. `evidence` names the retained report and its SHA-256; the report is held by the release owner and not published with the SDK. A row without both is invalid."
+  },
+  "pairs": [
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.11.0",
+      "basis": "exact_legacy",
+      "evidence": null
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.11.3",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-10-13.json (retained by the release owner; not published)",
+        "sha256": "e56abb757786e450bb358ee3448cd2bbd37885187d9fb238dd4f2c9d7945f826"
+      }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.11.4",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-10-13.json (retained by the release owner; not published)",
+        "sha256": "e56abb757786e450bb358ee3448cd2bbd37885187d9fb238dd4f2c9d7945f826"
+      }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.11.5",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-10-17.json (retained by the release owner; not published)",
+        "sha256": "f292ef63df05bcabea531a198219920024560a64f33c1279b3b1105d30dda7e8"
+      }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.12.0",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-10-21.json (retained by the release owner; not published)",
+        "sha256": "44f41326ad0c6f11454560054548c10e7fbb20295922514bdea4daed446fbb44"
+      }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.12.1",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-11-04.json (retained by the release owner; not published)",
+        "sha256": "333d3b3f9e6d6602b024c0c4c499bf68b0c2c61475ba211fb940c0c5908df8c8"
+      }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.12.2",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-11-05.json (retained by the release owner; not published)",
+        "sha256": "ef1bcffadd5440f6ee8bd687599eeb4337e188a55302e776b38e848623c3e6cc"
+      }
+    }
+  ]
+}

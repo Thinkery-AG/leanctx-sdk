@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
 package com.thinkery.leanctx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,6 +40,11 @@ class AgentToolsTest {
                 List.of("/bin/sh"), List.of()));
         assertThrows(ValidationError.class, () -> new ExecutionPolicy(30,
                 List.of(), List.of("PATH")));
+        for (String name : List.of("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+                "ld_library_path", "dYlD_LiBrArY_PaTh")) {
+            assertThrows(ValidationError.class, () -> new ExecutionPolicy(30,
+                    List.of(), List.of(name)));
+        }
     }
 
     @Test
@@ -93,7 +99,7 @@ class AgentToolsTest {
         Path missingProvider = fakeAgent(root, false, false, false, true, false);
         AgentPermissions executable = new AgentPermissions(false, true);
         ExecutionPolicy executionPolicy = new ExecutionPolicy(2.0, List.of("printf"), List.of());
-        assertThrows(EngineProtocolError.class, () -> new AgentContext(root.toString(), "inspect",
+        assertThrows(InstanceProtocolError.class, () -> new AgentContext(root.toString(), "inspect",
                 executable, executionPolicy, missingProvider.toString(), 2.0, source));
 
         Path binary = fakeAgent(root, false, false, false, true, true);
@@ -136,7 +142,7 @@ class AgentToolsTest {
     void incompatibleHelloIsTerminalAndRemovesTemporaryPolicy() throws Exception {
         Path root = Files.createTempDirectory("leanctx-agent-bad-hello-");
         Path binary = fakeAgent(root, true, false);
-        assertThrows(EngineProtocolError.class, () -> new AgentContext(root.toString(), "",
+        assertThrows(InstanceProtocolError.class, () -> new AgentContext(root.toString(), "",
                 new AgentPermissions(), new ExecutionPolicy(), binary.toString(), 1.0));
         assertNoAgentState(root);
         deleteTree(root);
@@ -153,8 +159,8 @@ class AgentToolsTest {
             context = assertDoesNotThrow(() -> new AgentContext(root.toString(), "",
                     new AgentPermissions(), new ExecutionPolicy(), binary.toString(), 2.0));
             AgentContext connected = context;
-            assertThrows(EngineTimeout.class, () -> connected.call("ctx_read", Map.of()));
-            assertThrows(EngineCrashed.class, () -> connected.call("ctx_read", Map.of()));
+            assertThrows(InstanceTimeout.class, () -> connected.call("ctx_read", Map.of()));
+            assertThrows(InstanceCrashed.class, () -> connected.call("ctx_read", Map.of()));
         } finally {
             if (context != null) {
                 context.close();
@@ -194,12 +200,12 @@ class AgentToolsTest {
                         assertTrue(child.isAlive());
                         assertTrue(result.cancel(true));
                         assertTrue(result.isCancelled());
-                        assertTrue(!engine.isAlive(), "cancellation reaps the Engine process");
+                        assertTrue(!engine.isAlive(), "cancellation reaps the instance process");
                         assertTrue(!child.isAlive(), "cancellation reaps the child process");
                         assertNoAgentState(root);
                         CompletionException failure = assertThrows(CompletionException.class,
                                 () -> tools.read("README.md", ReadMode.AUTO, false).join());
-                        assertTrue(failure.getCause() instanceof EngineCrashed);
+                        assertTrue(failure.getCause() instanceof InstanceCrashed);
                     } finally {
                         deleteTree(root);
                     }
@@ -278,7 +284,7 @@ class AgentToolsTest {
                 + "while IFS= read -r line; do\n"
                 + "  id=$((id + 1))\n"
                 + "  case \"$line\" in\n"
-                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.11.4\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
+                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.12.2\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
                 + "    *\\\"tool\\\":\\\"ctx_shell\\\"*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_shell:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":{\"exit_code\":0}}}' ;;\n"
                 + "    *call*) " + delay + "printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_read:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":null}}' ;;\n"
                 + "    *close*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{}}'; exit 0 ;;\n"

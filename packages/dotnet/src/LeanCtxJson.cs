@@ -1,3 +1,6 @@
+// Until 2.0 the SDK throws the deprecated Engine error subtypes so that both the
+// Engine and the Instance names catch them (see Errors.cs).
+#pragma warning disable CS0618
 using System.Collections;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -355,7 +358,7 @@ internal static class WireJson
             });
             ValidateJson(document.RootElement, new HashSet<string>());
         }
-        catch (EngineProtocolError)
+        catch (InstanceProtocolError)
         {
             throw;
         }

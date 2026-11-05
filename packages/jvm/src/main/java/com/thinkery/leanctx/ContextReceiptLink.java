@@ -3,7 +3,7 @@ package com.thinkery.leanctx;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Receipt digest and invocation binding emitted by the Engine. */
+/** Receipt digest and invocation binding emitted by the LeanCTX instance. */
 public final class ContextReceiptLink {
     private final int schemaVersion;
     private final String receiptId;

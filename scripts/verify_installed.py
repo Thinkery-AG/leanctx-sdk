@@ -8,7 +8,7 @@ import tempfile
 from importlib.metadata import version
 from pathlib import Path
 
-from leanctx_sdk import ContextSession, ContextSource, SubprocessEngineClient
+from leanctx_sdk import ContextSession, ContextSource, SubprocessInstanceClient
 from leanctx_sdk.integrations.native_embed import complete, prepare
 
 
@@ -24,7 +24,7 @@ def verify_installed(engine: Path) -> dict:
             project_root=root,
             session_id="installed-sdk-session",
             task_id="installed-sdk-task",
-            engine=SubprocessEngineClient(engine),
+            instance=SubprocessInstanceClient(engine),
         )
         view = prepare(session, ContextSource("source.txt", project_root=root))
         if view is None:

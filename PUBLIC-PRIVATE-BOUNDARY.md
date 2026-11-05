@@ -2,7 +2,7 @@
 
 ## Public artifacts
 
-- LeanCTX Engine: Apache-2.0 open-source runtime and protocol implementation.
+- LeanCTX | OSS: Apache-2.0 open-source runtime and protocol implementation.
 - LeanCTX SDK: source-available `thinkery-leanctx-sdk` package with Stable and Preview
   surfaces defined by the manifest. Exact license and artifact identities are
   bound by the protected release gate.

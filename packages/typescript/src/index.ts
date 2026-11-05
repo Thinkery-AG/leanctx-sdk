@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 /** LeanCTX SDK Stable v1 and additive Agent Tools v1.1 surface. */
 
-export const __version__ = "1.2.0" as const;
+export const __version__ = "1.3.0" as const;
 
 export {
   AGENT_TOOLS_INTERFACE_VERSION,
@@ -16,17 +16,17 @@ export {
   ReadMode,
   ToolResult,
 } from "./agent.js";
-export type { GitLabSource } from "./agent.js";
+export type { GitLabSource, SessionContainment } from "./agent.js";
 export {
   MAX_SOURCE_REQUEST_BYTES,
   MAX_SOURCE_RESPONSE_BYTES,
-  SubprocessEngineClient,
+  SubprocessInstanceClient,
 } from "./engine.js";
-export type { EngineClient, SourceOperation } from "./engine.js";
+export type { InstanceClient, SourceOperation } from "./engine.js";
 export {
-  EnginePlanningRequest,
-  EngineSource,
-  EngineSourcePlanningClient,
+  InstancePlanningRequest,
+  InstanceSource,
+  InstanceSourcePlanningClient,
   MAX_ENGINE_CONTEXT_PLAN_CANDIDATES,
   MAX_ENGINE_CONTEXT_PLAN_QUERY_BYTES,
   MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES,
@@ -36,25 +36,31 @@ export {
   MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES,
   MAX_ENGINE_SOURCE_PLAN_RESPONSE_BYTES,
   MAX_ENGINE_SOURCE_PLAN_SOURCES,
+  PresenterCapability,
   parseMaterialization,
   parseSourcePlan,
 } from "./planning.js";
 export type {
-  EngineContextPlan,
-  EngineContextSourceMaterialization,
-  EngineSourceDescriptor,
-  EngineSourceDescriptorInput,
-  EngineSourcePlan,
-  EngineSourcePlanResult,
-  EngineSourceSelection,
+  InstanceContextPlan,
+  InstanceContextSourceMaterialization,
+  InstanceContextSourceMaterializationV2,
+  InstancePresenterGrant,
+  PresentedUse,
+  PresentedUseAnswer,
+  PresenterRevocation,
+  InstanceSourceDescriptor,
+  InstanceSourceDescriptorInput,
+  InstanceSourcePlan,
+  InstanceSourcePlanResult,
+  InstanceSourceSelection,
 } from "./planning.js";
-export { EngineContextClient } from "./context.js";
-export type { EngineContextClientOptions, EngineContextReadResult } from "./context.js";
-export { EnterpriseEngineClient } from "./enterprise.js";
+export { InstanceContextClient } from "./context.js";
+export type { InstanceContextClientOptions, InstanceContextReadResult } from "./context.js";
+export { EnterpriseInstanceClient } from "./enterprise.js";
 export type {
   ContextExecuteV2Options,
   ContextMaterializeSourcesOptions,
-  EnterpriseEngineClientOptions,
+  EnterpriseInstanceClientOptions,
   EnterpriseSourceMaterialization,
 } from "./enterprise.js";
 export {
@@ -63,20 +69,20 @@ export {
   MAX_ENGINE_SOURCE_EXECUTION_V2_TOTAL_BYTES,
   parseSourceExecutionV2Response,
 } from "./source_execution.js";
-export type { EngineSourceExecution, EngineSourceExecutionV2 } from "./source_execution.js";
-export type { EngineOutcomeSignal, EngineOutcomeResponse } from "./outcome.js";
+export type { InstanceSourceExecution, InstanceSourceExecutionV2 } from "./source_execution.js";
+export type { InstanceOutcomeSignal, InstanceOutcomeResponse } from "./outcome.js";
 export {
   AgentPermissionError,
   ArtifactIntegrityError,
   CompatibilityError,
   ConfigurationError,
-  EngineCrashed,
-  EngineError,
-  EngineExecutionError,
-  EngineProtocolError,
-  EngineRejected,
-  EngineTimeout,
-  EngineUnavailable,
+  InstanceCrashed,
+  InstanceError,
+  InstanceExecutionError,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceTimeout,
+  InstanceUnavailable,
   FrameworkCompatibilityError,
   FrameworkIntegrationError,
   PolicyAdmissionError,
@@ -85,9 +91,48 @@ export {
   SessionStateError,
   SourceUnavailableError,
   UnsupportedCapabilityError,
-  UnsupportedEngineError,
+  UnsupportedInstanceError,
   ValidationError,
+  // Deprecated since 1.3.0 (removed in 2.0): same classes under their Engine names.
+  EngineCrashed,
+  EngineError,
+  EngineExecutionError,
+  EngineProtocolError,
+  EngineRejected,
+  EngineTimeout,
+  EngineUnavailable,
+  UnsupportedEngineError,
 } from "./errors.js";
+export {
+  EngineContextClient,
+  EnginePlanningRequest,
+  EngineSource,
+  EngineSourcePlanningClient,
+  EngineStatus,
+  EnterpriseEngineClient,
+  SubprocessEngineClient,
+} from "./deprecated.js";
+export type {
+  EngineClient,
+  EngineContextClientOptions,
+  EngineContextPlan,
+  EngineContextReadResult,
+  EngineContextSourceMaterialization,
+  EngineContextSourceMaterializationV2,
+  EngineOutcomeResponse,
+  EngineOutcomeSignal,
+  EnginePresenterGrant,
+  EngineSourceDescriptor,
+  EngineSourceDescriptorInput,
+  EngineSourceExecution,
+  EngineSourceExecutionV2,
+  EngineSourcePlan,
+  EngineSourcePlanResult,
+  EngineSourceSelection,
+  EnterpriseEngineClientOptions,
+  SubprocessEngineClientOptions,
+} from "./deprecated.js";
+export type { SubprocessInstanceClientOptions } from "./engine.js";
 export {
   ENGINE_INTERFACE_VERSION,
   SCHEMA_VERSION,
@@ -98,7 +143,7 @@ export {
   ContextReceiptLink,
   ContextSource,
   ContextView,
-  EngineStatus,
+  InstanceStatus,
   FailureCode,
   Freshness,
   HostOutcome,
@@ -108,3 +153,32 @@ export {
 } from "./protocol.js";
 export { ContextReceipt } from "./receipt.js";
 export { ContextSession } from "./session.js";
+
+// Material change: union public context-store names with the private surface.
+export {
+  CONTEXT_STORE_PREVIEW_CONTRACT,
+  CONTEXT_STORE_PREVIEW_VERSION,
+  MAX_STORE_REQUEST_BYTES,
+  MAX_STORE_RESPONSE_BYTES,
+  TASK_CLASSES,
+  LANGUAGES,
+  SIZES,
+  STRATEGIES,
+  parsePolicyEvidence,
+  parseTaskLineage,
+  readPolicyEvidence,
+  readTaskLineage,
+} from "./context_store.js";
+export type {
+  Workload,
+  QualityEvidence,
+  SecurityEvidence,
+  StrategyOutcomeRecord,
+  StrategyEvaluation,
+  ContextPolicyEvidence,
+  LineageStep,
+  DeliverySummary,
+  LineageDelivery,
+  TaskLineage,
+  ContextStoreScope,
+} from "./context_store.js";

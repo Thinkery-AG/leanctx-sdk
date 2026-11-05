@@ -114,9 +114,9 @@ sdk_error!(
     false
 );
 sdk_error!(
-    EngineError,
+    InstanceError,
     "engine_error",
-    "preserve Engine evidence and classify the concrete error",
+    "preserve instance evidence and classify the concrete error",
     false,
     false,
     true,
@@ -124,9 +124,9 @@ sdk_error!(
     false
 );
 sdk_error!(
-    EngineUnavailable,
+    InstanceUnavailable,
     "engine_unavailable",
-    "restore the configured Engine binary or use explicit bounded fail-open",
+    "restore the configured instance binary or use explicit bounded fail-open",
     true,
     true,
     false,
@@ -134,7 +134,7 @@ sdk_error!(
     false
 );
 sdk_error!(
-    EngineTimeout,
+    InstanceTimeout,
     "engine_timeout",
     "retry within host policy or use explicit bounded fail-open",
     true,
@@ -144,7 +144,7 @@ sdk_error!(
     false
 );
 sdk_error!(
-    EngineCrashed,
+    InstanceCrashed,
     "engine_crashed",
     "create a new AgentContext; mutation and execution calls are never retried",
     false,
@@ -166,7 +166,7 @@ sdk_error!(
 sdk_error!(
     UnsupportedCapabilityError,
     "unsupported_capability",
-    "install a compatible Engine or choose a negotiated capability",
+    "install a compatible instance or choose a negotiated capability",
     false,
     false,
     true,
@@ -174,9 +174,9 @@ sdk_error!(
     true
 );
 sdk_error!(
-    EngineProtocolError,
+    InstanceProtocolError,
     "engine_protocol_error",
-    "fail closed and verify Engine interface, schema, and transport",
+    "fail closed and verify instance interface, schema, and transport",
     false,
     false,
     true,
@@ -194,9 +194,9 @@ sdk_error!(
     true
 );
 sdk_error!(
-    UnsupportedEngineError,
+    UnsupportedInstanceError,
     "unsupported_engine",
-    "install an Engine identity and capability supported by this SDK",
+    "install an instance identity and capability supported by this SDK",
     false,
     false,
     true,
@@ -204,9 +204,9 @@ sdk_error!(
     true
 );
 sdk_error!(
-    EngineRejected,
+    InstanceRejected,
     "engine_rejected",
-    "fail closed and satisfy the reported Engine policy",
+    "fail closed and satisfy the reported instance policy",
     false,
     false,
     true,
@@ -216,7 +216,7 @@ sdk_error!(
 sdk_error!(
     PolicyAdmissionError,
     "policy_admission_rejected",
-    "abort or change the request to satisfy the reported Engine policy",
+    "abort or change the request to satisfy the reported instance policy",
     false,
     false,
     true,
@@ -224,9 +224,9 @@ sdk_error!(
     false
 );
 sdk_error!(
-    EngineExecutionError,
+    InstanceExecutionError,
     "engine_execution_error",
-    "fail closed and retain the factual Engine failure evidence",
+    "fail closed and retain the factual instance failure evidence",
     false,
     false,
     true,

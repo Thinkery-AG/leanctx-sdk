@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 import {
   ArtifactIntegrityError,
-  EngineError,
-  EngineExecutionError,
-  EngineProtocolError,
-  EngineRejected,
-  EngineTimeout,
-  EngineUnavailable,
+  InstanceError,
+  InstanceExecutionError,
+  InstanceProtocolError,
+  InstanceRejected,
+  InstanceTimeout,
+  InstanceUnavailable,
   RecoveryUnavailableError,
   SessionStateError,
   ValidationError,
 } from "./errors.js";
-import { SubprocessEngineClient, type EngineClient } from "./engine.js";
+import { SubprocessInstanceClient, type InstanceClient } from "./engine.js";
 import {
   canonicalBytes,
   ContextPlan,
@@ -29,7 +29,7 @@ export type ContextSessionOptions = Readonly<{
   sessionId?: string;
   taskId?: string;
   failOpen?: boolean;
-  engine?: EngineClient;
+  engine?: InstanceClient;
 }>;
 
 function runtimeId(prefix: string): string { return `${prefix}-${randomUUID().replaceAll("-", "")}`; }
@@ -40,7 +40,7 @@ export class ContextSession {
   readonly sessionId: string;
   readonly taskId: string;
   readonly failOpen: boolean;
-  readonly engine: EngineClient;
+  readonly engine: InstanceClient;
   private stateValue: SessionState = SessionState.CREATED;
   private planValue: ContextPlan | null = null;
   private viewValue: ContextView | null = null;
@@ -56,7 +56,7 @@ export class ContextSession {
     this.sessionId = options.sessionId ?? runtimeId("session");
     this.taskId = options.taskId ?? runtimeId("task");
     this.failOpen = options.failOpen ?? false;
-    this.engine = options.engine ?? new SubprocessEngineClient();
+    this.engine = options.engine ?? new SubprocessInstanceClient();
   }
 
   get state(): SessionState { return this.stateValue; }
@@ -99,13 +99,13 @@ export class ContextSession {
       if (this.viewValue.status === "degraded") this.addDegradation("engine:degraded");
       return this.viewValue;
     } catch (error) {
-      if ((error instanceof EngineUnavailable || error instanceof EngineTimeout) && this.failOpen) {
+      if ((error instanceof InstanceUnavailable || error instanceof InstanceTimeout) && this.failOpen) {
         this.addDegradation(`engine:${error.code}`);
         this.prepared = true;
         this.viewValue = null;
         return null;
       }
-      if (error instanceof EngineError) this.abortEngineFailure(error);
+      if (error instanceof InstanceError) this.abortEngineFailure(error);
       else this.abortEngineFailure(error);
       throw error;
     }
@@ -151,7 +151,7 @@ export class ContextSession {
     }
     if (!selected.recoveryRef) throw new RecoveryUnavailableError("view has no recovery binding");
     const result = await this.engine.recover(this.planValue.source.projectRoot, this.planValue.source.relativePath, selected.recoveryRef, selected.sourceRef, selected.sourceDigest);
-    if (!(result instanceof RecoveredSource)) throw new ArtifactIntegrityError("Engine client returned an invalid recovery value");
+    if (!(result instanceof RecoveredSource)) throw new ArtifactIntegrityError("LeanCTX instance client returned an invalid recovery value");
     if (result.recoveryRef !== selected.recoveryRef || result.sourceRef !== selected.sourceRef || result.sourceDigest !== selected.sourceDigest) throw new ArtifactIntegrityError("recovery binding differs from the validated view");
     return result;
   }
@@ -167,8 +167,8 @@ export class ContextSession {
   }
   private addDegradation(value: string): void { if (!this.degradationsValue.includes(value)) this.degradationsValue.push(value); }
   private abortEngineFailure(error: unknown): void {
-    if (error instanceof EngineExecutionError && error.view instanceof ContextView) this.viewValue = error.view;
-    const code = error instanceof EngineError ? error.code : "engine_error";
+    if (error instanceof InstanceExecutionError && error.view instanceof ContextView) this.viewValue = error.view;
+    const code = error instanceof InstanceError ? error.code : "engine_error";
     this.addDegradation(`engine:${code}`);
     this.receiptValue = this.makeReceipt(HostOutcome.ABORTED, null, null, null, null);
     this.stateValue = SessionState.ABORTED;

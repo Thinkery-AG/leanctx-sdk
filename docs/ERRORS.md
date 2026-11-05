@@ -22,7 +22,7 @@ Only explicitly retryable Engine availability failures may use bounded
 fail-open behavior. Integrity, policy, lifecycle, and compatibility failures
 fail closed.
 
-Agent Tools adds `EngineCrashed`, `AgentPermissionError`, and
+Agent Tools adds `InstanceCrashed`, `AgentPermissionError`, and
 `UnsupportedCapabilityError`. A timeout terminates the persistent Engine
 process. Writes and executions are never retried automatically because their
 outcome may be ambiguous.

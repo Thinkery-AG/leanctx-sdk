@@ -42,7 +42,7 @@ your model / agent loop
           ↓
 AgentContext or AsyncAgentContext
           ↓  versioned local Agent Tools Interface
-LeanCTX Engine (release-specific; see [Compatibility](COMPATIBILITY.md))
+LeanCTX | OSS (release-specific; see [Compatibility](COMPATIBILITY.md))
           ↓
 project-jailed files, cache, search, patches, approved commands
 ```
@@ -50,11 +50,11 @@ project-jailed files, cache, search, patches, approved commands
 ## Install
 
 The public SDK 1.1.1 release uses Engine 3.10.1 and its companion wheels. The
-current `main` source targets Engine 3.11.4. Install the public Python SDK and
+current `main` source targets Engine 3.12.2. Install the public Python SDK and
 Engine together with:
 
 > These commands install the published SDK 1.1.1, which requires Engine
-> 3.10.1. Current `main` sources target Engine 3.11.4; package version metadata
+> 3.10.1. Current `main` sources target Engine 3.12.2; package version metadata
 > alone does not identify a published artifact. See
 > [COMPATIBILITY.md](COMPATIBILITY.md#main-unreleased).
 
@@ -78,7 +78,7 @@ CUDA and Windows-GNU builds use the documented `agent-cuda` and
 All six language SDKs implement the five Stable lifecycle primitives and the
 separate Stable Agent Tools surface. The table describes current `main` source
 compatibility. The published SDK 1.1.1 release requires Engine 3.10.1; current
-`main` targets Engine 3.11.4. Registry publication is per artifact and must be
+`main` targets Engine 3.12.2. Registry publication is per artifact and must be
 verified at that registry.
 
 | Runtime | Package source | Package identity |
@@ -161,7 +161,7 @@ The five SDK 1.0 lifecycle primitives remain available unchanged:
 `ContextSession`, `ContextSource`, `ContextView`, `ContextPlan`, and
 `ContextReceipt`. Stable Agent Tools is a separate API surface. The published
 SDK 1.1.1 requires Agent Tools Interface v1 from Engine 3.10.1; current `main`
-targets Engine 3.11.4. The older context-view/recover Engine Interface v1
+targets Engine 3.12.2. The older context-view/recover Engine Interface v1
 remains separate.
 
 See:
@@ -175,9 +175,72 @@ See:
 - [Migration](MIGRATION.md)
 - [Stable public surface](PUBLIC-SURFACE-MANIFEST.md)
 
+## Deprecated names (until 2.0)
+
+SDK 1.3 calls a running LeanCTX | OSS an *instance*. The Python names below are
+primary; the old Engine names still import and resolve to the same objects (so
+`except EngineUnavailable` still catches), but emit a `DeprecationWarning`.
+Wire/JSON fields such as `engine_interface_version` and the stable error codes
+(`engine_unavailable`, ...) are unchanged.
+
+| Deprecated (Python) | Use |
+|---|---|
+| `EngineError`, `EngineUnavailable`, `EngineTimeout`, `EngineCrashed` | `InstanceError`, `InstanceUnavailable`, `InstanceTimeout`, `InstanceCrashed` |
+| `EngineProtocolError`, `EngineExecutionError`, `EngineRejected` | `InstanceProtocolError`, `InstanceExecutionError`, `InstanceRejected` |
+| `UnsupportedEngineError` | `UnsupportedInstanceError` |
+| `EngineStatus` | `InstanceStatus` |
+| `EngineClient`, `SubprocessEngineClient`, `EnginePlanningClient` | `InstanceClient`, `SubprocessInstanceClient`, `InstancePlanningClient` |
+| `EnterpriseEngineClient`, `EngineContextClient`, `EngineContextReadResult` | `EnterpriseInstanceClient`, `InstanceContextClient`, `InstanceContextReadResult` |
+| `EnginePlanningRequest`, `EngineSource` | `InstancePlanningRequest`, `InstanceSource` |
+| `preview.LocalCheckpointPackageEngine` | `preview.LocalCheckpointPackageInstance` |
+| modules `leanctx_sdk.engine`, `leanctx_sdk.enterprise_engine` | `leanctx_sdk.instance`, `leanctx_sdk.enterprise_instance` |
+| `engine_binary=` (`AgentContext`, `AsyncAgentContext`, `SubprocessInstanceClient`) | `instance_binary=` |
+| `engine=` (`ContextSession`, checkpoint package functions) | `instance=` |
+| `LEANCTX_ENGINE_BIN`, `LEANCTX_ENGINE_BINARY`, `LEANCTX_ENGINE_PROOF_FILE`, `LEANCTX_REQUIRE_ENGINE`, `LEANCTX_TEST_ENGINE_BINARY` | `LEANCTX_INSTANCE_BIN`, `LEANCTX_INSTANCE_BINARY`, `LEANCTX_INSTANCE_PROOF_FILE`, `LEANCTX_REQUIRE_INSTANCE`, `LEANCTX_TEST_INSTANCE_BINARY` (old one is a fallback, warned once) |
+
 ## License
 
 The SDK is source-available under a license that permits non-production use.
 Production use, OEM embedding, and commercial redistribution require a separate
-written agreement signed by Thinkery AG. LeanCTX Engine is licensed separately
+written agreement signed by Thinkery AG. LeanCTX | OSS (lean-ctx) is licensed separately
 under Apache-2.0; that license does not grant SDK production or OEM rights.
+
+## Process containment (session starter)
+
+The SDK starts the Engine binary with `LEAN_CTX_SESSION_CONTAINMENT=1`.
+An Engine binary that has a session starter answers with one line on standard
+output before the Engine itself starts (`{"leanctx_session_containment":1}`).
+The SDK removes that line and reports one of two states:
+
+- `engine-starter`: the process the SDK started is the Engine's session
+  starter. It runs the Engine in a process group of its own, ends that group
+  when the Engine exits, when the SDK ends the starter or when the SDK's
+  process is gone, and exits only afterwards.
+- `unavailable`: no acknowledgement. The SDK's own process-group handling is
+  all there is; what an Engine that exited first left behind may survive.
+
+Read it from `AgentContext.session_containment` (also on `AsyncAgentContext`)
+and, for the one-shot client, from
+`SubprocessInstanceClient.last_session_containment` (the most recent completed
+run).
+
+On Windows there is no starter process: an Engine that has the mode joins a
+kill-on-close job of its own before it starts anything and acknowledges with
+the same line (reported as the same state); everything it started ends when
+the Engine process ends. A host job that forbids nesting leaves it
+unacknowledged.
+
+Not covered: descendants that leave their
+process group (`setsid`, `setpgid`), and a graceful stop — the SDK ends the
+starter, and the Engine's group is ended right after, which can be a few
+milliseconds after `cancel()`/`close()` returned. Whether a given Engine build
+has the starter is told only by the reported state.
+
+## Context Store preview source
+
+The preview source adds read-only task lineage and policy evidence within one
+tenant/project scope. See [the guide](docs/context-store-preview.md),
+[the contract](contracts/context-store-preview-v1.json) and
+[the decision record](docs/decisions/2026-10-03-context-store-preview.md).
+The source proposal requires an Engine serving the documented operations;
+binding tests, installed qualification and pairing acceptance remain separate.

@@ -12,8 +12,8 @@
  * minor releases.
  */
 
-import { EngineProtocolError, ValidationError } from "./errors.js";
-import type { SubprocessEngineClient } from "./engine.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
+import type { SubprocessInstanceClient } from "./engine.js";
 import { canonicalBytes, strictJsonLoads } from "./protocol.js";
 
 export const CONTEXT_STORE_PREVIEW_CONTRACT = "leanctx-context-store-preview" as const;
@@ -145,8 +145,8 @@ export type TaskLineage = Readonly<{
 
 type Json = Record<string, unknown>;
 
-function bad(message: string): EngineProtocolError {
-  return new EngineProtocolError(`context store: ${message}`);
+function bad(message: string): InstanceProtocolError {
+  return new InstanceProtocolError(`context store: ${message}`);
 }
 
 function object(value: unknown, label: string): Json {
@@ -455,7 +455,7 @@ function storeRequest(scope: ContextStoreScope, taskId?: string): Buffer {
 }
 
 async function read(
-  engine: SubprocessEngineClient,
+  engine: SubprocessInstanceClient,
   operation: "context-lineage" | "context-policy-evidence",
   projectRoot: string,
   payload: Buffer,
@@ -464,7 +464,13 @@ async function read(
   const raw = await engine.contextStoreRead(operation, projectRoot, payload, MAX_STORE_REQUEST_BYTES, MAX_STORE_RESPONSE_BYTES);
   let document: unknown;
   try {
-    document = strictJsonLoads(raw, "context store");
+    // `Number("1.0")` and `Number("1e0")` are 1: a version must be written as
+    // an integer, in the envelope and in the document it carries.
+    document = strictJsonLoads(raw, "context store", [
+      ["schema_version"],
+      ["transport_version"],
+      [body, "schema_version"],
+    ]);
   } catch (error) {
     throw bad(`response is not strict JSON (${String(error)})`);
   }
@@ -481,7 +487,7 @@ async function read(
  * project root, as `lean-ctx autopilot` does by default.
  */
 export async function readPolicyEvidence(
-  engine: SubprocessEngineClient,
+  engine: SubprocessInstanceClient,
   projectRoot: string,
   scope: ContextStoreScope = {},
 ): Promise<ContextPolicyEvidence> {
@@ -490,7 +496,7 @@ export async function readPolicyEvidence(
 
 /** One task's lineage within the scope. */
 export async function readTaskLineage(
-  engine: SubprocessEngineClient,
+  engine: SubprocessInstanceClient,
   projectRoot: string,
   taskId: string,
   scope: ContextStoreScope = {},

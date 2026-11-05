@@ -1,18 +1,24 @@
 package com.thinkery.leanctx;
 
-/** The configured Engine could not be started or resolved. */
-public class EngineUnavailable extends EngineError {
+/**
+ * Deprecated alias of {@link InstanceUnavailable}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineUnavailable e)} and {@code catch (InstanceUnavailable e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceUnavailable}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public final class EngineUnavailable extends InstanceUnavailable {
     public EngineUnavailable() {
-        this(null);
+        super();
     }
 
     public EngineUnavailable(String message) {
-        this(message, null);
+        super(message);
     }
 
     public EngineUnavailable(String message, Throwable cause) {
-        super(message, cause, "engine_unavailable",
-                "restore the configured Engine binary or use explicit bounded fail-open",
-                true, true, false, true, false);
+        super(message, cause);
     }
 }

@@ -1,7 +1,7 @@
-LeanCTX SDK v1.2.0 — Third-Party Notices
+LeanCTX SDK v1.3.0 — Third-Party Notices
 
 The core LeanCTX SDK wheel has no mandatory third-party runtime dependency.
-LeanCTX Engine is a separate Apache-2.0 work and is not relicensed by the SDK.
+LeanCTX | OSS (lean-ctx) is a separate Apache-2.0 work and is not relicensed by the SDK.
 
 The optional OpenAI Agents integration uses separately distributed packages.
 They are not embedded in the LeanCTX SDK wheel and remain governed by their

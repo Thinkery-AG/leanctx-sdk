@@ -1,18 +1,24 @@
 package com.thinkery.leanctx;
 
-/** The Engine exceeded its bounded deadline. */
-public class EngineTimeout extends EngineError {
+/**
+ * Deprecated alias of {@link InstanceTimeout}, removed in SDK 2.0.
+ *
+ * <p>Until 2.0 the SDK still throws this subtype, so both
+ * {@code catch (EngineTimeout e)} and {@code catch (InstanceTimeout e)} match.
+ *
+ * @deprecated since 1.3.0, use {@link InstanceTimeout}.
+ */
+@Deprecated(since = "1.3.0", forRemoval = true)
+public final class EngineTimeout extends InstanceTimeout {
     public EngineTimeout() {
-        this(null);
+        super();
     }
 
     public EngineTimeout(String message) {
-        this(message, null);
+        super(message);
     }
 
     public EngineTimeout(String message, Throwable cause) {
-        super(message, cause, "engine_timeout",
-                "retry within host policy or use explicit bounded fail-open",
-                true, true, false, false, false);
+        super(message, cause);
     }
 }

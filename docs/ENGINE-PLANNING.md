@@ -4,20 +4,20 @@ This integration-branch Python surface consumes the canonical public Engine prot
 LeanCTX commit `4045cd5a2dd85f92a7792b0786e99c23010a5e62`; it does not implement a
 planner, policy authority, or private intelligence runtime. The local executable
 must also support bounded planning input on stdin (`91edced021` or compatible).
-The existing `EngineClient` injection protocol and ContextSession operations are
-unchanged; `EnginePlanningClient` is a separate, additive protocol.
+The existing `InstanceClient` injection protocol and ContextSession operations are
+unchanged; `InstancePlanningClient` is a separate, additive protocol.
 
 ```python
-from leanctx_sdk import EnginePlanningRequest, SubprocessEngineClient
+from leanctx_sdk import InstancePlanningRequest, SubprocessInstanceClient
 
-engine = SubprocessEngineClient("/opt/leanctx/bin/lean-ctx")
-request = EnginePlanningRequest("investigate-issue", "invoice ledger", 2048)
+engine = SubprocessInstanceClient("/opt/leanctx/bin/lean-ctx")
+request = InstancePlanningRequest("investigate-issue", "invoice ledger", 2048)
 result = engine.context_plan("/srv/project", request)
 print(result["plan"]["projection_digest"])
 ```
 
 `context_plan_sources(project_root, request, sources)` accepts up to 64
-`EngineSource(descriptor, content)` values. Descriptors use the public fields
+`InstanceSource(descriptor, content)` values. Descriptors use the public fields
 `object_ref`, `source_id`, `source_type`, `content_digest`, `revision`, `owner`,
 `observed_at`, `valid_until`, `classification`, and `permission`. Per-source
 content is bounded to 64 KiB, the complete request to 1 MiB. Source types are
@@ -32,7 +32,7 @@ task, budget, projection digest and selected-source bindings; failures are typed
 
 ## Standalone Enterprise source operations
 
-`EnterpriseEngineClient(base_url, credential, tenant_id)` calls the authenticated
+`EnterpriseInstanceClient(base_url, credential, tenant_id)` calls the authenticated
 `POST /v1/engine/context-plan` contract at Enterprise commit `cff624549b`.
 `context_plan(request, source_ids)` supplies at most 64 non-nil UUID source IDs;
 the credential is a bearer header and tenant authorization remains server-owned.
@@ -62,7 +62,7 @@ failure means execution never occurred. A fresh task is a new attempt.
 
 Opaque task, plan and invocation strings reject Unicode control characters
 (C0, DEL and C1) consistently with the Engine. Invalid request identifiers fail
-before HTTP dispatch; invalid response identifiers raise `EngineProtocolError`.
+before HTTP dispatch; invalid response identifiers raise `InstanceProtocolError`.
 Ordinary Unicode text and exact serialized receipt bytes remain supported;
 the receipt carrier does not become a second signer or receipt authority.
 
@@ -161,7 +161,7 @@ They verify the returned source plan and content digest,
 and bound the reported token metric to the plan budget. That metric is not an
 independent tokenizer measurement. Neither operation performs provider execution,
 receipt delivery or outcome reporting. No methods are added to the existing
-injected `EngineClient`.
+injected `InstanceClient`.
 
 The Go `ContextExecuteV2`/`ContextExecuteV2Context` adapter takes an
 `EngineSourceExecutionV2Request` containing the caller's task, declared
@@ -189,9 +189,39 @@ Python adapter above. This is an operator-attestation carrier, not an outcome
 evaluator, independent signer verifier, learning trigger or accounting authority.
 The caller must explicitly choose to retry; the transport never does so.
 
+## Presenter capability: issue → use → revoke (Engine 3.11.0 or later)
+
+Additive to everything above; no V1 method changes. Contract:
+`docs/contracts/engine-context-sources-v2.md`.
+
+1. **Issue.** Materialize with a lifetime (1 to 86400 seconds). The result carries a
+   `PresenterCapability` once. Python `context_materialize_v2(…, 600)`, Go
+   `ContextMaterializeSourcesV2`, Rust `context_materialize_v2(…, PresenterUse::Issue)`,
+   JVM `contextMaterializeV2`, .NET `ContextMaterializeV2Async`, TypeScript
+   `contextMaterializeSourcesV2` (subprocess and Enterprise client). Passing the held
+   capability instead of a lifetime renews: a presentation is usable for 600 seconds.
+2. **Use.** `presented_use` / `PresentedUse` / `presentedUse` / `PresentedUseAsync` with
+   the capability, the source ids the text was materialized from, the governance
+   revision and one of: `check` + the exact delivered text (still usable by me now?),
+   `retain` + the text (also keep a recovery copy; returns `recovery_id`), `expand` + a
+   `recovery_id` (returns the kept text). `usable: false` carries a content-free
+   `reason` and no text — renew and ask again, or materialize anew after a policy or
+   governance change.
+3. **Revoke.** `presenter_revoke` / `RevokePresenter` / `revokePresenter` /
+   `RevokePresenterAsync`.
+
+The capability proves the holder of the capability, with the API key it was issued to —
+not who the host is, and no right to a source: the suite checks the key, its tenant and
+its current source rights first and again before every answer. It is a host-internal
+secret: every string form of the type is redacted, it travels in the
+`x-leanctx-presenter` request header (local CLI: an owner-only file), never in a body.
+Never put it in model context, a tool argument, a log or a provider request. A refused
+capability is the binding's policy refusal (HTTP 403); a suite or Engine without the
+operation is `UnsupportedInstanceError`.
+
 ## Guarded Engine context read
 
-`EngineContextClient(base_url, credential).context_read(path)` uses the same
+`InstanceContextClient(base_url, credential).context_read(path)` uses the same
 bounded authenticated transport for `POST /v1/tools/call`, requesting exactly
 the guarded Engine v1 single-path aggressive `ctx_read` operation. The host
 owns project-root/path-jail enforcement and signer configuration; the SDK sends
@@ -217,8 +247,8 @@ tests. `ContextRead(path)` and `ContextReadContext(ctx, path)` return text,
 canonical receipt metadata and the raw response. The additive HTTP adapter does
 not add required methods to the existing Go `EngineClient` interface.
 
-`EnterpriseEngineClient` provides source planning/materialization/execution;
-`EngineContextClient` is the
+`EnterpriseInstanceClient` provides source planning/materialization/execution;
+`InstanceContextClient` is the
 separate guarded read surface. Neither client's component checks establish
 six-language SDK parity, Windows transport, deployment or installed-channel
 acceptance. Existing SDK license terms remain in `LICENSE`; new source headers

@@ -2,21 +2,22 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 
 use crate::agent_io::{
-    close_request, hello_request, read_agent_stderr, read_agent_stdout, ReaderMessage,
+    close_request, hello_request, read_agent_stderr, read_agent_stdout, write_agent_stdin,
+    ReaderMessage, WriteJob,
 };
 use crate::errors::{
-    boxed, AgentPermissionError, ConfigurationError, EngineCrashed, EngineExecutionError,
-    EngineProtocolError, EngineTimeout, EngineUnavailable, SdkResult, UnsupportedCapabilityError,
-    ValidationError,
+    boxed, AgentPermissionError, ConfigurationError, InstanceCrashed, InstanceExecutionError,
+    InstanceProtocolError, InstanceTimeout, InstanceUnavailable, SdkResult,
+    UnsupportedCapabilityError, ValidationError,
 };
 use crate::process::terminate_process_tree;
 use crate::protocol::{
@@ -27,7 +28,23 @@ use crate::protocol::{
 pub const AGENT_TOOLS_INTERFACE_VERSION: &str = "1.0.0";
 pub const AGENT_TOOLS_SCHEMA_VERSION: u64 = 1;
 pub const AGENT_TOOLS_TRANSPORT_VERSION: u64 = 1;
-pub const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION: &str = "3.11.4";
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+pub const SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION: &str = "3.12.2";
+// The (interface, schema, transport, engine) pairs a hello is accepted for: the
+// rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
+// equal to it by scripts/check_language_versions.py. A pair that is not a row
+// is refused, whatever the instance says about itself.
+// agent-tools-compatibility: begin
+const ADMITTED_ENGINE_PAIRS: &[(&str, u64, u64, &str)] = &[
+    ("1.0.0", 1, 1, "3.11.0"),
+    ("1.0.0", 1, 1, "3.11.3"),
+    ("1.0.0", 1, 1, "3.11.4"),
+    ("1.0.0", 1, 1, "3.11.5"),
+    ("1.0.0", 1, 1, "3.12.0"),
+    ("1.0.0", 1, 1, "3.12.1"),
+    ("1.0.0", 1, 1, "3.12.2"),
+];
+// agent-tools-compatibility: end
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_TASK_BYTES: usize = 16 * 1024;
@@ -200,7 +217,7 @@ impl ExecutionPolicy {
 
 const GITLAB_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
-/// Host-owned GitLab source selection passed to the Engine for this session.
+/// Host-owned GitLab source selection passed to the instance for this session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GitLabSource {
     host: String,
@@ -314,7 +331,7 @@ pub struct AgentContextBuilder {
     task: String,
     permissions: AgentPermissions,
     execution_policy: ExecutionPolicy,
-    engine_binary: Option<PathBuf>,
+    instance_binary: Option<PathBuf>,
     timeout: Duration,
     gitlab_source: Option<GitLabSource>,
 }
@@ -326,7 +343,7 @@ impl AgentContextBuilder {
             task: String::new(),
             permissions: AgentPermissions::default(),
             execution_policy: ExecutionPolicy::default(),
-            engine_binary: None,
+            instance_binary: None,
             timeout: Duration::from_secs(30),
             gitlab_source: None,
         }
@@ -347,9 +364,14 @@ impl AgentContextBuilder {
         self
     }
 
-    pub fn engine_binary(mut self, path: impl AsRef<Path>) -> Self {
-        self.engine_binary = Some(path.as_ref().to_owned());
+    pub fn instance_binary(mut self, path: impl AsRef<Path>) -> Self {
+        self.instance_binary = Some(path.as_ref().to_owned());
         self
+    }
+
+    #[deprecated(since = "1.3.0", note = "use instance_binary")]
+    pub fn engine_binary(self, path: impl AsRef<Path>) -> Self {
+        self.instance_binary(path)
     }
 
     pub fn timeout(mut self, timeout: Duration) -> Self {
@@ -368,7 +390,7 @@ impl AgentContextBuilder {
             self.task,
             self.permissions,
             self.execution_policy,
-            self.engine_binary,
+            self.instance_binary,
             self.timeout,
             self.gitlab_source,
         )
@@ -380,7 +402,7 @@ impl AgentContextBuilder {
             self.task,
             self.permissions,
             self.execution_policy,
-            self.engine_binary,
+            self.instance_binary,
             self.timeout,
             self.gitlab_source,
         )
@@ -487,7 +509,7 @@ pub struct AgentContext {
     task: String,
     permissions: AgentPermissions,
     execution_policy: ExecutionPolicy,
-    engine_binary: PathBuf,
+    instance_binary: PathBuf,
     timeout: Duration,
     gitlab_source: Option<GitLabSource>,
     capabilities: Vec<String>,
@@ -498,12 +520,63 @@ pub struct AgentContext {
 struct AgentState {
     exchange: Mutex<ExchangeState>,
     process: Mutex<Option<Child>>,
-    stdin: Mutex<Option<ChildStdin>>,
+    /// Queue to the thread that owns the instance's stdin. The lock guards only
+    /// the non-blocking enqueue and the drop; it is never held across pipe I/O.
+    writer: Mutex<Option<mpsc::Sender<WriteJob>>>,
     responses: Mutex<mpsc::Receiver<ReaderMessage>>,
     closed: AtomicBool,
+    /// State and stored outcome of the one process cleanup.
+    cleanup: Mutex<Cleanup>,
+    cleanup_done: Condvar,
     stderr: Arc<Mutex<Vec<u8>>>,
     policy_path: Mutex<Option<PathBuf>>,
+    /// Set by the stdout reader when the first line was the session
+    /// starter's acknowledgement.
+    contained: Arc<AtomicBool>,
 }
+
+/// How the instance's own process tree is contained.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionContainment {
+    /// The process the SDK started is the instance's session starter. It runs
+    /// the instance in a process group of its own, ends that group when the
+    /// instance exits, when the SDK ends the starter or when the SDK's process
+    /// is gone, and exits only afterwards.
+    EngineStarter,
+    /// Reduced containment: the instance binary has no such mode, or the
+    /// platform is Windows. The SDK's own process-group handling is all there
+    /// is.
+    Unavailable,
+}
+
+impl SessionContainment {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EngineStarter => "engine-starter",
+            Self::Unavailable => "unavailable",
+        }
+    }
+
+    pub(crate) fn from_ack(contained: bool) -> Self {
+        if contained {
+            Self::EngineStarter
+        } else {
+            Self::Unavailable
+        }
+    }
+}
+
+/// The one process cleanup of a context: not started, owned by one caller, or
+/// finished with its failure message (`None` for a confirmed cleanup).
+#[derive(Debug)]
+enum Cleanup {
+    Idle,
+    Running,
+    Done(Option<String>),
+}
+
+/// How long a caller that does not own the cleanup waits for its outcome.
+const CLEANUP_WAIT_BUDGET: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 struct ExchangeState {
@@ -523,39 +596,97 @@ impl AgentTermination {
 }
 
 impl AgentState {
-    fn remove_policy(&self) {
-        if let Ok(mut path) = self.policy_path.lock() {
-            if let Some(path) = path.take() {
-                remove_policy_path(&path);
-            }
+    /// Removes exactly the policy file and directory this context created.
+    /// Idempotent; a path that cannot be removed is kept for the next attempt
+    /// and reported instead of passing as a clean termination.
+    fn remove_policy(&self) -> SdkResult<()> {
+        let mut stored = self.policy_path.lock().map_err(|_| {
+            boxed(InstanceExecutionError::new(
+                "Agent Tools policy could not be removed",
+            ))
+        })?;
+        let Some(path) = stored.as_ref() else {
+            return Ok(());
+        };
+        remove_policy_path(path);
+        if path.exists() || path.parent().is_some_and(Path::exists) {
+            return Err(boxed(InstanceExecutionError::new(
+                "Agent Tools policy could not be removed",
+            )));
         }
+        stored.take();
+        Ok(())
     }
 
     fn terminate(&self) -> SdkResult<()> {
-        if self.closed.swap(true, Ordering::AcqRel) {
-            self.remove_policy();
-            return Ok(());
-        }
-        let result = (|| {
-            let mut stdin = self.stdin.lock().map_err(|_| {
-                boxed(EngineExecutionError::new(
-                    "AgentContext stdin could not be closed",
-                ))
-            })?;
-            stdin.take();
-            drop(stdin);
-            let mut process = self.process.lock().map_err(|_| {
-                boxed(EngineExecutionError::new(
-                    "AgentContext process could not be terminated",
-                ))
-            })?;
-            if let Some(mut child) = process.take() {
-                kill_process_tree(&mut child)?;
+        // No call is admitted from here on, whoever ends up owning the cleanup.
+        self.closed.store(true, Ordering::Release);
+        // Exactly one caller cleans up the process. The cleanup lock guards
+        // only the state transition, never the kill or the reap. Parallel and
+        // later callers wait for the owner within their own budget and then
+        // report its stored outcome: a failed cleanup stays failed for every
+        // caller, nobody reports success before it is confirmed, and a caller
+        // whose budget runs out gets a typed "still pending" error.
+        let unavailable = || {
+            boxed(InstanceExecutionError::new(
+                "AgentContext cleanup state is unavailable",
+            ))
+        };
+        let mut state = self.cleanup.lock().map_err(|_| unavailable())?;
+        if matches!(*state, Cleanup::Idle) {
+            *state = Cleanup::Running;
+            drop(state);
+            // Kill first and independently of the transport: ending the
+            // process group closes the pipe's read end, which fails a blocked
+            // stdin write. Nothing here waits for a writer, a reader or the
+            // exchange lock.
+            let result: SdkResult<()> = (|| {
+                let mut process = self.process.lock().map_err(|_| {
+                    boxed(InstanceExecutionError::new(
+                        "AgentContext process could not be terminated",
+                    ))
+                })?;
+                if let Some(mut child) = process.take() {
+                    kill_process_tree(&mut child)?;
+                }
+                Ok(())
+            })();
+            // Dropping the only sender ends the writer thread, which closes stdin.
+            if let Ok(mut writer) = self.writer.lock() {
+                writer.take();
             }
-            Ok(())
-        })();
-        self.remove_policy();
-        result
+            let failure = result.err().map(|error| error.to_string());
+            if let Ok(mut state) = self.cleanup.lock() {
+                *state = Cleanup::Done(failure);
+            }
+            self.cleanup_done.notify_all();
+        } else {
+            let (waited, _) = self
+                .cleanup_done
+                .wait_timeout_while(state, CLEANUP_WAIT_BUDGET, |state| {
+                    matches!(*state, Cleanup::Running)
+                })
+                .map_err(|_| unavailable())?;
+            if matches!(*waited, Cleanup::Running) {
+                return Err(boxed(InstanceExecutionError::new(
+                    "Agent Tools cleanup is still pending",
+                )));
+            }
+        }
+        let failure = match &*self.cleanup.lock().map_err(|_| unavailable())? {
+            Cleanup::Done(failure) => failure.clone(),
+            Cleanup::Idle | Cleanup::Running => {
+                return Err(boxed(InstanceExecutionError::new(
+                    "Agent Tools cleanup is still pending",
+                )))
+            }
+        };
+        // Policy removal is a plain file operation and is retried per call.
+        let policy = self.remove_policy();
+        match failure {
+            Some(message) => Err(boxed(InstanceExecutionError::new(message))),
+            None => policy,
+        }
     }
 }
 
@@ -585,7 +716,7 @@ impl AgentContext {
         task: impl AsRef<str>,
         permissions: AgentPermissions,
         execution_policy: ExecutionPolicy,
-        engine_binary: Option<PathBuf>,
+        instance_binary: Option<PathBuf>,
         timeout: Duration,
     ) -> SdkResult<Self> {
         Self::open_with_policy_and_gitlab_source(
@@ -593,7 +724,7 @@ impl AgentContext {
             task,
             permissions,
             execution_policy,
-            engine_binary,
+            instance_binary,
             timeout,
             None,
         )
@@ -605,7 +736,7 @@ impl AgentContext {
         task: impl AsRef<str>,
         permissions: AgentPermissions,
         execution_policy: ExecutionPolicy,
-        engine_binary: Option<PathBuf>,
+        instance_binary: Option<PathBuf>,
         timeout: Duration,
         gitlab_source: Option<GitLabSource>,
     ) -> SdkResult<Self> {
@@ -614,7 +745,7 @@ impl AgentContext {
             task,
             permissions,
             execution_policy,
-            engine_binary,
+            instance_binary,
             timeout,
             gitlab_source,
             |_| {},
@@ -627,7 +758,7 @@ impl AgentContext {
         task: impl AsRef<str>,
         permissions: AgentPermissions,
         execution_policy: ExecutionPolicy,
-        engine_binary: Option<PathBuf>,
+        instance_binary: Option<PathBuf>,
         timeout: Duration,
         gitlab_source: Option<GitLabSource>,
         on_spawn: F,
@@ -647,7 +778,7 @@ impl AgentContext {
                 "execute permission requires at least one allowed executable",
             )));
         }
-        let binary = resolve_binary(engine_binary.as_deref())?;
+        let binary = resolve_binary(instance_binary.as_deref())?;
         let policy_path = write_policy(&permissions, &execution_policy, gitlab_source.as_ref())?;
         let mut command = Command::new(&binary);
         command
@@ -666,7 +797,7 @@ impl AgentContext {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // Host-selected Engine stores/privacy only; shell execution keeps its own policy.
+        // Host-selected instance stores/privacy only; shell execution keeps its own policy.
         for name in [
             "LEAN_CTX_CONFIG_DIR",
             "LEAN_CTX_DATA_DIR",
@@ -678,57 +809,79 @@ impl AgentContext {
                 command.env(name, value);
             }
         }
+        // Executable resolution needs a search path; forward it only under the execute permission.
+        if permissions.execute {
+            for name in ["PATH", "TMPDIR", "TEMP", "TMP"] {
+                if let Some(value) = std::env::var_os(name) {
+                    command.env(name, value);
+                }
+            }
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        // Ask the instance to contain its session: on Unix it runs as its own
+        // session starter, on Windows it joins a kill-on-close job. An instance
+        // without the mode ignores the variable and acknowledges nothing.
+        command.env(crate::agent_io::SESSION_CONTAINMENT_ENV, "1");
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(_) => {
                 remove_policy_path(&policy_path);
-                return Err(boxed(EngineUnavailable::new(
-                    "Agent Tools Engine could not be started",
+                return Err(boxed(InstanceUnavailable::new(
+                    "Agent Tools instance could not be started",
                 )));
             }
         };
         let stdout = child.stdout.take().ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "Agent Tools stdout is unavailable",
             ))
         })?;
         let stderr = child.stderr.take().ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "Agent Tools stderr is unavailable",
             ))
         })?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| boxed(EngineProtocolError::new("Agent Tools stdin is unavailable")))?;
+        let stdin = child.stdin.take().ok_or_else(|| {
+            boxed(InstanceProtocolError::new(
+                "Agent Tools stdin is unavailable",
+            ))
+        })?;
         let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || read_agent_stdout(stdout, sender, MAX_RESPONSE_BYTES));
+        let contained = Arc::new(AtomicBool::new(false));
+        let contained_by_reader = Arc::clone(&contained);
+        thread::spawn(move || {
+            read_agent_stdout(stdout, sender, MAX_RESPONSE_BYTES, contained_by_reader);
+        });
         let stderr_store = Arc::new(Mutex::new(Vec::new()));
         let stderr_target = Arc::clone(&stderr_store);
         thread::spawn(move || read_agent_stderr(stderr, stderr_target, MAX_STDERR_BYTES));
+        let (writer, write_jobs) = mpsc::channel();
+        thread::spawn(move || write_agent_stdin(stdin, write_jobs));
         let state = Arc::new(AgentState {
             exchange: Mutex::new(ExchangeState {
                 next_id: 0,
                 metrics: AgentMetrics::default(),
             }),
             process: Mutex::new(Some(child)),
-            stdin: Mutex::new(Some(stdin)),
+            writer: Mutex::new(Some(writer)),
             responses: Mutex::new(receiver),
             closed: AtomicBool::new(false),
+            cleanup: Mutex::new(Cleanup::Idle),
+            cleanup_done: Condvar::new(),
             stderr: stderr_store,
             policy_path: Mutex::new(Some(policy_path)),
+            contained,
         });
         let mut context = Self {
             project_root: root,
             task: task.to_owned(),
             permissions,
             execution_policy,
-            engine_binary: binary,
+            instance_binary: binary,
             timeout,
             gitlab_source,
             capabilities: Vec::new(),
@@ -759,7 +912,7 @@ impl AgentContext {
             }
         };
         context.capabilities = capabilities;
-        context.state.remove_policy();
+        context.state.remove_policy()?;
         Ok(context)
     }
 
@@ -779,8 +932,13 @@ impl AgentContext {
         &self.execution_policy
     }
 
+    pub fn instance_binary(&self) -> &Path {
+        &self.instance_binary
+    }
+
+    #[deprecated(since = "1.3.0", note = "use instance_binary")]
     pub fn engine_binary(&self) -> &Path {
-        &self.engine_binary
+        self.instance_binary()
     }
 
     pub fn timeout(&self) -> Duration {
@@ -793,6 +951,12 @@ impl AgentContext {
 
     pub fn capabilities(&self) -> &[String] {
         &self.capabilities
+    }
+
+    /// How the instance's process tree is contained. Final once the context is
+    /// open: the acknowledgement precedes the instance's first response.
+    pub fn session_containment(&self) -> SessionContainment {
+        SessionContainment::from_ack(self.state.contained.load(Ordering::Acquire))
     }
 
     pub(crate) fn termination_handle(&self) -> AgentTermination {
@@ -1076,7 +1240,7 @@ impl AgentContext {
             &self.task,
             self.permissions,
             self.execution_policy.clone(),
-            Some(self.engine_binary.clone()),
+            Some(self.instance_binary.clone()),
             self.timeout,
             self.gitlab_source.clone(),
         )
@@ -1085,7 +1249,7 @@ impl AgentContext {
     fn call_tool(&self, tool: &str, arguments: Value, timeout: Duration) -> SdkResult<ToolResult> {
         if !self.capabilities.iter().any(|value| value == tool) {
             return Err(boxed(UnsupportedCapabilityError::new(format!(
-                "Engine did not negotiate capability: {tool}"
+                "LeanCTX instance did not negotiate capability: {tool}"
             ))));
         }
         if !arguments.is_object() {
@@ -1094,7 +1258,7 @@ impl AgentContext {
             )));
         }
         if canonical_bytes(&arguments).map_err(boxed)?.len() > MAX_REQUEST_BYTES {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools request exceeds its bound",
             )));
         }
@@ -1103,7 +1267,15 @@ impl AgentContext {
         request.insert("tool".to_owned(), Value::String(tool.to_owned()));
         request.insert("arguments".to_owned(), arguments);
         let result = self.exchange(Value::Object(request), timeout, false)?;
-        let parsed = parse_tool_result(tool, &result)?;
+        let parsed = match parse_tool_result(tool, &result) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                // A well-formed envelope with an invalid result is a protocol
+                // violation: the session ends before the typed error returns.
+                self.terminate()?;
+                return Err(error);
+            }
+        };
         if let Ok(mut state) = self.state.exchange.lock() {
             state.metrics.tool_calls = state.metrics.tool_calls.saturating_add(1);
             state.metrics.original_tokens = state
@@ -1124,15 +1296,15 @@ impl AgentContext {
 
     fn exchange(&self, request: Value, timeout: Duration, allow_closed: bool) -> SdkResult<Value> {
         if !allow_closed && self.state.closed.load(Ordering::Acquire) {
-            return Err(boxed(EngineCrashed::new("AgentContext is closed")));
+            return Err(boxed(InstanceCrashed::new("AgentContext is closed")));
         }
         let mut exchange = self
             .state
             .exchange
             .lock()
-            .map_err(|_| boxed(EngineCrashed::new("AgentContext state is poisoned")))?;
+            .map_err(|_| boxed(InstanceCrashed::new("AgentContext state is poisoned")))?;
         if !allow_closed && self.state.closed.load(Ordering::Acquire) {
-            return Err(boxed(EngineCrashed::new("AgentContext is closed")));
+            return Err(boxed(InstanceCrashed::new("AgentContext is closed")));
         }
         exchange.next_id = exchange.next_id.saturating_add(1);
         let id = exchange.next_id.to_string();
@@ -1147,35 +1319,60 @@ impl AgentContext {
             .chain(std::iter::once(b'\n'))
             .collect::<Vec<_>>();
         if encoded.len() > MAX_REQUEST_BYTES {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools request exceeds its bound",
             )));
         }
-        let write_result = {
-            let mut stdin = self
+        // One deadline covers the request write and the response. The write
+        // runs on the thread that owns stdin, so an instance that stopped
+        // reading can neither outlive the deadline nor block termination.
+        let deadline = Instant::now() + timeout;
+        let (written, write_result) = mpsc::channel();
+        let queued = {
+            let writer = self
                 .state
-                .stdin
+                .writer
                 .lock()
-                .map_err(|_| boxed(EngineCrashed::new("AgentContext stdin is poisoned")))?;
-            let Some(stdin) = stdin.as_mut() else {
-                return Err(boxed(EngineCrashed::new("Agent Tools Engine exited")));
+                .map_err(|_| boxed(InstanceCrashed::new("AgentContext stdin is poisoned")))?;
+            let Some(sender) = writer.as_ref() else {
+                return Err(boxed(InstanceCrashed::new("Agent Tools instance exited")));
             };
-            stdin.write_all(&encoded).and_then(|_| stdin.flush())
+            sender
+                .send(WriteJob {
+                    bytes: encoded,
+                    done: written,
+                })
+                .is_ok()
         };
-        if write_result.is_err() {
-            self.terminate()?;
-            return Err(boxed(EngineCrashed::new(self.crash_message())));
+        let write_outcome = if queued {
+            write_result.recv_timeout(timeout)
+        } else {
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        };
+        match write_outcome {
+            Ok(Ok(())) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                drop(exchange);
+                self.terminate()?;
+                return Err(boxed(InstanceTimeout::new(
+                    "Agent Tools request exceeded its deadline",
+                )));
+            }
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.terminate()?;
+                return Err(boxed(InstanceCrashed::new(self.crash_message())));
+            }
         }
         let message = self
             .state
             .responses
             .lock()
             .map_err(|_| {
-                boxed(EngineCrashed::new(
+                boxed(InstanceCrashed::new(
                     "AgentContext response state is poisoned",
                 ))
             })?
-            .recv_timeout(timeout);
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()));
         let raw = match message {
             Ok(ReaderMessage::Line(raw)) => raw,
             Ok(ReaderMessage::Overflow) => {
@@ -1184,12 +1381,17 @@ impl AgentContext {
                 unreachable!();
             }
             Ok(ReaderMessage::End) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(boxed(EngineCrashed::new(self.crash_message())));
+                // A closed stdout is terminal even when the instance or one of
+                // its descendants is still running: end the whole tree.
+                drop(exchange);
+                let message = self.crash_message();
+                self.terminate()?;
+                return Err(boxed(InstanceCrashed::new(message)));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 drop(exchange);
                 self.terminate()?;
-                return Err(boxed(EngineTimeout::new(
+                return Err(boxed(InstanceTimeout::new(
                     "Agent Tools response exceeded its deadline",
                 )));
             }
@@ -1261,7 +1463,7 @@ impl AgentContext {
 
     fn accept_hello(&self, result: &Value) -> SdkResult<Vec<String>> {
         let object = result.as_object().ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "Agent Tools hello is incompatible",
             ))
         })?;
@@ -1275,7 +1477,7 @@ impl AgentContext {
             "transport_version",
         ];
         if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools hello is incompatible",
             )));
         }
@@ -1291,20 +1493,29 @@ impl AgentContext {
                 object.get("transport_version").unwrap_or(&Value::Null),
                 "hello.transport_version",
             )? != AGENT_TOOLS_TRANSPORT_VERSION
-            || object.get("engine_version").and_then(Value::as_str)
-                != Some(SUPPORTED_AGENT_TOOLS_ENGINE_VERSION)
             || object.get("allow_write").and_then(Value::as_bool) != Some(self.permissions.write)
             || object.get("allow_exec").and_then(Value::as_bool) != Some(self.permissions.execute)
         {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools hello is incompatible",
+            )));
+        }
+        let engine_version = object.get("engine_version").and_then(Value::as_str);
+        if !ADMITTED_ENGINE_PAIRS.iter().any(|pair| {
+            pair.0 == AGENT_TOOLS_INTERFACE_VERSION
+                && pair.1 == AGENT_TOOLS_SCHEMA_VERSION
+                && pair.2 == AGENT_TOOLS_TRANSPORT_VERSION
+                && Some(pair.3) == engine_version
+        }) {
+            return Err(boxed(InstanceProtocolError::new(
+                "Agent Tools instance pair is unsupported",
             )));
         }
         let values = object
             .get("capabilities")
             .and_then(Value::as_array)
             .ok_or_else(|| {
-                boxed(EngineProtocolError::new(
+                boxed(InstanceProtocolError::new(
                     "Agent Tools capabilities are invalid",
                 ))
             })?;
@@ -1314,7 +1525,7 @@ impl AgentContext {
                 value
                     .as_str()
                     .ok_or_else(|| {
-                        boxed(EngineProtocolError::new(
+                        boxed(InstanceProtocolError::new(
                             "Agent Tools capabilities are invalid",
                         ))
                     })?
@@ -1327,14 +1538,14 @@ impl AgentContext {
             copy
         };
         if capabilities != sorted || capabilities.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools capabilities are not canonical",
             )));
         }
         let expected_capabilities =
             expected_capabilities(self.permissions, self.gitlab_source.is_some());
         if capabilities != expected_capabilities {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools capabilities do not match policy",
             )));
         }
@@ -1346,7 +1557,7 @@ impl AgentContext {
     }
     fn protocol_failure(&self, message: &str) -> SdkResult<()> {
         self.terminate()?;
-        Err(boxed(EngineProtocolError::new(message)))
+        Err(boxed(InstanceProtocolError::new(message)))
     }
 
     fn crash_message(&self) -> String {
@@ -1357,10 +1568,10 @@ impl AgentContext {
             .map(|value| String::from_utf8_lossy(&value).trim().to_owned())
             .unwrap_or_default();
         if detail.is_empty() {
-            "Agent Tools Engine exited".to_owned()
+            "Agent Tools instance exited".to_owned()
         } else {
             format!(
-                "Agent Tools Engine exited: {}",
+                "Agent Tools instance exited: {}",
                 detail.chars().take(4096).collect::<String>()
             )
         }
@@ -1374,7 +1585,7 @@ impl Drop for AgentContext {
 
 fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
     let object = value.as_object().ok_or_else(|| {
-        boxed(EngineProtocolError::new(
+        boxed(InstanceProtocolError::new(
             "Agent Tools result is not an object",
         ))
     })?;
@@ -1389,17 +1600,17 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         "shell",
     ];
     if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "Agent Tools result fields are invalid",
         )));
     }
     let text = object.get("text").and_then(Value::as_str).ok_or_else(|| {
-        boxed(EngineProtocolError::new(
+        boxed(InstanceProtocolError::new(
             "Agent Tools text or mode is invalid",
         ))
     })?;
     if text.len() > MAX_TEXT_BYTES {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "Agent Tools text or mode is invalid",
         )));
     }
@@ -1407,7 +1618,7 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         Some(Value::Null) => None,
         Some(Value::String(value)) => Some(value.clone()),
         _ => {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools text or mode is invalid",
             )))
         }
@@ -1429,7 +1640,7 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         .filter(|value| *value == original_tokens)
         .is_none()
     {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "Agent Tools token metrics are inconsistent",
         )));
     }
@@ -1437,7 +1648,7 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         .get("changed")
         .and_then(Value::as_bool)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "Agent Tools status metadata is invalid",
             ))
         })?;
@@ -1445,7 +1656,7 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         Some(Value::Null) => None,
         Some(Value::Object(value)) => Some(Value::Object(value.clone())),
         _ => {
-            return Err(boxed(EngineProtocolError::new(
+            return Err(boxed(InstanceProtocolError::new(
                 "Agent Tools status metadata is invalid",
             )))
         }
@@ -1454,12 +1665,12 @@ fn parse_tool_result(tool: &str, value: &Value) -> SdkResult<ToolResult> {
         .get("content_blocks")
         .and_then(Value::as_array)
         .ok_or_else(|| {
-            boxed(EngineProtocolError::new(
+            boxed(InstanceProtocolError::new(
                 "Agent Tools content blocks are invalid",
             ))
         })?;
     if content_blocks.iter().any(|value| !value.is_object()) {
-        return Err(boxed(EngineProtocolError::new(
+        return Err(boxed(InstanceProtocolError::new(
             "Agent Tools content blocks are invalid",
         )));
     }
@@ -1481,9 +1692,9 @@ fn map_agent_error(code: &str, message: &str) -> Box<dyn std::error::Error + Sen
         "permission_denied" => boxed(crate::errors::AgentPermissionError::new(message)),
         "unsupported_capability" => boxed(UnsupportedCapabilityError::new(message)),
         "invalid_request" | "invalid_state" | "unsupported_interface" => {
-            boxed(EngineProtocolError::new(message))
+            boxed(InstanceProtocolError::new(message))
         }
-        _ => boxed(EngineExecutionError::new(message)),
+        _ => boxed(InstanceExecutionError::new(message)),
     }
 }
 
@@ -1505,7 +1716,7 @@ fn write_policy(
                 options.write(true).create_new(true);
                 set_private_file(&mut options);
                 let mut file = options.open(&path).map_err(|_| {
-                    boxed(EngineUnavailable::new(
+                    boxed(InstanceUnavailable::new(
                         "Agent Tools policy could not be created",
                     ))
                 })?;
@@ -1548,7 +1759,7 @@ fn write_policy(
                 let payload = canonical_bytes(&Value::Object(object)).map_err(boxed)?;
                 if let Err(error) = file.write_all(&payload).and_then(|_| file.sync_all()) {
                     remove_policy_path(&path);
-                    return Err(boxed(EngineUnavailable::new(format!(
+                    return Err(boxed(InstanceUnavailable::new(format!(
                         "Agent Tools policy could not be written: {error}"
                     ))));
                 }
@@ -1556,13 +1767,13 @@ fn write_policy(
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(_) => {
-                return Err(boxed(EngineUnavailable::new(
+                return Err(boxed(InstanceUnavailable::new(
                     "Agent Tools policy directory could not be created",
                 )))
             }
         }
     }
-    Err(boxed(EngineUnavailable::new(
+    Err(boxed(InstanceUnavailable::new(
         "Agent Tools policy directory could not be created",
     )))
 }
@@ -1580,8 +1791,8 @@ fn resolve_binary(requested: Option<&Path>) -> SdkResult<PathBuf> {
     let has_separator = text.bytes().any(|byte| byte == b'/' || byte == b'\\');
     let candidate = if requested.is_absolute() || has_separator {
         fs::canonicalize(requested).map_err(|_| {
-            boxed(EngineUnavailable::new(
-                "configured Engine binary is unavailable",
+            boxed(InstanceUnavailable::new(
+                "configured instance binary is unavailable",
             ))
         })?
     } else {
@@ -1599,14 +1810,14 @@ fn resolve_binary(requested: Option<&Path>) -> SdkResult<PathBuf> {
             }
         }
         result.ok_or_else(|| {
-            boxed(EngineUnavailable::new(
-                "configured Engine binary is unavailable",
+            boxed(InstanceUnavailable::new(
+                "configured instance binary is unavailable",
             ))
         })?
     };
     if !candidate.is_file() || !is_executable(&candidate) {
-        return Err(boxed(EngineUnavailable::new(
-            "configured Engine binary is unavailable",
+        return Err(boxed(InstanceUnavailable::new(
+            "configured instance binary is unavailable",
         )));
     }
     Ok(candidate)
@@ -1623,7 +1834,9 @@ fn valid_env_name(value: &str) -> bool {
     let forbidden = [
         "COMSPEC",
         "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
         "HOME",
+        "LD_LIBRARY_PATH",
         "LD_PRELOAD",
         "PATH",
         "PATHEXT",
@@ -1698,7 +1911,60 @@ fn set_private_file(options: &mut OpenOptions) {
 }
 
 fn kill_process_tree(child: &mut Child) -> SdkResult<()> {
+    #[cfg(test)]
+    if let Some(delay) = test_hooks::failing_tree_kill() {
+        // Negative control: the tree kill fails after `delay` and signals
+        // nothing, as a child that cannot be terminated would.
+        thread::sleep(delay);
+        return Err(boxed(InstanceExecutionError::new(
+            "LeanCTX instance process tree could not be terminated (injected)",
+        )));
+    }
+    #[cfg(test)]
+    if let Some(budget) = test_hooks::unsignalled_reap_budget() {
+        // Negative control: nothing is signalled, so the child keeps running
+        // and the real, bounded reap has to give up and report it.
+        return crate::process::reap_within(child, budget);
+    }
     terminate_process_tree(child)
+}
+
+/// Seam for the negative control of the cleanup owner. Test builds only.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+
+    /// 0 = real termination; otherwise the tree kill fails after this many milliseconds.
+    static FAIL_TREE_KILL_AFTER_MS: AtomicU64 = AtomicU64::new(0);
+
+    pub(crate) fn fail_tree_kill_after(delay: Option<Duration>) {
+        let millis = delay.map_or(0, |delay| delay.as_millis().max(1) as u64);
+        FAIL_TREE_KILL_AFTER_MS.store(millis, Ordering::Release);
+    }
+
+    pub(super) fn failing_tree_kill() -> Option<Duration> {
+        match FAIL_TREE_KILL_AFTER_MS.load(Ordering::Acquire) {
+            0 => None,
+            millis => Some(Duration::from_millis(millis)),
+        }
+    }
+
+    /// 0 = real termination; otherwise the kill is skipped and the child is
+    /// reaped with this budget in milliseconds.
+    static UNSIGNALLED_REAP_BUDGET_MS: AtomicU64 = AtomicU64::new(0);
+
+    pub(crate) fn skip_kill_and_reap_within(budget: Option<Duration>) {
+        let millis = budget.map_or(0, |budget| budget.as_millis().max(1) as u64);
+        UNSIGNALLED_REAP_BUDGET_MS.store(millis, Ordering::Release);
+    }
+
+    pub(super) fn unsignalled_reap_budget() -> Option<Duration> {
+        match UNSIGNALLED_REAP_BUDGET_MS.load(Ordering::Acquire) {
+            0 => None,
+            millis => Some(Duration::from_millis(millis)),
+        }
+    }
 }
 
 fn is_executable(path: &Path) -> bool {

@@ -5,9 +5,9 @@ import {
   MAX_SOURCE_REQUEST_BYTES,
   MAX_SOURCE_RESPONSE_BYTES,
   type SourceOperation,
-  SubprocessEngineClient,
+  SubprocessInstanceClient,
 } from "./engine.js";
-import { EngineProtocolError, ValidationError } from "./errors.js";
+import { InstanceProtocolError, ValidationError } from "./errors.js";
 import {
   canonicalBytes,
   sha256Digest,
@@ -212,7 +212,7 @@ const DESCRIPTOR_KEYS = new Set([
   "permission",
 ]);
 
-export type EngineSourceDescriptorInput = Readonly<{
+export type InstanceSourceDescriptorInput = Readonly<{
   object_ref: string;
   source_id: string;
   source_type: SourceType;
@@ -225,7 +225,7 @@ export type EngineSourceDescriptorInput = Readonly<{
   permission?: SourcePermission;
 }>;
 
-export type EngineSourceDescriptor = Readonly<{
+export type InstanceSourceDescriptor = Readonly<{
   object_ref: string;
   source_id: string;
   source_type: SourceType;
@@ -238,7 +238,7 @@ export type EngineSourceDescriptor = Readonly<{
   permission: SourcePermission;
 }>;
 
-function descriptor(value: unknown, fieldName = "descriptor"): EngineSourceDescriptor {
+function descriptor(value: unknown, fieldName = "descriptor"): InstanceSourceDescriptor {
   const raw = object(value, fieldName);
   if (Object.keys(raw).some((key) => !DESCRIPTOR_KEYS.has(key))) {
     error(fieldName + " fields do not match the v1 contract");
@@ -269,7 +269,7 @@ function descriptor(value: unknown, fieldName = "descriptor"): EngineSourceDescr
   };
 }
 
-export class EnginePlanningRequest {
+export class InstancePlanningRequest {
   readonly taskId: string;
   readonly query: string;
   readonly budgetTokens: number;
@@ -293,7 +293,7 @@ export class EnginePlanningRequest {
       max_candidates: this.maxCandidates,
     };
     if (canonicalBytes(result).byteLength > MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES) {
-      error("Engine context-plan request exceeds its byte bound");
+      error("LeanCTX instance context-plan request exceeds its byte bound");
     }
     return result;
   }
@@ -301,11 +301,11 @@ export class EnginePlanningRequest {
 
 export const MAX_ENGINE_CONTEXT_PLAN_REQUEST_BYTES = 64 * 1024;
 
-export class EngineSource {
-  readonly descriptor: EngineSourceDescriptor;
+export class InstanceSource {
+  readonly descriptor: InstanceSourceDescriptor;
   readonly content: string;
 
-  constructor(input: EngineSourceDescriptorInput, content: string) {
+  constructor(input: InstanceSourceDescriptorInput, content: string) {
     this.descriptor = Object.freeze(descriptor(input));
     this.content = validText(content, "content", MAX_ENGINE_SOURCE_CONTENT_BYTES, {
       controls: false,
@@ -321,7 +321,7 @@ export class EngineSource {
   }
 }
 
-export type EngineSourceSelection = Readonly<{
+export type InstanceSourceSelection = Readonly<{
   source_ref: string;
   provider: string;
   disposition: string;
@@ -331,31 +331,31 @@ export type EngineSourceSelection = Readonly<{
   reason_detail?: string;
 }>;
 
-export type EngineContextPlan = Readonly<{
+export type InstanceContextPlan = Readonly<{
   schema_version: 1;
   context_plan_id: string;
   task_id: string;
   projection_digest?: string;
   budget_tokens: number;
-  selections: readonly EngineSourceSelection[];
+  selections: readonly InstanceSourceSelection[];
   readonly [key: string]: unknown;
 }>;
 
-export type EngineSourcePlanResult = Readonly<{
+export type InstanceSourcePlanResult = Readonly<{
   schema_version: 1;
   transport_version: 1;
   engine_interface_version: "1.0.0";
-  plan: EngineContextPlan;
+  plan: InstanceContextPlan;
   readonly [key: string]: unknown;
 }>;
 
-export type EngineSourcePlan = Readonly<{
-  result: EngineSourcePlanResult;
-  source_bindings: readonly EngineSourceDescriptor[];
+export type InstanceSourcePlan = Readonly<{
+  result: InstanceSourcePlanResult;
+  source_bindings: readonly InstanceSourceDescriptor[];
   binding_digest: string;
 }>;
 
-function descriptorEquals(left: EngineSourceDescriptor, right: EngineSourceDescriptor): boolean {
+function descriptorEquals(left: InstanceSourceDescriptor, right: InstanceSourceDescriptor): boolean {
   return Buffer.compare(canonicalBytes(left), canonicalBytes(right)) === 0;
 }
 
@@ -492,7 +492,7 @@ const PLAN_KEYS = new Set([
   "evidence",
 ]);
 
-function parseSelection(value: unknown, fieldName: string): EngineSourceSelection {
+function parseSelection(value: unknown, fieldName: string): InstanceSourceSelection {
   const raw = object(value, fieldName);
   if (Object.keys(raw).some((key) => !SELECTION_KEYS.has(key))) error(fieldName + " fields do not match the v1 contract");
   for (const key of ["source_ref", "provider", "disposition", "token_count", "reason_codes"]) {
@@ -516,7 +516,7 @@ function parseSelection(value: unknown, fieldName: string): EngineSourceSelectio
   if (raw.reason_detail !== undefined && raw.reason_detail !== null) {
     result.reason_detail = validText(raw.reason_detail, fieldName + ".reason_detail", MAX_IDENTIFIER_BYTES);
   }
-  return result as EngineSourceSelection;
+  return result as InstanceSourceSelection;
 }
 
 function parseEvidence(value: unknown, fieldName: string): JsonRecord {
@@ -542,7 +542,7 @@ function parseEvidence(value: unknown, fieldName: string): JsonRecord {
   return result;
 }
 
-function parsePlan(value: unknown): EngineContextPlan {
+function parsePlan(value: unknown): InstanceContextPlan {
   const raw = object(value, "plan");
   const required = ["schema_version", "context_plan_id", "task_id", "budget_tokens", "selections"];
   if (required.some((key) => !(key in raw))) error("plan is missing a required field");
@@ -605,15 +605,15 @@ function parsePlan(value: unknown): EngineContextPlan {
       error("plan.projection_digest does not match canonical projection content");
     }
   }
-  return result as EngineContextPlan;
+  return result as InstanceContextPlan;
 }
 
-function parseResponse(value: JsonRecord, request: EnginePlanningRequest): EngineSourcePlanResult {
-  exactKeys(value, new Set(["schema_version", "transport_version", "engine_interface_version", "plan"]), "Engine context-plan response");
-  header(value, "Engine context-plan response");
+function parseResponse(value: JsonRecord, request: InstancePlanningRequest): InstanceSourcePlanResult {
+  exactKeys(value, new Set(["schema_version", "transport_version", "engine_interface_version", "plan"]), "LeanCTX instance context-plan response");
+  header(value, "LeanCTX instance context-plan response");
   const plan = parsePlan(value.plan);
-  if (plan.task_id !== request.taskId) error("Engine context-plan response task_id does not bind the request");
-  if (plan.budget_tokens > request.budgetTokens) error("Engine context-plan response budget exceeds the request");
+  if (plan.task_id !== request.taskId) error("LeanCTX instance context-plan response task_id does not bind the request");
+  if (plan.budget_tokens > request.budgetTokens) error("LeanCTX instance context-plan response budget exceeds the request");
   return {
     schema_version: SCHEMA_VERSION,
     transport_version: TRANSPORT_VERSION,
@@ -624,13 +624,13 @@ function parseResponse(value: JsonRecord, request: EnginePlanningRequest): Engin
 
 export function parseSourcePlan(
   raw: Uint8Array | string,
-  request: EnginePlanningRequest,
-  sources?: readonly EngineSource[],
-): EngineSourcePlan {
-  const value = decode(raw, "Engine source-plan response");
-  exactKeys(value, new Set(["result", "source_bindings", "binding_digest"]), "Engine source-plan response");
+  request: InstancePlanningRequest,
+  sources?: readonly InstanceSource[],
+): InstanceSourcePlan {
+  const value = decode(raw, "LeanCTX instance source-plan response");
+  exactKeys(value, new Set(["result", "source_bindings", "binding_digest"]), "LeanCTX instance source-plan response");
   const result = parseResponse(object(value.result, "result"), request);
-  if (result.plan.projection_digest === undefined) error("Engine source-plan response requires projection_digest");
+  if (result.plan.projection_digest === undefined) error("LeanCTX instance source-plan response requires projection_digest");
   if (!Array.isArray(value.source_bindings) || value.source_bindings.length > MAX_PROTOCOL_ITEMS) {
     error("source_bindings has an invalid shape");
   }
@@ -655,9 +655,9 @@ export function parseSourcePlan(
   }
   if (sources !== undefined) {
     if (sources.length > MAX_ENGINE_SOURCE_PLAN_SOURCES) error("sources has an invalid shape");
-    const requested = new Map<string, EngineSourceDescriptor>();
+    const requested = new Map<string, InstanceSourceDescriptor>();
     for (const source of sources) {
-      if (!(source instanceof EngineSource)) error("sources must contain EngineSource values");
+      if (!(source instanceof InstanceSource)) error("sources must contain InstanceSource values");
       if (requested.has(source.descriptor.object_ref)) error("sources contains duplicate object_ref values");
       requested.set(source.descriptor.object_ref, source.descriptor);
     }
@@ -671,18 +671,18 @@ export function parseSourcePlan(
   return { result, source_bindings: bindings, binding_digest: bindingDigest };
 }
 
-function planEvaluationTime(plan: EngineContextPlan): string | undefined {
+function planEvaluationTime(plan: InstanceContextPlan): string | undefined {
   const extension = plan.context_plan_evaluation_v1;
   if (extension === undefined) return undefined;
   const value = object(extension, "plan.context_plan_evaluation_v1");
   return timestamp(value.evaluation_time, "plan.context_plan_evaluation_v1.evaluation_time");
 }
 
-export type EngineContextSourceMaterialization = Readonly<{
+export type InstanceContextSourceMaterialization = Readonly<{
   schema_version: 1;
   transport_version: 1;
   engine_interface_version: "1.0.0";
-  plan: EngineSourcePlan;
+  plan: InstanceSourcePlan;
   materialized_digest: string;
   materialized_token_count: number;
   content: string;
@@ -690,10 +690,10 @@ export type EngineContextSourceMaterialization = Readonly<{
 
 export function parseMaterialization(
   raw: Uint8Array | string,
-  request: EnginePlanningRequest,
-  sources: readonly EngineSource[],
-): EngineContextSourceMaterialization {
-  const value = decode(raw, "Engine materialization response");
+  request: InstancePlanningRequest,
+  sources: readonly InstanceSource[],
+): InstanceContextSourceMaterialization {
+  const value = decode(raw, "LeanCTX instance materialization response");
   exactKeys(value, new Set([
     "schema_version",
     "transport_version",
@@ -702,8 +702,8 @@ export function parseMaterialization(
     "materialized_digest",
     "materialized_token_count",
     "content",
-  ]), "Engine materialization response");
-  header(value, "Engine materialization response");
+  ]), "LeanCTX instance materialization response");
+  header(value, "LeanCTX instance materialization response");
   const plan = parseSourcePlan(canonicalBytes(value.plan), request, sources);
   const content = validText(value.content, "materialized content", MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES, {
     controls: false,
@@ -712,7 +712,7 @@ export function parseMaterialization(
   });
   const materializedDigest = validateDigest(value.materialized_digest, "materialized_digest");
   if (sha256Digest(Buffer.from(content, "utf8")) !== materializedDigest) {
-    error("Engine materialized content digest mismatch");
+    error("LeanCTX instance materialized content digest mismatch");
   }
   const tokenCount = integer(value.materialized_token_count, "materialized_token_count", 0, plan.result.plan.budget_tokens);
   return {
@@ -726,14 +726,110 @@ export function parseMaterialization(
   };
 }
 
-export class EngineSourcePlanningClient {
-  constructor(private readonly engine: SubprocessEngineClient) {}
+export { ENGINE_PRESENTER_CAPABILITY_MIN_ENGINE_VERSION } from "./engine.js";
+export const MAX_ENGINE_PRESENTER_TTL_SECONDS = 24 * 60 * 60;
+/** Proxy request header a host shows its capability in. The proxy never forwards it. */
+export const PRESENTER_CAPABILITY_HEADER = "x-leanctx-presenter" as const;
+/** MCP `_meta` key a host shows its capability under. Never a tool argument. */
+export const PRESENTER_CAPABILITY_META_KEY = "leanctx/presenterCapability" as const;
+
+const PRESENTER_CAPABILITY_RE = /^lcp1_[0-9a-f]{64}$/;
+const PRESENTER_REF_RE = /^presenter:[0-9a-f]{32}$/;
+const PRESENTER_SECRETS = new WeakMap<object, string>();
+
+/**
+ * A presenter capability: a host-internal bearer secret issued by the Engine.
+ *
+ * Showing it proves only that a request comes from the holder of the capability under
+ * which sources were presented. It is not an agent name, an identity or an
+ * authorization; the Engine re-checks current source rights at every use.
+ *
+ * The secret is not a property of this object: it does not appear in `JSON.stringify`,
+ * string conversion or `util.inspect`. `reveal()` is for the two host-side transports
+ * only — the proxy header {@link PRESENTER_CAPABILITY_HEADER} and the MCP `_meta` key
+ * {@link PRESENTER_CAPABILITY_META_KEY}. Never put it in model context, a tool
+ * argument, a log or a request body.
+ */
+export class PresenterCapability {
+  constructor(secret: string) {
+    if (typeof secret !== "string" || !PRESENTER_CAPABILITY_RE.test(secret)) {
+      error("presenter capability is malformed");
+    }
+    PRESENTER_SECRETS.set(this, secret);
+    Object.freeze(this);
+  }
+
+  reveal(): string {
+    return PRESENTER_SECRETS.get(this) as string;
+  }
+
+  toString(): string {
+    return "PresenterCapability(<redacted>)";
+  }
+
+  toJSON(): string {
+    return "<redacted>";
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return this.toString();
+  }
+}
+
+export type InstancePresenterGrant = Readonly<{
+  /** Content-free reference of the presenter entry; safe in records. */
+  presenter_ref: string;
+  expires_at_unix: number;
+  /** Present when the capability was issued by this call; `null` on a renewal. */
+  capability: PresenterCapability | null;
+}>;
+
+export type InstanceContextSourceMaterializationV2 = Readonly<{
+  schema_version: 2;
+  materialization: InstanceContextSourceMaterialization;
+  presenter: InstancePresenterGrant;
+}>;
+
+export function parseMaterializationV2(
+  raw: Uint8Array | string,
+  request: InstancePlanningRequest,
+  sources: readonly InstanceSource[],
+  issued: boolean,
+): InstanceContextSourceMaterializationV2 {
+  const label = "LeanCTX instance materialization v2 response";
+  const value = decode(raw, label);
+  const keys = Object.keys(value);
+  if (keys.length !== 3 || !["schema_version", "materialization", "presenter"].every((key) => keys.includes(key))) {
+    error(label + " fields do not match the v2 contract");
+  }
+  if (value.schema_version !== 2) error(label + " schema_version is unsupported");
+  const materialization = parseMaterialization(canonicalBytes(value.materialization), request, sources);
+  const grant = object(value.presenter, "presenter");
+  const allowed = new Set(["presenter_ref", "expires_at_unix", "capability"]);
+  if (Object.keys(grant).some((key) => !allowed.has(key))) error("presenter fields do not match the v2 contract");
+  const presenterRef = grant.presenter_ref;
+  if (typeof presenterRef !== "string" || !PRESENTER_REF_RE.test(presenterRef)) error("presenter_ref is malformed");
+  const expiresAt = integer(grant.expires_at_unix, "presenter.expires_at_unix", 1, Number.MAX_SAFE_INTEGER);
+  if (issued !== (grant.capability !== undefined)) error("presenter grant does not match the requested mode");
+  const capability = grant.capability === undefined ? null : new PresenterCapability(grant.capability as string);
+  if (capability !== null && materialization.content.includes(capability.reveal())) {
+    error("materialized content must not contain the presenter capability");
+  }
+  return {
+    schema_version: 2,
+    materialization,
+    presenter: { presenter_ref: presenterRef, expires_at_unix: expiresAt, capability },
+  };
+}
+
+export class InstanceSourcePlanningClient {
+  constructor(private readonly engine: SubprocessInstanceClient) {}
 
   async contextPlanSources(
     projectRoot: string,
-    request: EnginePlanningRequest,
-    sources: readonly EngineSource[],
-  ): Promise<EngineSourcePlan> {
+    request: InstancePlanningRequest,
+    sources: readonly InstanceSource[],
+  ): Promise<InstanceSourcePlan> {
     const input = sourcePlanRequest(request, sources);
     let raw: Buffer;
     try {
@@ -744,18 +840,18 @@ export class EngineSourcePlanningClient {
     try {
       return parseSourcePlan(raw, request, sources);
     } catch (cause) {
-      if (cause instanceof ValidationError) throw new EngineProtocolError("Engine source-plan response failed validation", { cause });
+      if (cause instanceof ValidationError) throw new InstanceProtocolError("LeanCTX instance source-plan response failed validation", { cause });
       throw cause;
     }
   }
 
   async contextMaterializeSources(
     projectRoot: string,
-    request: EnginePlanningRequest,
-    sources: readonly EngineSource[],
+    request: InstancePlanningRequest,
+    sources: readonly InstanceSource[],
     expectedBindingDigest: string,
     planningEvaluationTime?: string,
-  ): Promise<EngineContextSourceMaterialization> {
+  ): Promise<InstanceContextSourceMaterialization> {
     const sourcePlan = sourcePlanRequest(request, sources);
     const expectedDigest = validateDigest(expectedBindingDigest, "expected_binding_digest");
     const expectedEvaluationTime = planningEvaluationTime === undefined
@@ -770,36 +866,279 @@ export class EngineSourcePlanningClient {
     try {
       const materialized = parseMaterialization(raw, request, sources);
       if (materialized.plan.binding_digest !== expectedDigest) {
-        throw new EngineProtocolError("Engine materialization response binding digest mismatch");
+        throw new InstanceProtocolError("LeanCTX instance materialization response binding digest mismatch");
       }
       if (planEvaluationTime(materialized.plan.result.plan) !== expectedEvaluationTime) {
-        throw new EngineProtocolError("Engine materialization response evaluation epoch mismatch");
+        throw new InstanceProtocolError("LeanCTX instance materialization response evaluation epoch mismatch");
       }
       return materialized;
     } catch (cause) {
-      if (cause instanceof ValidationError) throw new EngineProtocolError("Engine materialization response failed validation", { cause });
+      if (cause instanceof ValidationError) throw new InstanceProtocolError("LeanCTX instance materialization response failed validation", { cause });
+      throw cause;
+    }
+  }
+
+  /**
+   * `context-materialize-sources-v2`: the v1 exchange, presented under a presenter
+   * capability. `{ ttlSeconds }` has one issued; a capability from an earlier grant
+   * presents under it again (and is not returned a second time).
+   */
+  async contextMaterializeSourcesV2(
+    projectRoot: string,
+    request: InstancePlanningRequest,
+    sources: readonly InstanceSource[],
+    expectedBindingDigest: string,
+    presenter: { ttlSeconds: number } | PresenterCapability,
+    planningEvaluationTime?: string,
+  ): Promise<InstanceContextSourceMaterializationV2> {
+    const sourcePlan = sourcePlanRequest(request, sources);
+    const expectedDigest = validateDigest(expectedBindingDigest, "expected_binding_digest");
+    const expectedEvaluationTime = planningEvaluationTime === undefined
+      ? undefined
+      : timestamp(planningEvaluationTime, "planning_evaluation_time");
+    const materialization: JsonRecord = {
+      source_plan: sourcePlan,
+      expected_binding_digest: expectedDigest,
+    };
+    if (expectedEvaluationTime !== undefined) materialization.planning_evaluation_time = expectedEvaluationTime;
+    const held = presenter instanceof PresenterCapability ? presenter : null;
+    const mode: JsonRecord = held !== null
+      ? { mode: "renew" }
+      : {
+        mode: "issue",
+        ttl_seconds: integer(
+          (presenter as { ttlSeconds: number }).ttlSeconds,
+          "presenter.ttlSeconds",
+          1,
+          MAX_ENGINE_PRESENTER_TTL_SECONDS,
+        ),
+      };
+    const raw = await this.engine.presenterMaterializeOperation(
+      projectRoot,
+      { schema_version: 2, materialization, presenter: mode },
+      held?.reveal(),
+    );
+    try {
+      const response = parseMaterializationV2(raw, request, sources, held === null);
+      if (response.materialization.plan.binding_digest !== expectedDigest) {
+        throw new InstanceProtocolError("LeanCTX instance materialization response binding digest mismatch");
+      }
+      if (planEvaluationTime(response.materialization.plan.result.plan) !== expectedEvaluationTime) {
+        throw new InstanceProtocolError("LeanCTX instance materialization response evaluation epoch mismatch");
+      }
+      return response;
+    } catch (cause) {
+      if (cause instanceof ValidationError) throw new InstanceProtocolError("LeanCTX instance materialization response failed validation", { cause });
+      throw cause;
+    }
+  }
+
+  /**
+   * `context-presented-use`: what the holder of `capability` may do later with text
+   * that was materialized under it — ask whether it is still usable (`check`), keep a
+   * recovery copy (`retain`), get a kept copy back (`expand`). The capability reaches
+   * the Engine through an owner-only file, never through argv, env or the request.
+   *
+   * `authorizedSourceIds` is the Engine's optional source constraint: when given, the
+   * Engine answers only for a lineage of EXACTLY these source ids and stores nothing
+   * for any other (`lineage.unknown`). A local host leaves it out; a caller that has
+   * authorized the request for certain sources names them.
+   */
+  async presentedUse(
+    projectRoot: string,
+    capability: PresenterCapability,
+    asked: PresentedUse,
+    authorizedSourceIds?: readonly string[],
+  ): Promise<PresentedUseAnswer> {
+    if (!(capability instanceof PresenterCapability)) error("presented use requires a PresenterCapability");
+    const use = presentedUseRequest(asked);
+    const request: JsonRecord = authorizedSourceIds === undefined
+      ? { schema_version: 1, use }
+      : { schema_version: 1, authorized_source_ids: sourceConstraint(authorizedSourceIds), use };
+    const raw = await this.engine.presenterMaterializeOperation(
+      projectRoot,
+      request,
+      capability.reveal(),
+      "context-presented-use",
+      2 * MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES + 1024 + MAX_ENGINE_SOURCE_PLAN_SOURCES * 515,
+    );
+    try {
+      const answer = parsePresentedUse(decode(raw, "LeanCTX instance presented use response"), asked, capability);
+      // The constraint is set equality: a usable answer for other sources than the
+      // ones this request was authorized for is not an answer to it.
+      if (
+        answer.usable && authorizedSourceIds !== undefined
+        && (answer.source_ids.length !== authorizedSourceIds.length
+          || !authorizedSourceIds.every((id) => answer.source_ids.includes(id)))
+      ) {
+        throw new InstanceProtocolError("LeanCTX instance presented use response is outside the authorized sources");
+      }
+      return answer;
+    } catch (cause) {
+      if (cause instanceof ValidationError) throw new InstanceProtocolError("LeanCTX instance presented use response failed validation", { cause });
+      throw cause;
+    }
+  }
+
+  /** `context-presenter-revoke`: from now on `capability` presents and reuses nothing. */
+  async revokePresenter(projectRoot: string, capability: PresenterCapability): Promise<PresenterRevocation> {
+    if (!(capability instanceof PresenterCapability)) error("revocation requires a PresenterCapability");
+    const raw = await this.engine.presenterMaterializeOperation(
+      projectRoot,
+      { schema_version: 1 },
+      capability.reveal(),
+      "context-presenter-revoke",
+      256,
+    );
+    try {
+      return parsePresenterRevocation(decode(raw, "LeanCTX instance presenter revocation response"));
+    } catch (cause) {
+      if (cause instanceof ValidationError) throw new InstanceProtocolError("LeanCTX instance presenter revocation response failed validation", { cause });
       throw cause;
     }
   }
 }
 
+/** What the holder of a capability asks about text delivered under a presented lineage. */
+export type PresentedUse =
+  | Readonly<{ mode: "check"; content: string }>
+  | Readonly<{ mode: "retain"; content: string }>
+  | Readonly<{ mode: "expand"; recovery_id: string }>;
+
+/** `usable: false` carries a content-free `reason` and nothing else. */
+export type PresentedUseAnswer = Readonly<{
+  schema_version: 1;
+  presenter_ref: string;
+  usable: boolean;
+  reason: string | null;
+  source_ids: readonly string[];
+  recovery_id: string | null;
+  content: string | null;
+}>;
+
+export type PresenterRevocation = Readonly<{
+  schema_version: 1;
+  presenter_ref: string;
+  revoked: boolean;
+}>;
+
+const RECOVERY_ID_RE = /^[0-9a-f]{64}$/;
+const PRESENTED_USE_REASON_RE = /^(?:lineage|recovery)\.[a-z_]{1,48}$/;
+
+/** The wire member `authorized_source_ids`: a non-empty, bounded set of distinct ids. */
+function sourceConstraint(ids: readonly string[]): string[] {
+  if (
+    !Array.isArray(ids) || ids.length === 0 || ids.length > MAX_ENGINE_SOURCE_PLAN_SOURCES
+    || ids.some((id) => typeof id !== "string" || id.length === 0 || Buffer.byteLength(id, "utf8") > 256)
+    || new Set(ids).size !== ids.length
+  ) {
+    error("authorized source ids must be a non-empty, bounded set of distinct ids");
+  }
+  return [...ids].sort();
+}
+
+/** The wire member `use`. A capability is never part of it. */
+export function presentedUseRequest(asked: PresentedUse): JsonRecord {
+  const mode = (asked as { mode?: unknown } | null)?.mode;
+  if (mode === "expand") {
+    const recoveryId = (asked as { recovery_id?: unknown }).recovery_id;
+    if (typeof recoveryId !== "string" || !RECOVERY_ID_RE.test(recoveryId)) error("recovery_id is malformed");
+    return { mode, recovery_id: recoveryId };
+  }
+  if (mode !== "check" && mode !== "retain") error("presented use mode must be check, retain or expand");
+  const content = (asked as { content?: unknown }).content;
+  if (
+    typeof content !== "string" || content.length === 0
+    || Buffer.byteLength(content, "utf8") > MAX_ENGINE_SOURCE_MATERIALIZED_CONTEXT_BYTES
+  ) {
+    error("presented content is empty or exceeds its byte bound");
+  }
+  return { mode, content };
+}
+
+/**
+ * Validate the Engine's answer to `asked`: text comes back for `expand` only, a
+ * recovery id for `retain` and `expand`, and never the capability inside the text.
+ */
+export function parsePresentedUse(
+  value: Record<string, unknown>,
+  asked: PresentedUse,
+  capability: PresenterCapability,
+): PresentedUseAnswer {
+  const allowed = new Set(["schema_version", "presenter_ref", "usable", "reason", "source_ids", "recovery_id", "content"]);
+  const sourceIds = value.source_ids;
+  if (
+    Object.keys(value).some((key) => !allowed.has(key)) || value.schema_version !== 1
+    || typeof value.presenter_ref !== "string" || !PRESENTER_REF_RE.test(value.presenter_ref)
+    || typeof value.usable !== "boolean"
+    || !Array.isArray(sourceIds) || !sourceIds.every((id) => typeof id === "string" && id.length > 0)
+    // A lineage names every source once: a repeated id could stand in for one it does not name.
+    || new Set(sourceIds).size !== sourceIds.length
+  ) {
+    error("presented use fields do not match the v1 contract");
+  }
+  const base = { schema_version: 1 as const, presenter_ref: value.presenter_ref as string };
+  if (value.usable === false) {
+    if (
+      typeof value.reason !== "string" || !PRESENTED_USE_REASON_RE.test(value.reason)
+      || (sourceIds as unknown[]).length !== 0 || value.recovery_id !== undefined || value.content !== undefined
+    ) {
+      error("presented use refusal does not match the v1 contract");
+    }
+    return { ...base, usable: false, reason: value.reason as string, source_ids: [], recovery_id: null, content: null };
+  }
+  const expanding = asked.mode === "expand";
+  const recoveryId = value.recovery_id;
+  const content = value.content;
+  if (
+    value.reason !== undefined || (sourceIds as unknown[]).length === 0
+    || (recoveryId !== undefined) !== (asked.mode !== "check")
+    || (recoveryId !== undefined && (typeof recoveryId !== "string" || !RECOVERY_ID_RE.test(recoveryId)))
+    || (asked.mode === "expand" && recoveryId !== asked.recovery_id)
+    || (content !== undefined) !== expanding
+    || (content !== undefined && (typeof content !== "string" || content.includes(capability.reveal())))
+  ) {
+    error("presented use answer does not match what was asked");
+  }
+  return {
+    ...base,
+    usable: true,
+    reason: null,
+    source_ids: Object.freeze([...(sourceIds as string[])]),
+    recovery_id: (recoveryId as string | undefined) ?? null,
+    content: (content as string | undefined) ?? null,
+  };
+}
+
+export function parsePresenterRevocation(value: Record<string, unknown>): PresenterRevocation {
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 3 || value.schema_version !== 1
+    || typeof value.presenter_ref !== "string" || !PRESENTER_REF_RE.test(value.presenter_ref)
+    || typeof value.revoked !== "boolean"
+  ) {
+    error("presenter revocation fields do not match the v1 contract");
+  }
+  return { schema_version: 1, presenter_ref: value.presenter_ref as string, revoked: value.revoked as boolean };
+}
+
 function sourcePlanRequest(
-  request: EnginePlanningRequest,
-  sources: readonly EngineSource[],
+  request: InstancePlanningRequest,
+  sources: readonly InstanceSource[],
 ): JsonRecord {
-  if (!(request instanceof EnginePlanningRequest)) error("source planning requires EnginePlanningRequest");
+  if (!(request instanceof InstancePlanningRequest)) error("source planning requires InstancePlanningRequest");
   if (!Array.isArray(sources) || sources.length > MAX_ENGINE_SOURCE_PLAN_SOURCES) {
     error("sources must be a bounded list");
   }
   const descriptors = sources.map((source) => {
-    if (!(source instanceof EngineSource)) error("sources must contain EngineSource values");
+    if (!(source instanceof InstanceSource)) error("sources must contain InstanceSource values");
     return source.toDict();
   });
   const references = sources.map((source) => source.descriptor.object_ref);
   if (new Set(references).size !== references.length) error("source object references must be unique");
   const body: JsonRecord = { planning: request.toDict(), sources: descriptors };
   if (canonicalBytes(body).byteLength > MAX_ENGINE_SOURCE_PLAN_REQUEST_BYTES) {
-    error("Engine source-plan request exceeds its byte bound");
+    error("LeanCTX instance source-plan request exceeds its byte bound");
   }
   return body;
 }

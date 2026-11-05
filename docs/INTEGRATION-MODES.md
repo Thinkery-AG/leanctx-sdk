@@ -7,7 +7,7 @@ an Engine surface, not an SDK abstraction.
 
 ## Embed
 
-Use `ContextSession` with `SubprocessEngineClient`. The host keeps its native
+Use `ContextSession` with `SubprocessInstanceClient`. The host keeps its native
 model and result objects while the SDK owns context lifecycle and evidence.
 This is the Stable SDK path.
 

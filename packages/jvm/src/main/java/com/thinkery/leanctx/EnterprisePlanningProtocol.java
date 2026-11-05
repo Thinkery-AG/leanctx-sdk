@@ -16,12 +16,15 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Strict wire validation for authenticated Enterprise source planning. */
+@SuppressWarnings("removal")
 final class EnterprisePlanningProtocol {
     static final int MAX_REQUEST_BYTES = 64 * 1024;
     static final int MAX_PLAN_RESPONSE_BYTES = 1024 * 1024;
     static final int MAX_MATERIALIZED_CONTENT_BYTES = 1024 * 1024;
     static final int MAX_MATERIALIZATION_RESPONSE_BYTES =
             MAX_PLAN_RESPONSE_BYTES + MAX_MATERIALIZED_CONTENT_BYTES;
+    static final int PRESENTER_ENVELOPE_BYTES = 512;
+    static final int MAX_PRESENTED_CONTENT_BYTES = MAX_MATERIALIZED_CONTENT_BYTES;
     static final int MAX_SOURCE_IDS = 64;
     static final int MAX_PROTOCOL_ITEMS = 256;
     static final int MAX_IDENTIFIER_BYTES = 256;
@@ -111,7 +114,7 @@ final class EnterprisePlanningProtocol {
             throw new ValidationError("source_ids must be a bounded sequence of UUID strings");
         }
         if (values.size() > MAX_SOURCE_IDS) {
-            throw new ValidationError("source_ids exceeds the Engine source bound");
+            throw new ValidationError("source_ids exceeds the LeanCTX instance source bound");
         }
         List<String> result = new ArrayList<>(values.size());
         Set<String> seen = new HashSet<>();
@@ -158,16 +161,16 @@ final class EnterprisePlanningProtocol {
         return checked;
     }
 
-    static Map<String, Object> parsePlanResponse(byte[] raw, EnginePlanningRequest request,
+    static Map<String, Object> parsePlanResponse(byte[] raw, InstancePlanningRequest request,
                                                  List<String> sourceIds, String expectedTenant) {
-        String label = "Enterprise Engine source-plan response";
+        String label = "Enterprise instance source-plan response";
         Map<String, Object> response = parseObject(raw, label, MAX_PLAN_RESPONSE_BYTES);
         exactKeys(response, Set.of("schema_version", "tenant_id", "governance_revision", "plan"), label);
         BigInteger schemaVersion = protocolU64(response.get("schema_version"), label + ".schema_version");
         requireSchema(schemaVersion, label + ".schema_version");
         String tenantId = protocolUuid(response.get("tenant_id"), label + ".tenant_id");
         if (!tenantId.equals(expectedTenant)) {
-            throw protocol("Enterprise Engine source-plan response tenant binding does not match");
+            throw protocol("Enterprise instance source-plan response tenant binding does not match");
         }
         BigInteger governanceRevision = protocolU64(
                 response.get("governance_revision"), label + ".governance_revision");
@@ -181,36 +184,226 @@ final class EnterprisePlanningProtocol {
         return Json.immutableMapPreserving(result);
     }
 
-    static Map<String, Object> parseMaterializationResponse(byte[] raw, EnginePlanningRequest request,
+    static Map<String, Object> parseMaterializationResponse(byte[] raw, InstancePlanningRequest request,
                                                             List<String> sourceIds,
                                                             BigInteger expectedGovernanceRevision,
                                                             String expectedBindingDigest,
                                                             String expectedTenant) {
-        String label = "Enterprise Engine materialization response";
-        Map<String, Object> response = parseObject(raw, label, MAX_MATERIALIZATION_RESPONSE_BYTES);
+        Map<String, Object> response = parseObject(
+                raw, "Enterprise instance materialization response", MAX_MATERIALIZATION_RESPONSE_BYTES);
+        return parseMaterializationObject(response, request, sourceIds, expectedGovernanceRevision,
+                expectedBindingDigest, expectedTenant);
+    }
+
+    /**
+     * The v2 response: the unchanged v1 exchange inside a v2 envelope, plus the
+     * presenter grant. {@code issued} says whether this call asked for a new
+     * capability: then exactly one is present, otherwise none.
+     */
+    static Map<String, Object> parseMaterializationV2Response(byte[] raw, InstancePlanningRequest request,
+                                                              List<String> sourceIds,
+                                                              BigInteger expectedGovernanceRevision,
+                                                              String expectedBindingDigest,
+                                                              String expectedTenant, boolean issued) {
+        String label = "Enterprise instance materialization v2 response";
+        Map<String, Object> response = parseObject(
+                raw, label, MAX_MATERIALIZATION_RESPONSE_BYTES + PRESENTER_ENVELOPE_BYTES);
+        exactKeys(response, Set.of(
+                "schema_version", "tenant_id", "governance_revision", "materialization"), label);
+        Map<String, Object> engine = Json.object(response.get("materialization"), label + ".materialization");
+        exactKeys(engine, Set.of("schema_version", "materialization", "presenter"), label);
+        BigInteger two = BigInteger.valueOf(2);
+        if (!two.equals(protocolU64(response.get("schema_version"), label + ".schema_version"))
+                || !two.equals(protocolU64(engine.get("schema_version"), label + ".schema_version"))) {
+            throw protocol(label + ".schema_version is unsupported");
+        }
+        Map<String, Object> v1 = new LinkedHashMap<>();
+        v1.put("schema_version", BigInteger.ONE);
+        v1.put("tenant_id", response.get("tenant_id"));
+        v1.put("governance_revision", response.get("governance_revision"));
+        v1.put("materialization", engine.get("materialization"));
+        Map<String, Object> validated = parseMaterializationObject(v1, request, sourceIds,
+                expectedGovernanceRevision, expectedBindingDigest, expectedTenant);
+        Map<String, Object> materialization = Json.object(
+                validated.get("materialization"), label + ".materialization");
+
+        Map<String, Object> grant = Json.object(engine.get("presenter"), label + ".presenter");
+        if (!Set.of("presenter_ref", "expires_at_unix", "capability").containsAll(grant.keySet())) {
+            throw protocol("presenter grant fields do not match the v2 contract");
+        }
+        if (!(grant.get("presenter_ref") instanceof String reference)
+                || !reference.matches("presenter:[0-9a-f]{32}")) {
+            throw protocol("presenter_ref is malformed");
+        }
+        BigInteger expiresAt = protocolU64(grant.get("expires_at_unix"), "presenter.expires_at_unix");
+        if (expiresAt.signum() == 0 || grant.containsKey("capability") != issued) {
+            throw protocol("presenter grant does not match the request");
+        }
+        PresenterCapability capability = null;
+        if (issued) {
+            if (!(grant.get("capability") instanceof String secret) || !PresenterCapability.isWellFormed(secret)) {
+                throw protocol("presenter capability is malformed");
+            }
+            if (String.valueOf(materialization.get("content")).contains(secret)) {
+                throw protocol("presenter capability appears in materialized content");
+            }
+            capability = new PresenterCapability(secret);
+        }
+        // A capability is not JSON: the presenter map is built as it is and
+        // the rest of the result keeps the immutable JSON form.
+        Map<String, Object> presenter = new LinkedHashMap<>();
+        presenter.put("presenter_ref", reference);
+        presenter.put("expires_at_unix", expiresAt);
+        presenter.put("capability", capability);
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("schema_version", 2);
+        envelope.put("materialization", materialization);
+        envelope.put("presenter", java.util.Collections.unmodifiableMap(presenter));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("schema_version", 2);
+        result.put("tenant_id", validated.get("tenant_id"));
+        result.put("governance_revision", validated.get("governance_revision"));
+        result.put("materialization", java.util.Collections.unmodifiableMap(envelope));
+        return java.util.Collections.unmodifiableMap(result);
+    }
+
+    /**
+     * The validated answer to a presented use. {@code mode} and {@code value}
+     * are what was asked; an answer that does not fit them, that names other
+     * sources, or whose text holds the capability is a protocol error.
+     */
+    static Map<String, Object> parsePresentedUseResponse(byte[] raw, String mode, String value,
+                                                         List<String> sourceIds,
+                                                         BigInteger expectedGovernanceRevision,
+                                                         String expectedTenant,
+                                                         PresenterCapability capability) {
+        String label = "Enterprise presented use response";
+        Map<String, Object> response = parseObject(
+                raw, label, MAX_MATERIALIZATION_RESPONSE_BYTES + PRESENTER_ENVELOPE_BYTES);
+        exactKeys(response, Set.of("schema_version", "tenant_id", "governance_revision", "use"), label);
+        Map<String, Object> answer = Json.object(response.get("use"), label + ".use");
+        if (!Set.of("schema_version", "presenter_ref", "usable", "reason", "source_ids",
+                "recovery_id", "content").containsAll(answer.keySet())) {
+            throw protocol(label + " fields do not match the v1 contract");
+        }
+        if (!BigInteger.ONE.equals(protocolU64(response.get("schema_version"), label + ".schema_version"))
+                || !BigInteger.ONE.equals(protocolU64(answer.get("schema_version"), label + ".schema_version"))
+                || !expectedTenant.equals(protocolUuid(response.get("tenant_id"), label + ".tenant_id"))
+                || !expectedGovernanceRevision.equals(
+                        protocolU64(response.get("governance_revision"), label + ".governance_revision"))) {
+            throw protocol(label + " does not match the request");
+        }
+        if (!(answer.get("presenter_ref") instanceof String reference)
+                || !reference.matches("presenter:[0-9a-f]{32}")
+                || !(answer.get("usable") instanceof Boolean usable)
+                || !(answer.get("source_ids") instanceof List<?> listed)) {
+            throw protocol(label + " fields do not match the v1 contract");
+        }
+        Object reason = answer.get("reason");
+        Object recoveryId = answer.get("recovery_id");
+        Object content = answer.get("content");
+        boolean expanding = "expand".equals(mode);
+        boolean consistent;
+        if (usable) {
+            consistent = !answer.containsKey("reason")
+                    && answer.containsKey("recovery_id") != "check".equals(mode)
+                    && (recoveryId == null
+                            || (recoveryId instanceof String id && id.matches("[0-9a-f]{64}")
+                                    && (!expanding || id.equals(value))))
+                    && answer.containsKey("content") == expanding
+                    && (content == null
+                            || (content instanceof String text && !text.contains(capability.reveal())))
+                    && (!answer.containsKey("recovery_id") || recoveryId != null)
+                    && (!answer.containsKey("content") || content != null)
+                    && sameSources(listed, sourceIds);
+        } else {
+            consistent = reason instanceof String code
+                    && code.matches("(lineage|recovery)\\.[a-z_]{1,48}")
+                    && !answer.containsKey("recovery_id")
+                    && !answer.containsKey("content")
+                    && listed.isEmpty();
+        }
+        if (!consistent) {
+            throw protocol(label + " does not match what was asked");
+        }
+        Map<String, Object> use = new LinkedHashMap<>();
+        use.put("presenter_ref", reference);
+        use.put("usable", usable);
+        use.put("reason", reason);
+        use.put("source_ids", List.copyOf(listed));
+        use.put("recovery_id", recoveryId);
+        use.put("content", content);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("schema_version", 1);
+        result.put("tenant_id", expectedTenant);
+        result.put("governance_revision", expectedGovernanceRevision);
+        result.put("use", java.util.Collections.unmodifiableMap(use));
+        return java.util.Collections.unmodifiableMap(result);
+    }
+
+    /**
+     * Whether an answer names exactly the requested sources, each once. Equal
+     * length and membership is not enough: a repeated id would stand in for a
+     * requested source the answer does not name.
+     */
+    private static boolean sameSources(List<?> listed, List<String> requested) {
+        Set<Object> named = new java.util.HashSet<>(listed);
+        return named.size() == listed.size() && named.equals(new java.util.HashSet<Object>(requested));
+    }
+
+    /** The validated answer to a presenter revocation. */
+    static Map<String, Object> parsePresenterRevocationResponse(byte[] raw, String expectedTenant) {
+        String label = "Enterprise presenter revocation response";
+        Map<String, Object> response = parseObject(raw, label, PRESENTER_ENVELOPE_BYTES);
+        exactKeys(response, Set.of("schema_version", "tenant_id", "revocation"), label);
+        Map<String, Object> revocation = Json.object(response.get("revocation"), label + ".revocation");
+        exactKeys(revocation, Set.of("schema_version", "presenter_ref", "revoked"), label);
+        if (!BigInteger.ONE.equals(protocolU64(response.get("schema_version"), label + ".schema_version"))
+                || !BigInteger.ONE.equals(protocolU64(revocation.get("schema_version"), label + ".schema_version"))
+                || !expectedTenant.equals(protocolUuid(response.get("tenant_id"), label + ".tenant_id"))
+                || !(revocation.get("presenter_ref") instanceof String reference)
+                || !reference.matches("presenter:[0-9a-f]{32}")
+                || !(revocation.get("revoked") instanceof Boolean revoked)) {
+            throw protocol(label + " fields do not match the v1 contract");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("schema_version", 1);
+        result.put("tenant_id", expectedTenant);
+        result.put("presenter_ref", reference);
+        result.put("revoked", revoked);
+        return java.util.Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, Object> parseMaterializationObject(Map<String, Object> response,
+                                                                  InstancePlanningRequest request,
+                                                                  List<String> sourceIds,
+                                                                  BigInteger expectedGovernanceRevision,
+                                                                  String expectedBindingDigest,
+                                                                  String expectedTenant) {
+        String label = "Enterprise instance materialization response";
         exactKeys(response, Set.of(
                 "schema_version", "tenant_id", "governance_revision", "materialization"), label);
         BigInteger schemaVersion = protocolU64(response.get("schema_version"), label + ".schema_version");
         requireSchema(schemaVersion, label + ".schema_version");
         String tenantId = protocolUuid(response.get("tenant_id"), label + ".tenant_id");
         if (!tenantId.equals(expectedTenant)) {
-            throw protocol("Enterprise Engine materialization response tenant binding does not match");
+            throw protocol("Enterprise instance materialization response tenant binding does not match");
         }
         BigInteger governanceRevision = protocolU64(
                 response.get("governance_revision"), label + ".governance_revision");
         if (!governanceRevision.equals(expectedGovernanceRevision)) {
-            throw protocol("Enterprise Engine materialization governance revision does not match");
+            throw protocol("Enterprise instance materialization governance revision does not match");
         }
         Map<String, Object> materialization = Json.object(
                 response.get("materialization"), label + ".materialization");
         exactKeys(materialization, Set.of("schema_version", "transport_version",
                 "engine_interface_version", "plan", "materialized_digest",
-                "materialized_token_count", "content"), "Enterprise Engine materialization");
-        validateHeader(materialization, "Enterprise Engine materialization");
+                "materialized_token_count", "content"), "Enterprise instance materialization");
+        validateHeader(materialization, "Enterprise instance materialization");
         Map<String, Object> plan = parseSourcePlan(materialization.get("plan"), request);
         validateSourceScope(plan, sourceIds);
         if (!expectedBindingDigest.equals(plan.get("binding_digest"))) {
-            throw protocol("Enterprise Engine materialization binding digest does not match");
+            throw protocol("Enterprise instance materialization binding digest does not match");
         }
         String materializedDigest = protocolDigest(
                 materialization.get("materialized_digest"), "materialized_digest");
@@ -221,18 +414,18 @@ final class EnterprisePlanningProtocol {
                 planResult.get("plan"), "materialization.plan.result.plan");
         BigInteger budget = protocolU64(planProjection.get("budget_tokens"), "plan.budget_tokens");
         if (tokenCount.compareTo(budget) > 0) {
-            throw protocol("Enterprise Engine materialized token metric exceeds the plan budget");
+            throw protocol("Enterprise instance materialized token metric exceeds the plan budget");
         }
         Object contentValue = materialization.get("content");
         if (!(contentValue instanceof String content)) {
-            throw protocol("Enterprise Engine materialized content is not a string");
+            throw protocol("Enterprise instance materialized content is not a string");
         }
         byte[] encoded = Json.utf8(content, "materialized content");
         if (encoded.length > MAX_MATERIALIZED_CONTENT_BYTES) {
-            throw protocol("Enterprise Engine materialized content exceeds its byte bound");
+            throw protocol("Enterprise instance materialized content exceeds its byte bound");
         }
         if (!Protocol.sha256Digest(encoded).equals(materializedDigest)) {
-            throw protocol("Enterprise Engine materialized content digest does not match");
+            throw protocol("Enterprise instance materialized content digest does not match");
         }
         Map<String, Object> normalizedMaterialization = new LinkedHashMap<>();
         normalizedMaterialization.put("schema_version", LeanCtx.SCHEMA_VERSION);
@@ -250,25 +443,25 @@ final class EnterprisePlanningProtocol {
         return Json.immutableMapPreserving(result);
     }
 
-    private static Map<String, Object> parseSourcePlan(Object value, EnginePlanningRequest request) {
-        Map<String, Object> sourcePlan = Json.object(value, "Engine source-plan response");
+    private static Map<String, Object> parseSourcePlan(Object value, InstancePlanningRequest request) {
+        Map<String, Object> sourcePlan = Json.object(value, "LeanCTX instance source-plan response");
         exactKeys(sourcePlan, Set.of("result", "source_bindings", "binding_digest"),
-                "Engine source-plan response");
-        Map<String, Object> resultRaw = Json.object(sourcePlan.get("result"), "Engine source-plan result");
+                "LeanCTX instance source-plan response");
+        Map<String, Object> resultRaw = Json.object(sourcePlan.get("result"), "LeanCTX instance source-plan result");
         exactKeys(resultRaw, Set.of(
                 "schema_version", "transport_version", "engine_interface_version", "plan"),
-                "Engine context-plan result");
-        validateHeader(resultRaw, "Engine context-plan result");
+                "LeanCTX instance context-plan result");
+        validateHeader(resultRaw, "LeanCTX instance context-plan result");
         Map<String, Object> plan = parsePlan(resultRaw.get("plan"));
         if (!plan.containsKey("projection_digest")) {
-            throw protocol("Engine source-plan response requires projection_digest");
+            throw protocol("LeanCTX instance source-plan response requires projection_digest");
         }
         if (!request.taskId().equals(plan.get("task_id"))) {
-            throw protocol("Engine context-plan response task_id does not bind the request");
+            throw protocol("LeanCTX instance context-plan response task_id does not bind the request");
         }
         BigInteger returnedBudget = protocolU64(plan.get("budget_tokens"), "plan.budget_tokens");
         if (returnedBudget.compareTo(BigInteger.valueOf(request.budgetTokens())) > 0) {
-            throw protocol("Engine context-plan response budget exceeds the request");
+            throw protocol("LeanCTX instance context-plan response budget exceeds the request");
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schema_version", LeanCtx.SCHEMA_VERSION);
@@ -293,7 +486,7 @@ final class EnterprisePlanningProtocol {
             previousObjectRef = objectRef;
             bindings.add(binding);
         }
-        Map<String, Object> planBody = Json.object(result.get("plan"), "Engine plan");
+        Map<String, Object> planBody = Json.object(result.get("plan"), "LeanCTX instance plan");
         Object selectionValue = planBody.get("selections");
         if (!(selectionValue instanceof List<?> selectionValues)) {
             throw protocol("plan.selections has an invalid shape");
@@ -554,17 +747,17 @@ final class EnterprisePlanningProtocol {
             Map<String, Object> selection = Json.object(item, "plan selection");
             if (!requested.contains(selection.get("source_ref"))
                     || !requested.contains(selection.get("provider"))) {
-                throw protocol("Enterprise Engine selection is outside requested sources");
+                throw protocol("Enterprise instance selection is outside requested sources");
             }
         }
         for (Object item : (List<?>) plan.get("source_bindings")) {
             Map<String, Object> binding = Json.object(item, "source binding");
             if (!requested.contains(binding.get("object_ref"))
                     || !requested.contains(binding.get("source_id"))) {
-                throw protocol("Enterprise Engine source binding is outside requested sources");
+                throw protocol("Enterprise instance source binding is outside requested sources");
             }
             if (!"permitted".equals(binding.get("permission"))) {
-                throw protocol("Enterprise Engine selected source is not permitted");
+                throw protocol("Enterprise instance selected source is not permitted");
             }
         }
     }
@@ -729,7 +922,7 @@ final class EnterprisePlanningProtocol {
                 throw protocol(field + " contains an invalid date or time");
             }
         } catch (RuntimeException error) {
-            if (error instanceof EngineProtocolError protocolError) {
+            if (error instanceof InstanceProtocolError protocolError) {
                 throw protocolError;
             }
             throw protocol(field + " contains an invalid date or time");
@@ -806,7 +999,7 @@ final class EnterprisePlanningProtocol {
         return Integer.compare(a.length, b.length);
     }
 
-    private static EngineProtocolError protocol(String message) {
+    private static InstanceProtocolError protocol(String message) {
         return new EngineProtocolError(message);
     }
 }

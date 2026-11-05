@@ -5,7 +5,7 @@
 > context-lineage` and `engine context-policy-evidence` (v4 Engine,
 > Experimental contract `engine-context-store-v1`).
 
-The local LeanCTX Engine keeps what it decided and why: which context it
+The local LeanCTX instance keeps what it decided and why: which context it
 planned for a task, what actually reached the model under which policy, and
 which outcome followed. Two read-only calls expose it, always within one
 tenant/project scope:
@@ -23,10 +23,10 @@ Neither carries source text, prompts or credentials. **Unmeasured is never
 zero**: an unmeasured quality or security section has no counts at all.
 
 ```python
-from leanctx_sdk import SubprocessEngineClient
+from leanctx_sdk import SubprocessInstanceClient
 from leanctx_sdk.preview import read_policy_evidence, read_task_lineage
 
-engine = SubprocessEngineClient("/path/to/lean-ctx")
+engine = SubprocessInstanceClient("/path/to/lean-ctx")
 lineage = read_task_lineage(engine, "/work/project", "task-42", project_id="acme")
 if not lineage.is_complete:
     print("missing:", lineage.gaps)

@@ -6,7 +6,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -53,9 +57,9 @@ func enterpriseMaterializationRequest(
 	bindingDigest string,
 	revision uint64,
 	sourceIDs []string,
-) EngineSourceMaterializationRequest {
+) InstanceSourceMaterializationRequest {
 	t.Helper()
-	return EngineSourceMaterializationRequest{
+	return InstanceSourceMaterializationRequest{
 		Planning:                   enterpriseTestRequest(t),
 		SourceIDs:                  sourceIDs,
 		ExpectedGovernanceRevision: revision,
@@ -131,7 +135,7 @@ func TestEnterpriseContextMaterializeSourcesRejectsBindingAndContentMismatches(t
 	tests := []struct {
 		name    string
 		value   map[string]any
-		request EngineSourceMaterializationRequest
+		request InstanceSourceMaterializationRequest
 	}{
 		{
 			name: "response revision",
@@ -198,8 +202,8 @@ func TestEnterpriseContextMaterializeSourcesRejectsBindingAndContentMismatches(t
 			server, capture := newEnterprisePlanServer(t, http.StatusOK, enterpriseMaterializationResponse(t, test.value))
 			client := newEnterprisePlanClient(t, server)
 			_, err := client.ContextMaterializeSourcesContext(context.Background(), test.request)
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 			if strings.Contains(err.Error(), "credential-test") {
 				t.Fatal("materialization error leaked the bearer credential")
@@ -251,12 +255,208 @@ func TestEnterpriseContextMaterializeSourcesRejectsMalformedUnicode(t *testing.T
 			client := newEnterprisePlanClient(t, server)
 			request := enterpriseMaterializationRequest(t, bindingDigest, 7, []string{enterpriseTestSource})
 			_, err := client.ContextMaterializeSourcesContext(context.Background(), request)
-			if !enterpriseErrorIs[*EngineProtocolError](t, err) {
-				t.Fatalf("expected EngineProtocolError, got %T: %v", err, err)
+			if !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+				t.Fatalf("expected InstanceProtocolError, got %T: %v", err, err)
 			}
 			if strings.Contains(err.Error(), "credential-test") {
 				t.Fatal("malformed response error leaked the bearer credential")
 			}
 		})
+	}
+}
+
+func TestEnterpriseContextMaterializeSourcesV2KeepsTheCapabilityOutOfBodiesAndRenderings(t *testing.T) {
+	value, bindingDigest := enterpriseMaterializationResponseValue(
+		t, enterpriseTestTenant, "enterprise-task", enterpriseTestSource, "permitted", enterpriseMaterializedText,
+	)
+	// Assembled at run time: the source holds no capability-shaped text.
+	secret := "lcp1_" + strings.Repeat("ab", 32)
+	reference := "presenter:" + strings.Repeat("0123456789abcdef", 2)
+	status := http.StatusOK
+	var paths, shown, bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		paths = append(paths, request.URL.Path)
+		shown = append(shown, request.Header.Get(PresenterCapabilityHeader))
+		bodies = append(bodies, string(body))
+		if status != http.StatusOK {
+			response.WriteHeader(status)
+			return
+		}
+		grant := map[string]any{"presenter_ref": reference, "expires_at_unix": uint64(1_900_000_000)}
+		if request.Header.Get(PresenterCapabilityHeader) == "" {
+			grant["capability"] = secret
+		}
+		_, _ = response.Write(enterpriseMaterializationResponse(t, map[string]any{
+			"schema_version":      int64(2),
+			"tenant_id":           value["tenant_id"],
+			"governance_revision": value["governance_revision"],
+			"materialization": map[string]any{
+				"schema_version": int64(2), "materialization": value["materialization"], "presenter": grant,
+			},
+		}))
+	}))
+	t.Cleanup(server.Close)
+	client := newEnterprisePlanClient(t, server)
+	request := InstanceSourceMaterializationRequestV2{
+		InstanceSourceMaterializationRequest: enterpriseMaterializationRequest(t, bindingDigest, 7, []string{enterpriseTestSource}),
+		PresenterTTLSeconds:                  600,
+	}
+
+	issued, err := client.ContextMaterializeSourcesV2(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.SchemaVersion != 2 || issued.Presenter.PresenterRef != reference || issued.Presenter.Capability.Reveal() != secret {
+		t.Fatalf("unexpected issue result: %v", issued)
+	}
+	if issued.Materialization["content"] != enterpriseMaterializedText {
+		t.Fatalf("unexpected materialized content: %v", issued.Materialization["content"])
+	}
+	encoded, encodeErr := json.Marshal(issued)
+	for _, rendering := range []string{
+		fmt.Sprint(issued.Presenter.Capability), fmt.Sprintf("%+v", issued), fmt.Sprintf("%#v", issued),
+		fmt.Sprintf("%s %q %x", issued.Presenter.Capability, issued.Presenter.Capability, issued.Presenter.Capability),
+		string(encoded),
+	} {
+		if strings.Contains(rendering, secret) {
+			t.Fatal("a rendering of the result carries the capability")
+		}
+	}
+	if encodeErr == nil {
+		t.Fatal("a capability must refuse JSON encoding")
+	}
+
+	renew := request
+	renew.PresenterTTLSeconds, renew.Presenter = 0, issued.Presenter.Capability
+	renewed, err := client.ContextMaterializeSourcesV2(renew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.Presenter.Capability != nil || renewed.Presenter.PresenterRef != reference {
+		t.Fatalf("a renewal returns no capability: %v", renewed.Presenter)
+	}
+	if len(paths) != 2 || paths[0] != "/v1/engine/context-materialize-v2" || shown[0] != "" || shown[1] != secret {
+		t.Fatalf("the capability travels in the request header of a renewal only: %v", paths)
+	}
+	if strings.Contains(strings.Join(bodies, ""), secret) ||
+		!strings.Contains(bodies[0], `"presenter":{"mode":"issue","ttl_seconds":600}`) ||
+		!strings.Contains(bodies[1], `"presenter":{"mode":"renew"}`) {
+		t.Fatal("a request body carries the capability or the wrong presenter mode")
+	}
+
+	both := renew
+	both.PresenterTTLSeconds = 600
+	for _, invalid := range []InstanceSourceMaterializationRequestV2{both, {InstanceSourceMaterializationRequest: request.InstanceSourceMaterializationRequest}} {
+		if _, err := client.ContextMaterializeSourcesV2(invalid); !enterpriseErrorIs[*ValidationError](t, err) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+	}
+	if len(paths) != 2 {
+		t.Fatal("an invalid presenter mode reached the network")
+	}
+	for _, unsupported := range []int{http.StatusNotFound, http.StatusNotImplemented} {
+		status = unsupported
+		var typed *UnsupportedInstanceError
+		if _, err := client.ContextMaterializeSourcesV2(request); !errors.As(err, &typed) {
+			t.Fatalf("status %d: expected UnsupportedInstanceError, got %T", unsupported, err)
+		}
+	}
+}
+
+func TestEnterpriseAHeldCapabilityIsUsedAndRevokedInTheHeaderOnly(t *testing.T) {
+	// Assembled at run time: the source holds no capability-shaped text.
+	secret := "lcp1_" + strings.Repeat("ab", 32)
+	reference := "presenter:" + strings.Repeat("0123456789abcdef", 2)
+	recoveryID := strings.Repeat("5e", 32)
+	status, text := http.StatusOK, "ledger"
+	var paths, shown, bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		paths = append(paths, request.URL.Path)
+		shown = append(shown, request.Header.Get(PresenterCapabilityHeader))
+		bodies = append(bodies, string(body))
+		if status != http.StatusOK {
+			response.WriteHeader(status)
+			return
+		}
+		if request.URL.Path == "/v1/engine/presenter-revoke" {
+			_, _ = response.Write(enterpriseMaterializationResponse(t, map[string]any{
+				"schema_version": int64(1), "tenant_id": enterpriseTestTenant,
+				"revocation": map[string]any{"schema_version": int64(1), "presenter_ref": reference, "revoked": true},
+			}))
+			return
+		}
+		use := map[string]any{
+			"schema_version": int64(1), "presenter_ref": reference, "usable": true,
+			"source_ids": []string{enterpriseTestSource},
+		}
+		if strings.Contains(string(body), `"mode":"retain"`) {
+			use["recovery_id"] = recoveryID
+		}
+		if strings.Contains(string(body), `"mode":"expand"`) {
+			use["recovery_id"], use["content"] = recoveryID, text
+		}
+		_, _ = response.Write(enterpriseMaterializationResponse(t, map[string]any{
+			"schema_version": int64(1), "tenant_id": enterpriseTestTenant,
+			"governance_revision": int64(7), "use": use,
+		}))
+	}))
+	t.Cleanup(server.Close)
+	client := newEnterprisePlanClient(t, server)
+	capability, err := NewPresenterCapability(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := func(mode PresentedUseMode, value string) (*PresentedUseResponse, error) {
+		return client.PresentedUse(PresentedUseRequest{
+			Presenter: capability, SourceIDs: []string{enterpriseTestSource},
+			ExpectedGovernanceRevision: 7, Mode: mode, Value: value,
+		})
+	}
+
+	kept, err := ask(PresentedUseRetain, "ledger")
+	if err != nil || !kept.Usable || kept.RecoveryID != recoveryID || kept.Content != "" {
+		t.Fatalf("unexpected retain result: %v %v", kept, err)
+	}
+	expanded, err := ask(PresentedUseExpand, kept.RecoveryID)
+	if err != nil || expanded.Content != "ledger" || len(expanded.SourceIDs) != 1 {
+		t.Fatalf("unexpected expand result: %v %v", expanded, err)
+	}
+	revoked, err := client.RevokePresenter(capability)
+	if err != nil || !revoked.Revoked || revoked.PresenterRef != reference {
+		t.Fatalf("unexpected revocation: %v %v", revoked, err)
+	}
+	if len(paths) != 3 || paths[0] != "/v1/engine/presented-use" || paths[2] != "/v1/engine/presenter-revoke" ||
+		shown[0] != secret || shown[1] != secret || shown[2] != secret {
+		t.Fatalf("the capability travels in the request header of every call: %v", paths)
+	}
+	if strings.Contains(strings.Join(bodies, ""), secret) {
+		t.Fatal("a request body carries the capability")
+	}
+	for _, invalid := range [][2]string{{"expand", "../x"}, {"check", ""}, {"other", "ledger"}} {
+		if _, err := ask(PresentedUseMode(invalid[0]), invalid[1]); !enterpriseErrorIs[*ValidationError](t, err) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+	}
+	if len(paths) != 3 {
+		t.Fatal("an invalid use reached the network")
+	}
+
+	// An answer that hands the capability back inside the text, the one
+	// capability refusal, and a suite without the route.
+	text = "ledger " + secret
+	if _, err := ask(PresentedUseExpand, recoveryID); !enterpriseErrorIs[*InstanceProtocolError](t, err) {
+		t.Fatalf("expected InstanceProtocolError, got %T", err)
+	}
+	status = http.StatusForbidden
+	var refused *PolicyAdmissionError
+	if _, err := ask(PresentedUseExpand, recoveryID); !errors.As(err, &refused) {
+		t.Fatalf("expected PolicyAdmissionError, got %T", err)
+	}
+	status = http.StatusNotFound
+	var unsupported *UnsupportedInstanceError
+	if _, err := ask(PresentedUseExpand, recoveryID); !errors.As(err, &unsupported) {
+		t.Fatalf("expected UnsupportedInstanceError, got %T", err)
 	}
 }
