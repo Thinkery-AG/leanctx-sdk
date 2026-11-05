@@ -44,6 +44,13 @@ unchanged. See `RELEASE-NOTES-1.3.0.md`.
     and `dependency_wheel_audit` pass for all 41 wheels (2384 entries), so the
     audit policy is unchanged.
   - The release-audit tooling pins certifi 2026.10.18 as well.
+- The release tooling and the Rust lockfile no longer carry advised versions:
+  `filelock` 4.2.1 (was 3.32.4) and `msgpack` 1.2.3 (was 1.2.1) in the audit
+  tooling, `setuptools` 84.1.0 (was 83.0.0) in the build tooling, and
+  `rustls` 0.23.46 (was 0.23.45, still within the Rust 1.77 MSRV) in
+  `packages/rust/Cargo.lock`. Every requirement keeps all of its PyPI file
+  hashes, both files install with `--require-hashes` on Python 3.11, and
+  `pip-audit` finds no known vulnerability in either.
 
 ## Unreleased (1.2.0)
 
