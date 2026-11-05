@@ -28,6 +28,12 @@ unchanged. See `RELEASE-NOTES-1.3.0.md`.
   and 1.1.0 of both requires Rust 1.83, so the 1.77 MSRV leg broke. The gateway
   preview also satisfies the 1.77 clippy lints `format_collect` and
   `needless_borrows_for_generic_args`, with identical output.
+- JVM: Maven Central publishing moves to `central-publishing-maven-plugin`
+  0.12.0. Under Maven 3.10, version 0.8.0 copied the installer's
+  `maven-metadata-local.xml` and `_remote.repositories` into the bundle, and
+  Central rejected the 1.3.0 upload because `com/leanctx/leanctx-sdk` had no
+  `.pom`. The 0.12.0 bundle holds only the 1.3.0 artifacts, their signatures
+  and their checksums.
 
 ### Security
 
