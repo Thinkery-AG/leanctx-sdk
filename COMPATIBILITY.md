@@ -3,17 +3,18 @@
 ## `main` (unreleased)
 
 The current `main` source is SDK **1.3.0**, paired with LeanCTX | OSS
-**3.12.1** ([published](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1)). The public SDK 1.1.1
+**3.12.2** ([published](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.2)). The public SDK 1.1.1
 release below remains bound to Engine 3.10.1. Package version fields in this
 source checkout do not establish that an artifact has been published; verify the
 specific registry artifact before installation. A source checkout of `main`
-needs Engine 3.12.1.
+needs Engine 3.12.2; the matrix below also admits the earlier published
+[3.12.1](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1).
 
 | Component | Declared scope | Status |
 | --- | --- | --- |
-| Agent Tools Engine | `v3.12.1` | published; required by `main` in every language package |
+| Agent Tools Engine | `v3.12.2` | published; required by `main` in every language package |
 | Agent Tools protocol | interface `1.0.0`, schema `1`, transport `1` | unchanged from 1.1.0 |
-| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.12.1` | published |
+| Companion Engine wheels | `thinkery-leanctx-engine`, `-cuda`, `-windows-gnu` `==3.12.2` | published with Engine 3.12.2 |
 | Gateway preview | `leanctx-gateway-preview` 0.1 | preview; see `docs/gateway-preview.md` |
 | Rust package | Rust 1.77+ and stable | raised from 1.76 (see CHANGELOG) |
 
@@ -37,6 +38,7 @@ integers, the permission mirror and the required capabilities.
 | `1.0.0` | `1` | `1` | `3.11.5` | `tested_pair` |
 | `1.0.0` | `1` | `1` | `3.12.0` | `tested_pair` |
 | `1.0.0` | `1` | `1` | `3.12.1` | `tested_pair` |
+| `1.0.0` | `1` | `1` | `3.12.2` | `tested_pair` |
 
 `exact_legacy` is the pair the earlier Engine-version equality admitted,
 carried over as it was. No compatibility run of the table is claimed for it.
@@ -65,27 +67,39 @@ the release `SHA256SUMS`, whose SHA-256 is
 `3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113`); the
 Python run carries byte-level wire evidence. The Sigstore signature of
 `SHA256SUMS` was not verified in that run, and no Linux or Windows Engine was
-run. It replaces the earlier release-candidate report of 2026-11-03. Any
-other Engine release is a new pair and is
+run. It replaces the earlier release-candidate report of 2026-11-03. The
+3.12.2 row rests on the report of 2026-11-05: all six packages ran the eight
+operations against the released macOS arm64 Engine of
+[`v3.12.2`](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.2)
+(archive SHA-256
+`74fdf707eca87761c818c2caae2805b990c83a5fb459d7e7de541e525b2afadc`, listed in
+the release `SHA256SUMS`, whose SHA-256 is
+`28df17cced3d34afccc55d73bd9f3eb77646c2a942ee6d7361af1f596a245d0f`); the
+Python run carries byte-level wire evidence, and no Linux or Windows Engine
+was run. Any other Engine release is a new pair and is
 unsupported until a row for it exists in the table and in all six packages.
 `scripts/check_language_versions.py` holds the table, the six packages and the
 Agent Tools contract together.
 
 The release-candidate pipeline is bound to the signed Engine release
-[`v3.12.1`](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.1).
+[`v3.12.2`](https://github.com/yvgude/lean-ctx/releases/tag/v3.12.2), with the
+digests taken from its release download.
 The tag resolves to commit
-`0f0297e396ecf15f578d6d0fd07dba6353b1497c`.
+`ffe6e95c34babc2d42a6a1cd60833c352e928b52`.
 Its signed `SHA256SUMS` has SHA-256
-`3ba7f999327a2d552fb46f7792aff63275bbf6656acfc24ea4934c545d498113`.
-Release CI verifies the Sigstore identity
-`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.1`.
-The digests below were computed from the release download and cross-checked
-against `SHA256SUMS`.
+`28df17cced3d34afccc55d73bd9f3eb77646c2a942ee6d7361af1f596a245d0f`.
+The Sigstore identity
+`https://github.com/yvgude/lean-ctx/.github/workflows/release.yml@refs/tags/v3.12.2`
+was verified with `cosign verify-blob`, and release CI verifies it again.
 
 | Platform | Release archive SHA-256 | Extracted binary SHA-256 |
 | --- | --- | --- |
-| Linux x86_64 GNU | `484856a5b6bc47024ac3eacc9fcaf6fe7d5ec82ec1f16614c5521d73237238f9` | `ff260e17c4e470afc5d5d06ea9e5e73e40c17cbb9c7401d5ee7a0786ee634e3e` |
-| macOS arm64 | `212e57ad32983e43d0c4ac5e2943b82a6caf699fe40da45745b6872d72f40b08` | `58a8c502b17aadedd4375c0a3183b5a650eb02e227aad1ab370c18ee997b691b` |
+| Linux x86_64 GNU | `501a4c209e92e6e2345ef875440944aa046d86b16a8c2f2df8099f234a75a078` | `ddcad2c7cd7c8ee595fb2cfd899974cb94490257d8d1e8388ddabb905a475a92` |
+| macOS arm64 | `74fdf707eca87761c818c2caae2805b990c83a5fb459d7e7de541e525b2afadc` | `5770e479816db8fc70136a8ef0aa53546420f7b0492b7a926e3816bc17e76824` |
+
+The previous binding was Engine v3.12.1 (commit
+`0f0297e396ecf15f578d6d0fd07dba6353b1497c`).
+
 
 ## Stable SDK 1.1.1
 
@@ -185,5 +199,5 @@ calls remain host-owned.
 The source proposal adds the read-only `leanctx-context-store-preview` 0.1
 contract; see [the guide](docs/context-store-preview.md). It requires an Engine
 implementing the Experimental `engine-context-store-v1` operations. This does
-not change the 3.12.1 pairing declaration or certify a release, signed
+not change the 3.12.2 pairing declaration or certify a release, signed
 artifact, fixture result or live Engine journey.

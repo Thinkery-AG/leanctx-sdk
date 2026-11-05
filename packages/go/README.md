@@ -10,7 +10,7 @@ primitives plus the separate Stable Agent Tools API.
 
 The module uses the Go-standard `packages/go/vX.Y.Z` tag. The published SDK
 1.1.1 release requires LeanCTX | OSS 3.10.1; current `main` sources target LeanCTX | OSS
-3.12.1. Check the release-specific compatibility record before choosing an
+3.12.2. Check the release-specific compatibility record before choosing an
 instance binary.
 
 ```go
@@ -116,5 +116,5 @@ instance access through `ContextStoreScope`. `ParsePolicyEvidence` and
 evidence remains unmeasured and incomplete lineage carries explicit gaps.
 The preview contract is `leanctx-context-store-preview` 0.1.0.
 
-This source is paired with LeanCTX | OSS 3.12.1 (published); the
-compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0.
+This source is paired with LeanCTX | OSS 3.12.2 (published); the
+compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1.

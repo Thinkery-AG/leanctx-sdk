@@ -1,5 +1,5 @@
 // Source resolution: private refusal and containment cases retained.
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
@@ -446,7 +446,7 @@ fn agent_script(
             "allow_exec": false,
             "allow_write": false,
             "capabilities": capabilities,
-            "engine_version": "3.12.1",
+            "engine_version": "3.12.2",
             "schema_version": 1,
             "transport_version": 1
         }
@@ -560,7 +560,7 @@ fn public_constants_are_frozen() {
     assert_eq!(leanctx_sdk::AGENT_TOOLS_INTERFACE_VERSION, "1.0.0");
     assert_eq!(
         leanctx_sdk::SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION,
-        "3.12.1"
+        "3.12.2"
     );
 }
 

@@ -8,7 +8,7 @@ workflow to a local LeanCTX instance. Your application keeps its model, agent
 loop, and UI. It provides the five Stable lifecycle primitives plus the
 separate Stable Agent Tools API.
 
-SDK 1.3.0 requires LeanCTX | OSS 3.12.1 for Agent Tools. Check the
+SDK 1.3.0 requires LeanCTX | OSS 3.12.2 for Agent Tools. Check the
 release-specific compatibility record before choosing a LeanCTX instance
 binary. The package does not embed a LeanCTX instance and does not grant
 instance rights. Use `LEANCTX_INSTANCE_BIN` or an explicit executable path

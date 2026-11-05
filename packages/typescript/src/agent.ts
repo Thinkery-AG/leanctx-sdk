@@ -21,8 +21,8 @@ import { resolveInstanceBinary } from "./engine.js";
 export const AGENT_TOOLS_INTERFACE_VERSION = "1.0.0" as const;
 export const AGENT_TOOLS_SCHEMA_VERSION = 1 as const;
 export const AGENT_TOOLS_TRANSPORT_VERSION = 1 as const;
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
-export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.1" as const;
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+export const SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.2" as const;
 // The (interface, schema, transport, engine) pairs a hello is accepted for: the
 // rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
 // equal to it by scripts/check_language_versions.py. A pair that is not a row
@@ -35,6 +35,7 @@ const ADMITTED_ENGINE_PAIRS: ReadonlyArray<readonly [string, number, number, str
   ["1.0.0", 1, 1, "3.11.5"],
   ["1.0.0", 1, 1, "3.12.0"],
   ["1.0.0", 1, 1, "3.12.1"],
+  ["1.0.0", 1, 1, "3.12.2"],
 ];
 // agent-tools-compatibility: end
 const HELLO_INTEGER_PATHS: readonly (readonly string[])[] = [["result", "schema_version"], ["result", "transport_version"]];

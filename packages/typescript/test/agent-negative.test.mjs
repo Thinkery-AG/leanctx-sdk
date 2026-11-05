@@ -1,4 +1,4 @@
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
 import assert from "node:assert/strict";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -82,7 +82,7 @@ const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.op === "hello") {
-    process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: allowExec, allow_write: false, capabilities, engine_version: "3.12.1", schema_version: 1, transport_version: 1 } }) + "\\n");
+    process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: allowExec, allow_write: false, capabilities, engine_version: "3.12.2", schema_version: 1, transport_version: 1 } }) + "\\n");
     return;
   }
   ${body}
@@ -115,7 +115,7 @@ test("project root is canonicalized through symlinks", async () => {
 // A hello answered to the request's own id, written out as text so that the
 // number lexemes are exactly these: everything but the named field is the
 // hello this package accepts.
-function rawHello({ schema = "1", transport = "1", engineVersion = "3.12.1" }) {
+function rawHello({ schema = "1", transport = "1", engineVersion = "3.12.2" }) {
   return `
 import readline from "node:readline";
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
@@ -126,7 +126,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
 for (const [name, source] of [
   ["malformed hello", "process.stdout.write('{\"bad\":true}\\n');"],
-  ["incompatible hello", "process.stdout.write(JSON.stringify({ agent_tools_interface_version: '9.0.0', allow_exec: false, allow_write: false, capabilities: [], engine_version: '3.12.1', schema_version: 1, transport_version: 1 }) + '\\n');"],
+  ["incompatible hello", "process.stdout.write(JSON.stringify({ agent_tools_interface_version: '9.0.0', allow_exec: false, allow_write: false, capabilities: [], engine_version: '3.12.2', schema_version: 1, transport_version: 1 }) + '\\n');"],
   ["hello with a decimal schema version", rawHello({ schema: "1.0" })],
   ["hello with an exponent transport version", rawHello({ transport: "1e0" })],
   ["hello of an Engine pair outside the matrix", rawHello({ engineVersion: "3.11.1" })],
@@ -156,7 +156,7 @@ rl.on("line", (line) => {
   if (request.op !== "hello") return;
   const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });
   writeFileSync(join(projectRoot, "descendant.pid"), String(descendant.pid));
-  process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: false, allow_write: false, capabilities: ${JSON.stringify(READ_CAPABILITIES)}, engine_version: "3.12.1", schema_version: 1, transport_version: 1 } }) + "\\n");
+  process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: false, allow_write: false, capabilities: ${JSON.stringify(READ_CAPABILITIES)}, engine_version: "3.12.2", schema_version: 1, transport_version: 1 } }) + "\\n");
   process.exit(0);
 });
 `;
@@ -241,7 +241,7 @@ rl.on("line", (line) => {
   if (request.op !== "hello") return;
   const descendant = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(${JSON.stringify(join(root, "descendant.pid"))}, String(descendant.pid));
-  process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: false, allow_write: false, capabilities: ${JSON.stringify(READ_CAPABILITIES)}, engine_version: "3.12.1", schema_version: 1, transport_version: 1 } }) + "\\n");
+  process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: { agent_tools_interface_version: "1.0.0", allow_exec: false, allow_write: false, capabilities: ${JSON.stringify(READ_CAPABILITIES)}, engine_version: "3.12.2", schema_version: 1, transport_version: 1 } }) + "\\n");
 });
 `;
   let context = null;

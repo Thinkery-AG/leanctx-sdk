@@ -505,6 +505,8 @@ dependencies = [
  "thiserror",
  "ureq",
  "url",
+ "utf16_iter",
+ "utf8_iter",
  "zeroize",
 ]
 

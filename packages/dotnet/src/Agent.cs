@@ -208,6 +208,7 @@ public sealed class AgentContext : IAsyncDisposable, IDisposable
         ("1.0.0", 1, 1, "3.11.5"),
         ("1.0.0", 1, 1, "3.12.0"),
         ("1.0.0", 1, 1, "3.12.1"),
+        ("1.0.0", 1, 1, "3.12.2"),
     };
     // agent-tools-compatibility: end
     private static readonly HashSet<string> ReadTools = SetOf(

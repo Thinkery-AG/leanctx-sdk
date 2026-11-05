@@ -38,7 +38,7 @@ from .protocol import strict_json_loads
 AGENT_TOOLS_INTERFACE_VERSION = "1.0.0"
 AGENT_TOOLS_SCHEMA_VERSION = 1
 AGENT_TOOLS_TRANSPORT_VERSION = 1
-SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.1"
+SUPPORTED_AGENT_TOOLS_ENGINE_VERSION = "3.12.2"
 # The (interface, schema, transport, engine) pairs a hello is accepted for: the
 # rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
 # equal to it by scripts/check_language_versions.py. A pair that is not a row
@@ -51,6 +51,7 @@ _ADMITTED_ENGINE_PAIRS = (
     ("1.0.0", 1, 1, "3.11.5"),
     ("1.0.0", 1, 1, "3.12.0"),
     ("1.0.0", 1, 1, "3.12.1"),
+    ("1.0.0", 1, 1, "3.12.2"),
 )
 # agent-tools-compatibility: end
 _CLEANUP_WAIT_SECONDS = 10.0

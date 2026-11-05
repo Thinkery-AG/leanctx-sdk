@@ -76,7 +76,7 @@ bounded. Explicit `allowLoopbackHttp` is reserved for literal loopback addresses
 in local tests. SDK and LeanCTX instance licensing remain separate.
 
 The published SDK 1.1.1 release requires LeanCTX 3.10.1; current `main` sources
-target LeanCTX 3.12.1. Check the release-specific compatibility record before
+target LeanCTX 3.12.2. Check the release-specific compatibility record before
 choosing a LeanCTX instance binary. The SDK source license permits non-production use;
 production use, OEM embedding, and commercial redistribution require a separate
 written agreement signed by Thinkery AG.
@@ -125,5 +125,5 @@ choice, not an existing public `e142dc45` entry surface.
 Unmeasured evidence stays unmeasured; incomplete lineage names its gaps.
 The preview contract is `leanctx-context-store-preview` 0.1.0.
 
-This source is paired with LeanCTX 3.12.1 (published); the
-compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0.
+This source is paired with LeanCTX 3.12.2 (published); the
+compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1.

@@ -8,10 +8,42 @@ unchanged. See `RELEASE-NOTES-1.3.0.md`.
 - Python: `Instance*` names are primary; `Engine*` names, `engine_binary=`,
   `engine=`, the `leanctx_sdk.engine`/`enterprise_engine` modules and the
   `LEANCTX_ENGINE_*` variables keep working with a `DeprecationWarning`.
-- The release-candidate pipeline, release-evidence script and release-gate
-  tests bind the signed, published LeanCTX | OSS v3.12.1 (tag commit
-  `0f0297e396ecf15f578d6d0fd07dba6353b1497c`), its `SHA256SUMS` and the Linux
-  x86_64 / macOS arm64 archive and binary digests; see `COMPATIBILITY.md`.
+- All six packages pair with LeanCTX | OSS **3.12.2** (published 2026-11-05).
+  The pair evidence was recorded against the release archives.
+- The release-candidate pipeline, the release-evidence script and the
+  release-gate tests bind the signed, published LeanCTX | OSS v3.12.2: its tag
+  commit `ffe6e95c34babc2d42a6a1cd60833c352e928b52`, its `SHA256SUMS`, and the
+  archive and binary digests for Linux x86_64 and macOS arm64. See
+  `COMPATIBILITY.md`.
+
+### Fixed
+
+- .NET: closing an agent context no longer fails with "descendants could not
+  be inspected" when an Engine child exits while its children are being read.
+  For such a task, Linux procfs answers ESRCH, an `IOException` rather than
+  `FileNotFoundException`. A process that is gone, a zombie or dead is now
+  treated as having no children.
+- Rust: `utf8_iter` and `utf16_iter` are pinned to their last Rust 1.77
+  releases (1.0.4 and 1.0.5). `cargo package` resolves without the lockfile,
+  and 1.1.0 of both requires Rust 1.83, so the 1.77 MSRV leg broke. The gateway
+  preview also satisfies the 1.77 clippy lints `format_collect` and
+  `needless_borrows_for_generic_args`, with identical output.
+
+### Security
+
+- The certified OpenAI Agents 0.8.4 wheelhouse is re-certified with
+  **certifi 2026.10.18** (was 2026.7.22, PYSEC-2026-4320) and **mcp 1.30.0**
+  (was 1.29.1, CVE-2026-59951, CVE-2026-116684, CVE-2026-116685 and
+  CVE-2026-116686).
+  - Both are the official PyPI `py3-none-any` wheels, and mcp 1.30.0 declares
+    the same dependencies as 1.29.1. The closure therefore stays at 41
+    artifacts, and `openai-agents` 0.8.4 still admits it (`mcp<2,>=1.19.0`).
+  - The new artifacts digest is
+    `42bb55a09b16a50016a09000ca335f19d7e1d18c8b9a5ba8ae2274fa16998626`.
+  - `pip-audit` finds no known vulnerability in the closure. `validate_wheelhouse`
+    and `dependency_wheel_audit` pass for all 41 wheels (2384 entries), so the
+    audit policy is unchanged.
+  - The release-audit tooling pins certifi 2026.10.18 as well.
 
 ## Unreleased (1.2.0)
 

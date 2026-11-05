@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
 
 // Source resolution: private containment and cleanup tests retained.
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -871,7 +871,7 @@ mod tests {
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.12.1",
+            "engine_version": "3.12.2",
             "schema_version": 1,
             "transport_version": 1
         });
@@ -912,7 +912,7 @@ done"#,
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.12.1",
+            "engine_version": "3.12.2",
             "schema_version": 1,
             "transport_version": 1
         });
@@ -1293,7 +1293,7 @@ done"#,
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.12.1",
+            "engine_version": "3.12.2",
             "schema_version": 1,
             "transport_version": 1
         });
@@ -1330,7 +1330,7 @@ sleep 30"#,
                 "ctx_symbol",
                 "ctx_tree"
             ],
-            "engine_version": "3.12.1",
+            "engine_version": "3.12.2",
             "schema_version": 1,
             "transport_version": 1
         });

@@ -28,8 +28,8 @@ use crate::protocol::{
 pub const AGENT_TOOLS_INTERFACE_VERSION: &str = "1.0.0";
 pub const AGENT_TOOLS_SCHEMA_VERSION: u64 = 1;
 pub const AGENT_TOOLS_TRANSPORT_VERSION: u64 = 1;
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
-pub const SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION: &str = "3.12.1";
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+pub const SUPPORTED_AGENT_TOOLS_INSTANCE_VERSION: &str = "3.12.2";
 // The (interface, schema, transport, engine) pairs a hello is accepted for: the
 // rows of contracts/agent-tools-compatibility-v1.json, mirrored here and held
 // equal to it by scripts/check_language_versions.py. A pair that is not a row
@@ -42,6 +42,7 @@ const ADMITTED_ENGINE_PAIRS: &[(&str, u64, u64, &str)] = &[
     ("1.0.0", 1, 1, "3.11.5"),
     ("1.0.0", 1, 1, "3.12.0"),
     ("1.0.0", 1, 1, "3.12.1"),
+    ("1.0.0", 1, 1, "3.12.2"),
 ];
 // agent-tools-compatibility: end
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;

@@ -29,6 +29,26 @@ internal static class AgentTerminalConditionsTests
         UnreapableEngineIsABoundedStoredCleanupFailure();
         ManyDescendantsAndSlowEnumerationShareOneBudget();
         RepeatedAndParallelShutdownSharesOneSuccess();
+        EndedProcessIsRecognisedOnLinux();
+    }
+
+    /// <summary>
+    /// A task that exits while its children are read answers ESRCH; the capture
+    /// then treats it as ended instead of failing the whole cleanup (CI race,
+    /// agent-gitlab-source). A live process is not ended; a reaped one is.
+    /// </summary>
+    private static void EndedProcessIsRecognisedOnLinux()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        if (ProcessTree.HasEnded(Environment.ProcessId))
+            throw new Exception("the running test process is reported as ended");
+        using var child = Process.Start(new ProcessStartInfo("/bin/true") { UseShellExecute = false })!;
+        var pid = child.Id;
+        child.WaitForExit();
+        child.Dispose();
+        if (!ProcessTree.HasEnded(pid))
+            throw new Exception("a reaped child is not reported as ended");
     }
 
     /// <summary>

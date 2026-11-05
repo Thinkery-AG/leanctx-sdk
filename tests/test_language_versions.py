@@ -15,20 +15,20 @@ from scripts.check_language_versions import check_agent_tools_versions, versions
 class LanguageVersionContractTests(unittest.TestCase):
     def test_current_clients_and_installer_require_the_same_engine(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.12.1"})
+        self.assertEqual(set(check_agent_tools_versions(root).values()), {"3.12.2"})
 
     def test_release_configured_versions_must_match_contract_before_build(self) -> None:
         root = Path(__file__).resolve().parents[1]
         self.assertEqual(
             check_agent_tools_versions(
                 root,
-                configured_engine_version="3.12.1",
-                configured_agent_tools_version="3.12.1",
+                configured_engine_version="3.12.2",
+                configured_agent_tools_version="3.12.2",
             )["release_engine"],
-            "3.12.1",
+            "3.12.2",
         )
         with self.assertRaisesRegex(
-            ValueError, r"Engine pairing mismatch: contract requires 3\.12\.1"
+            ValueError, r"Engine pairing mismatch: contract requires 3\.12\.2"
         ):
             check_agent_tools_versions(
                 root,
@@ -44,14 +44,14 @@ class LanguageVersionContractTests(unittest.TestCase):
             run.return_value = subprocess.CompletedProcess(
                 argv,
                 0,
-                stdout="lean-ctx 3.12.1 (official, https://github.com/yvgude/lean-ctx)\n",
+                stdout="lean-ctx 3.12.2 (official, https://github.com/yvgude/lean-ctx)\n",
                 stderr="",
             )
             self.assertEqual(
                 check_agent_tools_versions(root, engine_binary=binary)[
                     "engine_binary"
                 ],
-                "3.12.1",
+                "3.12.2",
             )
             self.assertEqual(run.call_args.args, (argv,))
             self.assertEqual(run.call_args.kwargs["timeout"], 15)
@@ -61,7 +61,7 @@ class LanguageVersionContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Engine pairing mismatch"):
                 check_agent_tools_versions(root, engine_binary=binary)
             run.return_value = subprocess.CompletedProcess(
-                argv, 1, stdout="lean-ctx 3.12.1\n", stderr="failed"
+                argv, 1, stdout="lean-ctx 3.12.2\n", stderr="failed"
             )
             with self.assertRaisesRegex(ValueError, "--version exited 1"):
                 check_agent_tools_versions(root, engine_binary=binary)
@@ -100,14 +100,14 @@ class LanguageVersionContractTests(unittest.TestCase):
                 shutil.copyfile(repository / "setup.cfg", root / "setup.cfg")
                 manifest = root / "engine.toml"
                 manifest.write_text(
-                    '[package]\nname = "lean-ctx"\nversion = "3.12.1"\n'
+                    '[package]\nname = "lean-ctx"\nversion = "3.12.2"\n'
                 )
                 (root / "Cargo.lock").write_text(
-                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.12.1"\n'
+                    'version = 4\n[[package]]\nname = "lean-ctx"\nversion = "3.12.2"\n'
                 )
                 check_agent_tools_versions(root, manifest)
                 path = root / changed
-                path.write_text(path.read_text().replace("3.12.1", "3.11.1"))
+                path.write_text(path.read_text().replace("3.12.2", "3.11.1"))
                 with self.assertRaisesRegex(ValueError, "Engine pairing mismatch"):
                     check_agent_tools_versions(root, manifest)
 

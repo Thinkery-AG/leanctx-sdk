@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LicenseRef-LeanCTX-SDK-Source-1.0
-// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
+// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
 package com.thinkery.leanctx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -284,7 +284,7 @@ class AgentToolsTest {
                 + "while IFS= read -r line; do\n"
                 + "  id=$((id + 1))\n"
                 + "  case \"$line\" in\n"
-                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.12.1\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
+                + "    *hello*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"agent_tools_interface_version\":\"1.0.0\",\"allow_exec\":" + allowExec + ",\"allow_write\":" + allowWrite + ",\"capabilities\":" + capabilities + ",\"engine_version\":\"3.12.2\",\"schema_version\":1,\"transport_version\":1}}' ;;\n"
                 + "    *\\\"tool\\\":\\\"ctx_shell\\\"*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_shell:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":{\"exit_code\":0}}}' ;;\n"
                 + "    *call*) " + delay + "printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{\"text\":\"ctx_read:ok\",\"content_blocks\":[],\"original_tokens\":10,\"output_tokens\":4,\"saved_tokens\":6,\"mode\":null,\"changed\":false,\"shell\":null}}' ;;\n"
                 + "    *close*) printf '%s\\n' '{\"id\":\"'\"$id\"'\",\"ok\":true,\"result\":{}}'; exit 0 ;;\n"

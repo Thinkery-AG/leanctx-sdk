@@ -10,8 +10,8 @@ const (
 	AgentToolsInterfaceVersion = "1.0.0"
 	AgentToolsSchemaVersion    = 1
 	AgentToolsTransportVersion = 1
-	// Paired with LeanCTX 3.12.1 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0).
-	SupportedAgentToolsInstanceVersion = "3.12.1"
+	// Paired with LeanCTX 3.12.2 (the matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1).
+	SupportedAgentToolsInstanceVersion = "3.12.2"
 
 	// Contract-spelling aliases keep generated integrations source-compatible
 	// with the other SDKs, whose constants use uppercase names.

@@ -24,7 +24,7 @@ context.close()?;
 ```
 
 The published SDK 1.1.1 release requires LeanCTX 3.10.1; current `main` sources
-target LeanCTX 3.12.1. Check the release-specific compatibility record before
+target LeanCTX 3.12.2. Check the release-specific compatibility record before
 choosing an instance binary. The SDK source license permits non-production use;
 production use, OEM embedding, and commercial redistribution require a separate
 written agreement signed by Thinkery AG.
@@ -133,8 +133,8 @@ read-only tenant/project-scoped access through preview::ContextStoreScope.
 The preview exports include parse_policy_evidence, parse_task_lineage,
 evidence/lineage types and the preview contract 0.1.0.
 
-This source is paired with LeanCTX 3.12.1 (published); the
-compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5 and 3.12.0. Exact public Context Store source retains the separately reported
+This source is paired with LeanCTX 3.12.2 (published); the
+compatibility matrix also admits 3.11.0, 3.11.3, 3.11.4, 3.11.5, 3.12.0 and 3.12.1. Exact public Context Store source retains the separately reported
 F2 signed-integer overflow; correction is a later local step.
 
 ## Deprecated names (until 2.0)

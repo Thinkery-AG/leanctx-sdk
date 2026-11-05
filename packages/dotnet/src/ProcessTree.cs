@@ -126,6 +126,13 @@ internal static class ProcessTree
             {
                 continue;
             }
+            catch (IOException) when (HasEnded(parent))
+            {
+                // The process exited while it was being read: procfs answers
+                // ESRCH (an IOException, not FileNotFound) for a task that is
+                // gone or a zombie. It has no children left to capture.
+                continue;
+            }
             catch (IOException)
             {
                 throw new EngineExecutionError($"{label} descendants could not be inspected");
@@ -146,5 +153,33 @@ internal static class ProcessTree
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Whether a Linux process has ended: its procfs entry is gone, or it is a
+    /// zombie (state Z) or dead (state X) task.
+    /// </summary>
+    internal static bool HasEnded(int pid)
+    {
+        string stat;
+        try
+        {
+            stat = File.ReadAllText($"/proc/{pid}/stat");
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        // The command name in parentheses may contain spaces or ')'; the state
+        // is the first field after the last ')'.
+        var end = stat.LastIndexOf(')');
+        if (end < 0 || end + 2 >= stat.Length)
+            return false;
+        var state = stat[end + 2];
+        return state is 'Z' or 'X';
     }
 }

@@ -77,6 +77,17 @@
         "report": "report-2026-11-04.json (retained by the release owner; not published)",
         "sha256": "333d3b3f9e6d6602b024c0c4c499bf68b0c2c61475ba211fb940c0c5908df8c8"
       }
+    },
+    {
+      "agent_tools_interface_version": "1.0.0",
+      "schema_version": 1,
+      "transport_version": 1,
+      "engine_version": "3.12.2",
+      "basis": "tested_pair",
+      "evidence": {
+        "report": "report-2026-11-05.json (retained by the release owner; not published)",
+        "sha256": "ef1bcffadd5440f6ee8bd687599eeb4337e188a55302e776b38e848623c3e6cc"
+      }
     }
   ]
 }
